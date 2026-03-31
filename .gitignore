@@ -1,0 +1,131 @@
+# =============================================================================
+# HEDGE-IoT — Root .gitignore
+# =============================================================================
+
+# ----------------------------- Environment -----------------------------------
+.env
+*.env.local
+.env.production
+.env.staging
+
+# ----------------------------- Python ----------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+*.whl
+*.pyo
+*.pyd
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# pytest / coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+*.cover
+.pytest_cache/
+.tox/
+.nox/
+.hypothesis/
+
+# mypy / type checkers
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pytype/
+.pyre/
+
+# ----------------------------- Node.js / JS ----------------------------------
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+package-lock.json
+yarn.lock
+
+# ----------------------------- Docker ----------------------------------------
+docker-compose.override.yml
+*.tar
+*.tar.gz
+
+# ----------------------------- IDE / Editor ----------------------------------
+.vscode/
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*.swap
+*~
+*.bak
+*.orig
+\#*\#
+.#*
+
+# ----------------------------- OS --------------------------------------------
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+
+# ----------------------------- Data / Models ---------------------------------
+*.db
+*.sqlite3
+*.sqlite
+models/
+*.h5
+*.hdf5
+*.onnx
+*.pt
+*.pth
+*.bin
+*.safetensors
+
+# ----------------------------- Logs ------------------------------------------
+*.log
+logs/
+*.log.*
+
+# ----------------------------- Secrets / Credentials -------------------------
+*.pem
+*.key
+*.crt
+*.csr
+*.p12
+*.pfx
+*.jks
+id_rsa
+id_ed25519
+*.secret
+credentials.json
+service-account*.json
+token.json
+
+# ----------------------------- Backups ---------------------------------------
+backups/
+*.bak
+*.backup
+
+# ----------------------------- Miscellaneous ---------------------------------
+*.tmp
+*.temp
+.cache/
+tmp/
+temp/

@@ -1,0 +1,213 @@
+x-common: &common
+  restart: unless-stopped
+  networks:
+    - hedge-net
+
+services:
+  # ---------------------------------------------------------------------------
+  # Infrastructure
+  # ---------------------------------------------------------------------------
+  ollama:
+    <<: *common
+    image: ollama/ollama:latest
+    container_name: hedge-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    environment:
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+    mem_limit: 5500m
+    memswap_limit: 8500m
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/11434'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  qdrant:
+    <<: *common
+    image: qdrant/qdrant:v1.9.7
+    container_name: hedge-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant-data:/qdrant/storage
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    <<: *common
+    image: redis:7-alpine
+    container_name: hedge-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --maxmemory 50mb --maxmemory-policy allkeys-lru
+    mem_limit: 64m
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ---------------------------------------------------------------------------
+  # Application Services
+  # ---------------------------------------------------------------------------
+  mock-api:
+    <<: *common
+    build:
+      context: .
+      dockerfile: services/mock-api/Dockerfile
+    container_name: hedge-mock-api
+    ports:
+      - "9000:9000"
+    env_file: .env
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9000/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  discovery-ranking:
+    <<: *common
+    build:
+      context: .
+      dockerfile: services/discovery-ranking/Dockerfile
+    container_name: hedge-discovery-ranking
+    ports:
+      - "8003:8003"
+    env_file: .env
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8003/health')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 180s
+
+  metadata-ingest:
+    <<: *common
+    build:
+      context: .
+      dockerfile: services/metadata-ingest/Dockerfile
+    container_name: hedge-metadata-ingest
+    ports:
+      - "8004:8004"
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      discovery-ranking:
+        condition: service_healthy
+      mock-api:
+        condition: service_healthy
+    mem_limit: 192m
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8004/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  expert-recommend:
+    <<: *common
+    build:
+      context: .
+      dockerfile: services/expert-recommend/Dockerfile
+    container_name: hedge-expert-recommend
+    ports:
+      - "8002:8002"
+    env_file: .env
+    depends_on:
+      ollama:
+        condition: service_healthy
+      discovery-ranking:
+        condition: service_healthy
+    mem_limit: 192m
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8002/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  chat-intent:
+    <<: *common
+    build:
+      context: .
+      dockerfile: services/chat-intent/Dockerfile
+    container_name: hedge-chat-intent
+    ports:
+      - "8001:8001"
+    env_file: .env
+    depends_on:
+      redis:
+        condition: service_healthy
+      expert-recommend:
+        condition: service_healthy
+    mem_limit: 192m
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  gateway:
+    <<: *common
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    container_name: hedge-gateway
+    ports:
+      - "8080:8000"
+    env_file: .env
+    depends_on:
+      chat-intent:
+        condition: service_healthy
+    mem_limit: 128m
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Optional: RASA (disabled by default — too heavy for 5GB server)
+  # Start with: docker compose --profile full up rasa
+  # ---------------------------------------------------------------------------
+  rasa:
+    <<: *common
+    image: rasa/rasa:3.6.20
+    container_name: hedge-rasa
+    ports:
+      - "5005:5005"
+    profiles:
+      - full
+    mem_limit: 1024m
+
+networks:
+  hedge-net:
+    driver: bridge
+
+volumes:
+  ollama-data:
+  qdrant-data:
+  redis-data:

@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hedge-shared"
+version = "0.1.0"
+description = "Shared models, config, and utilities for HEDGE-ExpertAI"
+requires-python = ">=3.11"
+license = {text = "Apache-2.0"}
+dependencies = [
+    "pydantic>=2.0,<3.0",
+    "pydantic-settings>=2.0,<3.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["hedge_shared*"]
