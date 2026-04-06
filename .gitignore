@@ -46,6 +46,9 @@ dmypy.json
 .pytype/
 .pyre/
 
+# Ruff
+.ruff_cache/
+
 # ----------------------------- Node.js / JS ----------------------------------
 node_modules/
 npm-debug.log*

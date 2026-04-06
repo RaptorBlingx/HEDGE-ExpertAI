@@ -12,8 +12,8 @@
 ### 1. Clone the repository
 
 ```bash
-git clone <repo-url> hedge-expert-ai
-cd hedge-expert-ai
+git clone git@github.com:RaptorBlingx/HEDGE-ExpertAI.git
+cd HEDGE-ExpertAI
 ```
 
 ### 2. Configure environment
@@ -77,7 +77,7 @@ server {
     ssl_certificate_key /etc/ssl/key.pem;
 
     location / {
-        proxy_pass http://localhost:8000;
+        proxy_pass http://localhost:8080;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -105,7 +105,7 @@ docker stats
 make logs
 
 # Check ingestion status
-curl http://localhost:8000/api/v1/ingest/status
+curl http://localhost:8080/api/v1/ingest/status
 ```
 
 ### Upgrading the LLM Model
@@ -127,8 +127,8 @@ make down && make up
 
 ```bash
 # Backup volumes
-docker run --rm -v hedge-expert-ai_qdrant-data:/data -v $(pwd)/backups:/backup alpine tar czf /backup/qdrant-$(date +%Y%m%d).tar.gz /data
-docker run --rm -v hedge-expert-ai_redis-data:/data -v $(pwd)/backups:/backup alpine tar czf /backup/redis-$(date +%Y%m%d).tar.gz /data
+docker run --rm -v "$(basename "$PWD")_qdrant-data:/data" -v "$(pwd)/backups:/backup" alpine tar czf "/backup/qdrant-$(date +%Y%m%d).tar.gz" /data
+docker run --rm -v "$(basename "$PWD")_redis-data:/data" -v "$(pwd)/backups:/backup" alpine tar czf "/backup/redis-$(date +%Y%m%d).tar.gz" /data
 ```
 
 ## Troubleshooting

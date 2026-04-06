@@ -40,8 +40,8 @@ Optional:
 ### 1. Clone the Repository
 
 ```bash
-git clone git@github.com:RaptorBlingx/HEDGE-IoT.git
-cd HEDGE-IoT/hedge-expert-ai
+git clone git@github.com:RaptorBlingx/HEDGE-ExpertAI.git
+cd HEDGE-ExpertAI
 ```
 
 ### 2. Install the Shared Package
@@ -85,7 +85,7 @@ docker compose up -d ollama qdrant redis
 ## Project Layout
 
 ```
-hedge-expert-ai/
+HEDGE-ExpertAI/
 ├── shared/                        # Shared Python package
 │   ├── pyproject.toml             # Package metadata
 │   └── hedge_shared/

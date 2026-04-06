@@ -7,7 +7,7 @@
   <img src="https://img.shields.io/badge/Docker-Compose-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker" />
 </p>
 
-# HEDGE-IoT — ExpertAI
+# HEDGE-ExpertAI
 
 **Context-Aware AI Discovery and Recommendation Assistant for the HEDGE-IoT App Store**
 
@@ -67,8 +67,8 @@ Async: [Metadata-Ingest :8004] → [App Store API / Mock API :9000]
 
 ```bash
 # 1. Clone the repository
-git clone git@github.com:RaptorBlingx/HEDGE-IoT.git
-cd HEDGE-IoT/hedge-expert-ai
+git clone git@github.com:RaptorBlingx/HEDGE-ExpertAI.git
+cd HEDGE-ExpertAI
 
 # 2. Configure environment
 cp .env.example .env
@@ -104,46 +104,48 @@ curl -X POST http://localhost:8080/api/v1/chat \
 ## Project Structure
 
 ```
-HEDGE-IoT/
-├── HEDGE-IoT-OC1-Proposal-HedgeExpertAI.md   # Open Call proposal document
-├── hedge-expert-ai/                            # Main application
-│   ├── docker-compose.yml                      # Full stack orchestration
-│   ├── Makefile                                # Build, run, test commands
-│   ├── .env.example                            # Environment configuration template
-│   ├── shared/                                 # Shared Python package
-│   │   └── hedge_shared/                       # Models, config, SAREF, utilities
-│   ├── services/
-│   │   ├── gateway/                            # API gateway & reverse proxy (:8080→:8000)
-│   │   ├── chat-intent/                        # Intent classification & session mgmt (:8001)
-│   │   ├── expert-recommend/                   # LLM-powered recommendations (:8002)
-│   │   ├── discovery-ranking/                  # Hybrid search engine (:8003)
-│   │   ├── metadata-ingest/                    # App Store metadata sync (:8004)
-│   │   └── mock-api/                           # Mock HEDGE-IoT App Store API (:9000)
-│   ├── frontend/                               # Embeddable chat widget (vanilla JS)
-│   ├── evaluation/                             # Test queries & evaluation scripts
-│   ├── tests/                                  # Unit & integration tests
-│   ├── docs/                                   # Detailed documentation
-│   └── scripts/                                # Utility scripts
-└── .gitignore
+HEDGE-ExpertAI/
+├── .github/                                    # CI workflow configuration
+├── .env.example                                # Environment configuration template
+├── CHANGELOG.md
+├── LICENSE
+├── Makefile                                    # Build, run, test commands
+├── docker-compose.yml                          # Full stack orchestration
+├── docs/                                       # Detailed documentation
+│   └── proposals/
+│       └── HEDGE-IoT-OC1-Proposal-HedgeExpertAI.md
+├── evaluation/                                 # Test queries & evaluation scripts
+├── frontend/                                   # Embeddable chat widget (vanilla JS)
+├── scripts/                                    # Utility scripts
+├── services/
+│   ├── gateway/                                # API gateway & reverse proxy (:8080 -> :8000)
+│   ├── chat-intent/                            # Intent classification & session mgmt (:8001)
+│   ├── expert-recommend/                       # LLM-powered recommendations (:8002)
+│   ├── discovery-ranking/                      # Hybrid search engine (:8003)
+│   ├── metadata-ingest/                        # App Store metadata sync (:8004)
+│   └── mock-api/                               # Mock HEDGE-IoT App Store API (:9000)
+├── shared/                                     # Shared Python package
+│   └── hedge_shared/                           # Models, config, SAREF, utilities
+└── tests/                                      # Unit & integration tests
 ```
 
 ---
 
 ## Documentation
 
-Comprehensive documentation is available in the [`hedge-expert-ai/docs/`](hedge-expert-ai/docs/) directory:
+Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
 | Document | Description |
 |---|---|
-| [Architecture](hedge-expert-ai/docs/architecture.md) | System design, data flows, technology choices, memory budget |
-| [API Reference](hedge-expert-ai/docs/api-reference.md) | Complete REST API specification for all services |
-| [Services Guide](hedge-expert-ai/docs/services-guide.md) | Deep dive into each microservice's internals |
-| [Configuration Reference](hedge-expert-ai/docs/configuration-reference.md) | All environment variables with defaults and descriptions |
-| [Deployment Guide](hedge-expert-ai/docs/deployment-guide.md) | Production setup, TLS, monitoring, backup, troubleshooting |
-| [Plugin Integration Guide](hedge-expert-ai/docs/plugin-integration-guide.md) | Embedding the chat widget in external sites |
-| [SAREF Ontology Mapping](hedge-expert-ai/docs/saref-ontology-mapping.md) | SAREF class inference and ontology alignment |
-| [Evaluation & Testing](hedge-expert-ai/docs/evaluation-and-testing.md) | Search quality metrics, test framework, KPI targets |
-| [Development Guide](hedge-expert-ai/docs/development-guide.md) | Local setup, coding standards, testing, contributing |
+| [Architecture](docs/architecture.md) | System design, data flows, technology choices, memory budget |
+| [API Reference](docs/api-reference.md) | Complete REST API specification for all services |
+| [Services Guide](docs/services-guide.md) | Deep dive into each microservice's internals |
+| [Configuration Reference](docs/configuration-reference.md) | All environment variables with defaults and descriptions |
+| [Deployment Guide](docs/deployment-guide.md) | Production setup, TLS, monitoring, backup, troubleshooting |
+| [Plugin Integration Guide](docs/plugin-integration-guide.md) | Embedding the chat widget in external sites |
+| [SAREF Ontology Mapping](docs/saref-ontology-mapping.md) | SAREF class inference and ontology alignment |
+| [Evaluation & Testing](docs/evaluation-and-testing.md) | Search quality metrics, test framework, KPI targets |
+| [Development Guide](docs/development-guide.md) | Local setup, coding standards, testing, contributing |
 
 ---
 
@@ -193,7 +195,7 @@ make clean        # Remove containers, volumes, and images
 
 ## License
 
-This project is licensed under the **Apache License 2.0** — see the [LICENSE](hedge-expert-ai/LICENSE) file for details.
+This project is licensed under the **Apache License 2.0** — see the [LICENSE](LICENSE) file for details.
 
 ---
 
@@ -209,5 +211,5 @@ This project has received funding from the European Union's research and innovat
 
 | Platform | URL |
 |---|---|
-| **GitHub** | `git@github.com:RaptorBlingx/HEDGE-IoT.git` |
-| **Forgejo** | `git@code.arti.ac:europe/HEDGE-IoT.git` |
+| **GitHub** | `git@github.com:RaptorBlingx/HEDGE-ExpertAI.git` |
+| **Forgejo** | `git@code.arti.ac:europe/HEDGE-ExpertAI.git` |
