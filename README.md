@@ -204,12 +204,3 @@ This project is licensed under the **Apache License 2.0** — see the [LICENSE](
 Developed by **A Arti Mühendislik** as part of the HEDGE-IoT Open Call (Topic 15).
 
 This project has received funding from the European Union's research and innovation programmes. The HEDGE-IoT project aims to create a federated, open, and interoperable edge-computing ecosystem for IoT data services across Europe.
-
----
-
-## Repository Mirrors
-
-| Platform | URL |
-|---|---|
-| **GitHub** | `git@github.com:RaptorBlingx/HEDGE-ExpertAI.git` |
-| **Forgejo** | `git@code.arti.ac:europe/HEDGE-ExpertAI.git` |
