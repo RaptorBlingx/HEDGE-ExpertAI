@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from typing import Any
 
 import httpx
@@ -14,6 +15,71 @@ from .prompts import build_explanation_messages, build_recommendation_messages
 logger = logging.getLogger(__name__)
 
 DISCOVERY_URL = os.getenv("DISCOVERY_RANKING_URL", "http://discovery-ranking:8003")
+
+
+def _first_sentence(text: str) -> str:
+    """Return first sentence-like chunk for compact summaries."""
+    cleaned = text.strip()
+    if not cleaned:
+        return "No description available."
+    for separator in (".", "!", "?"):
+        if separator in cleaned:
+            prefix = cleaned.split(separator, 1)[0].strip()
+            if prefix:
+                return f"{prefix}{separator}"
+    return cleaned
+
+
+def _build_ranked_fallback(results: list[dict[str, Any]]) -> str:
+    """Build deterministic ranking-consistent explanation when LLM output is contradictory."""
+    lines = ["Based on your query, here are the ranked matches:"]
+
+    for idx, result in enumerate(results, start=1):
+        app = result.get("app", result)
+        title = app.get("title", "Unknown app")
+        reason = _first_sentence(app.get("description", ""))
+        lines.append(f"{idx}. **{title}** — {reason}")
+
+    top_title = (results[0].get("app", results[0]) if results else {}).get("title", "this app")
+    lines.append("")
+    lines.append(
+        f"Recommendation: Start with **{top_title}** because it is the highest-ranked match from search results."
+    )
+
+    return "\n".join(lines)
+
+
+def _is_ranking_consistent(explanation: str, results: list[dict[str, Any]]) -> bool:
+    """Check that top/best/start-with statements align with ranked App 1."""
+    if not explanation or not results:
+        return True
+
+    top_title = (results[0].get("app", results[0]) if results else {}).get("title", "").strip()
+    if not top_title:
+        return True
+
+    lowered = explanation.lower()
+    top_lower = top_title.lower()
+
+    # If there are no ranking claims, keep the answer.
+    if not re.search(r"\b(top|best|start with|recommendation)\b", lowered):
+        return True
+
+    # Ranking claims should mention App 1 near claim phrases.
+    for match in re.finditer(r"\b(top|best|start with|recommendation)\b", lowered):
+        window = lowered[match.start() : match.start() + 200]
+        if top_lower not in window:
+            return False
+
+    return True
+
+
+def _ensure_ranking_consistency(explanation: str, results: list[dict[str, Any]]) -> str:
+    """Return explanation only if ranking claims align with returned ordering."""
+    if _is_ranking_consistent(explanation, results):
+        return explanation
+    logger.warning("LLM recommendation narrative contradicted ranked order; using deterministic fallback")
+    return _build_ranked_fallback(results)
 
 
 def _search_apps(query: str, top_k: int = 5, saref_class: str | None = None) -> list[dict[str, Any]]:
@@ -59,6 +125,8 @@ def recommend(
     except Exception:
         logger.exception("LLM generation failed, returning results without explanation")
         explanation = "Here are the most relevant apps I found for your query."
+
+    explanation = _ensure_ranking_consistency(explanation, results)
 
     return {
         "message": explanation,
