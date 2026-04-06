@@ -27,7 +27,7 @@ HEDGE-ExpertAI is an AI-powered conversational assistant that makes the HEDGE-Io
 | **Hybrid Retrieval** | Combines vector similarity, keyword matching, and SAREF ontology signals |
 | **Explainable Recommendations** | LLM-generated explanations grounded in real app metadata |
 | **Continuous Indexing** | Automated metadata ingestion keeps the catalogue fresh (≤ 24h) |
-| **Embeddable Widget** | Drop-in JavaScript plugin for the HEDGE-IoT App Store frontend |
+| **Validation Console** | React-based interface to browse all app metadata and validate chatbot recommendations |
 | **SAREF Alignment** | Leverages SAREF ontology classes as ranking signals |
 
 ---
@@ -35,7 +35,7 @@ HEDGE-ExpertAI is an AI-powered conversational assistant that makes the HEDGE-Io
 ## Architecture
 
 ```
-User → [Frontend Widget] → [Gateway :8080]
+User → [React Validation Console / Optional Widget] → [Gateway :8080]
                                │
                          [Chat-Intent :8001]
                                │
@@ -91,7 +91,7 @@ make seed
 make health
 ```
 
-Open **http://localhost:8080** to see the chat widget, or query the API:
+Open **http://localhost:8080** to use the validation console (catalog browser + chatbot test bench), or query the API directly:
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/chat \
@@ -115,7 +115,7 @@ HEDGE-ExpertAI/
 │   └── proposals/
 │       └── HEDGE-IoT-OC1-Proposal-HedgeExpertAI.md
 ├── evaluation/                                 # Test queries & evaluation scripts
-├── frontend/                                   # Embeddable chat widget (vanilla JS)
+├── frontend/                                   # React + TypeScript + Tailwind validation console
 ├── scripts/                                    # Utility scripts
 ├── services/
 │   ├── gateway/                                # API gateway & reverse proxy (:8080 -> :8000)
@@ -142,7 +142,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 | [Services Guide](docs/services-guide.md) | Deep dive into each microservice's internals |
 | [Configuration Reference](docs/configuration-reference.md) | All environment variables with defaults and descriptions |
 | [Deployment Guide](docs/deployment-guide.md) | Production setup, TLS, monitoring, backup, troubleshooting |
-| [Plugin Integration Guide](docs/plugin-integration-guide.md) | Embedding the chat widget in external sites |
+| [Plugin Integration Guide](docs/plugin-integration-guide.md) | Embedding the optional widget in external sites |
 | [SAREF Ontology Mapping](docs/saref-ontology-mapping.md) | SAREF class inference and ontology alignment |
 | [Evaluation & Testing](docs/evaluation-and-testing.md) | Search quality metrics, test framework, KPI targets |
 | [Development Guide](docs/development-guide.md) | Local setup, coding standards, testing, contributing |
@@ -170,7 +170,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 | **Vector DB** | Qdrant v1.9.7 | Persistent vector storage |
 | **Task Queue** | Celery + Redis | Async ingestion, scheduling, sessions |
 | **Web Framework** | FastAPI + Uvicorn | Async REST APIs with auto-docs |
-| **Frontend** | Vanilla JavaScript | Zero-dependency embeddable widget |
+| **Frontend** | React + TypeScript + Vite + Tailwind + Framer Motion | Premium, responsive validation console for catalog + chatbot |
 | **Containerization** | Docker Compose | Single-command deployment |
 | **Language** | Python 3.11 | All backend services |
 

@@ -38,11 +38,6 @@ app.add_middleware(RateLimitMiddleware, max_requests=60, window_seconds=60)
 
 app.include_router(router)
 
-# Serve frontend static files if available
-_FRONTEND_DIR = "/app/static"
-if os.path.isdir(_FRONTEND_DIR):
-    app.mount("/", StaticFiles(directory=_FRONTEND_DIR, html=True), name="static")
-
 
 @app.get("/health")
 def health():
@@ -67,3 +62,10 @@ def health():
         "version": "0.1.0",
         "services": statuses,
     }
+
+
+# Serve frontend static files if available.
+# Keep this after API route declarations so /health and /api/* are not shadowed.
+_FRONTEND_DIR = "/app/static"
+if os.path.isdir(_FRONTEND_DIR):
+    app.mount("/", StaticFiles(directory=_FRONTEND_DIR, html=True), name="static")

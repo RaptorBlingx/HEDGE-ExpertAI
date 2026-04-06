@@ -6,7 +6,7 @@ import logging
 import os
 
 import httpx
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
 logger = logging.getLogger(__name__)
@@ -16,6 +16,7 @@ router = APIRouter()
 CHAT_INTENT_URL = os.getenv("CHAT_INTENT_URL", "http://chat-intent:8001")
 DISCOVERY_RANKING_URL = os.getenv("DISCOVERY_RANKING_URL", "http://discovery-ranking:8003")
 METADATA_INGEST_URL = os.getenv("METADATA_INGEST_URL", "http://metadata-ingest:8004")
+MOCK_API_URL = os.getenv("MOCK_API_URL", "http://mock-api:9000")
 
 # Service URLs for health aggregation
 _SERVICES = {
@@ -23,6 +24,7 @@ _SERVICES = {
     "expert-recommend": os.getenv("EXPERT_RECOMMEND_URL", "http://expert-recommend:8002") + "/health",
     "discovery-ranking": f"{DISCOVERY_RANKING_URL}/health",
     "metadata-ingest": f"{METADATA_INGEST_URL}/health",
+    "mock-api": f"{MOCK_API_URL}/health",
 }
 
 
@@ -61,6 +63,62 @@ async def proxy_search(request: Request):
         return JSONResponse(
             status_code=502,
             content={"detail": "Search service unavailable"},
+        )
+
+
+@router.get("/api/v1/catalog/apps")
+async def proxy_catalog_list(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=100),
+):
+    """Proxy app catalog listing to mock-api for frontend manual review."""
+    try:
+        resp = httpx.get(
+            f"{MOCK_API_URL}/api/apps",
+            params={"page": page, "page_size": page_size},
+            timeout=20.0,
+        )
+        return JSONResponse(status_code=resp.status_code, content=resp.json())
+    except Exception:
+        logger.exception("Catalog list proxy failed")
+        return JSONResponse(
+            status_code=502,
+            content={"detail": "Catalog service unavailable"},
+        )
+
+
+@router.get("/api/v1/catalog/apps/search")
+async def proxy_catalog_search(q: str = Query(..., min_length=1)):
+    """Proxy app catalog keyword search to mock-api."""
+    try:
+        resp = httpx.get(
+            f"{MOCK_API_URL}/api/apps/search",
+            params={"q": q},
+            timeout=20.0,
+        )
+        return JSONResponse(status_code=resp.status_code, content=resp.json())
+    except Exception:
+        logger.exception("Catalog search proxy failed")
+        return JSONResponse(
+            status_code=502,
+            content={"detail": "Catalog service unavailable"},
+        )
+
+
+@router.get("/api/v1/catalog/apps/{app_id}")
+async def proxy_catalog_app(app_id: str):
+    """Proxy app catalog detail to mock-api."""
+    try:
+        resp = httpx.get(
+            f"{MOCK_API_URL}/api/apps/{app_id}",
+            timeout=20.0,
+        )
+        return JSONResponse(status_code=resp.status_code, content=resp.json())
+    except Exception:
+        logger.exception("Catalog detail proxy failed")
+        return JSONResponse(
+            status_code=502,
+            content={"detail": "Catalog service unavailable"},
         )
 
 
