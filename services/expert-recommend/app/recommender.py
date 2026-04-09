@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
+import time
 from typing import Any
 
 import httpx
@@ -67,7 +69,9 @@ def _is_ranking_consistent(explanation: str, results: list[dict[str, Any]]) -> b
 
     # Ranking claims should mention App 1 near claim phrases.
     for match in re.finditer(r"\b(top|best|start with|recommendation)\b", lowered):
-        window = lowered[match.start() : match.start() + 200]
+        start = max(0, match.start() - 200)
+        end = match.end() + 200
+        window = lowered[start:end]
         if top_lower not in window:
             return False
 
@@ -108,7 +112,10 @@ def recommend(
 ) -> dict[str, Any]:
     """Full recommendation pipeline: search → LLM explain."""
     # 1. Search
+    start = time.monotonic()
     results = _search_apps(query, top_k=top_k, saref_class=saref_class)
+    search_elapsed = time.monotonic() - start
+    logger.info("Search completed in %.2fs (%d results)", search_elapsed, len(results))
 
     if not results:
         return {
@@ -125,6 +132,9 @@ def recommend(
     except Exception:
         logger.exception("LLM generation failed, returning results without explanation")
         explanation = "Here are the most relevant apps I found for your query."
+
+    llm_elapsed = time.monotonic() - start - search_elapsed
+    logger.info("LLM generation in %.1fs, total %.1fs", llm_elapsed, time.monotonic() - start)
 
     explanation = _ensure_ranking_consistency(explanation, results)
 
@@ -143,3 +153,43 @@ def explain_app(query: str, app: dict[str, Any]) -> str:
     except Exception:
         logger.exception("LLM explanation failed")
         return f"{app.get('title', 'This app')} may be relevant to your query."
+
+
+def _sse(data: dict) -> str:
+    """Format a dict as an SSE data line."""
+    return f"data: {json.dumps(data)}\n\n"
+
+
+def recommend_stream(
+    query: str,
+    top_k: int = 5,
+    saref_class: str | None = None,
+):
+    """Streaming recommendation: search → apps event → stream LLM tokens."""
+    start = time.monotonic()
+    results = _search_apps(query, top_k=top_k, saref_class=saref_class)
+    search_elapsed = time.monotonic() - start
+    logger.info("Search completed in %.2fs (%d results)", search_elapsed, len(results))
+
+    if not results:
+        yield _sse({"type": "message", "content": "I couldn't find any apps matching your query. Could you try rephrasing or being more specific?"})
+        yield _sse({"type": "done", "apps": []})
+        return
+
+    # Send apps immediately so the client can render cards
+    yield _sse({"type": "apps", "apps": results})
+
+    # Stream LLM explanation
+    llm = OllamaClient()
+    messages = build_recommendation_messages(query, results)
+
+    try:
+        for chunk in llm.chat_stream(messages):
+            yield _sse({"type": "token", "content": chunk})
+    except Exception:
+        logger.exception("LLM streaming failed")
+        yield _sse({"type": "token", "content": "Here are the most relevant apps I found for your query."})
+
+    elapsed = time.monotonic() - start
+    logger.info("Streaming recommendation completed in %.1fs", elapsed)
+    yield _sse({"type": "done"})

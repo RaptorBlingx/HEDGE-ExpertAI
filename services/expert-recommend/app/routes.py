@@ -5,9 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from .recommender import explain_app, recommend
+from .recommender import explain_app, recommend, recommend_stream
 
 router = APIRouter(prefix="/api/v1")
 
@@ -32,6 +33,16 @@ def get_recommendations(req: RecommendRequest):
         saref_class=req.saref_class,
     )
     return result
+
+
+@router.post("/recommend/stream")
+async def stream_recommendations(req: RecommendRequest):
+    """Streaming recommendation: search results + LLM explanation via SSE."""
+    return StreamingResponse(
+        recommend_stream(query=req.query, top_k=req.top_k, saref_class=req.saref_class),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/explain")

@@ -42,7 +42,7 @@ class TestPrompts:
         ]
         text = format_apps_context(apps)
         assert "TestApp" in text
-        assert "Energy" in text
+        assert "t1" in text
         assert "0.85" in text
 
     def test_build_recommendation_messages(self):

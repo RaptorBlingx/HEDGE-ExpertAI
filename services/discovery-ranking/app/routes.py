@@ -13,7 +13,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from .indexer import ensure_collection, get_app_by_id, get_client, index_batch
-from .searcher import hybrid_search
+from .searcher import hybrid_search, invalidate_cache
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +50,7 @@ def index_apps(req: IndexRequest):
     client = get_client()
     ensure_collection(client)
     count = index_batch(client, req.apps)
+    invalidate_cache()
     return {"indexed": count}
 
 

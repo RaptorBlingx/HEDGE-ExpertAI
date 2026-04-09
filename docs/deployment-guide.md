@@ -62,6 +62,16 @@ make health
 
 All services should report "ok" or "degraded" (degraded is normal if Ollama model is still loading).
 
+### 8. Run evaluation (optional)
+
+```bash
+# Search quality only (fast, no LLM needed)
+make evaluate-search
+
+# Full evaluation including chat and streaming
+make evaluate
+```
+
 ## Production Considerations
 
 ### TLS/HTTPS

@@ -152,7 +152,7 @@
       this._setLoading(true);
 
       try {
-        const resp = await fetch(`${this.config.apiUrl}/api/v1/chat`, {
+        const resp = await fetch(`${this.config.apiUrl}/api/v1/chat/stream`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -161,26 +161,69 @@
           }),
         });
 
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        if (!resp.ok || !resp.body) throw new Error(`HTTP ${resp.status}`);
 
-        const data = await resp.json();
-        this._saveSession(data.session_id);
+        this._setLoading(false);
 
-        // Add text response
-        this._addMessage("assistant", this._formatMarkdown(data.message));
+        // Create assistant message element for streaming
+        const msgEl = document.createElement("div");
+        msgEl.className = "hedge-expert-msg hedge-expert-msg--assistant";
+        msgEl.textContent = "";
+        this.messagesDiv.appendChild(msgEl);
 
-        // Add app cards if any
-        if (data.apps && data.apps.length > 0) {
-          this._addAppCards(data.apps);
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let accumulatedText = "";
+        let appsData = null;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            let evt;
+            try {
+              evt = JSON.parse(line.slice(6));
+            } catch {
+              continue;
+            }
+
+            if (evt.type === "token") {
+              accumulatedText += evt.content || "";
+              msgEl.innerHTML = this._formatMarkdown(accumulatedText);
+              this.messagesDiv.scrollTop = this.messagesDiv.scrollHeight;
+            } else if (evt.type === "apps") {
+              appsData = evt.apps || [];
+            } else if (evt.type === "done") {
+              if (evt.session_id) {
+                this._saveSession(evt.session_id);
+              }
+            } else if (evt.type === "error") {
+              msgEl.innerHTML = this._escapeHtml(evt.content || "An error occurred.");
+            }
+          }
+        }
+
+        // Finalize: render accumulated text and app cards
+        if (accumulatedText) {
+          msgEl.innerHTML = this._formatMarkdown(accumulatedText);
+        }
+        if (appsData && appsData.length > 0) {
+          this._addAppCards(appsData);
         }
       } catch (err) {
+        this._setLoading(false);
         this._addMessage(
           "assistant",
           "Sorry, I'm having trouble connecting. Please try again in a moment."
         );
         console.error("HEDGE-ExpertAI error:", err);
-      } finally {
-        this._setLoading(false);
       }
     }
 

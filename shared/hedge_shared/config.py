@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     APP_VERSION: str = "0.1.0"
 
+    # --- Security ---
+    GATEWAY_API_KEY: str = ""
+    CORS_ALLOWED_ORIGINS: str = "*"
+
     # --- Service URLs (for inter-service calls) ---
     CHAT_INTENT_URL: str = "http://chat-intent:8001"
     EXPERT_RECOMMEND_URL: str = "http://expert-recommend:8002"

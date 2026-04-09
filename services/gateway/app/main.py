@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .middleware import RateLimitMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
+from .middleware import APIKeyMiddleware, RateLimitMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
 from .routes import router, _SERVICES
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -22,19 +22,22 @@ app = FastAPI(
     description="API Gateway for HEDGE-ExpertAI services",
 )
 
-# CORS
+# CORS — restrict origins in production via CORS_ALLOWED_ORIGINS env var.
+# Accepts comma-separated list; defaults to permissive for local development.
+_allowed_origins = os.getenv("CORS_ALLOWED_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure for production
+    allow_origins=[o.strip() for o in _allowed_origins],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key", "X-Request-ID"],
 )
 
 # Custom middleware (order matters: first added = outermost)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(RateLimitMiddleware, max_requests=60, window_seconds=60)
+app.add_middleware(APIKeyMiddleware)
 
 app.include_router(router)
 

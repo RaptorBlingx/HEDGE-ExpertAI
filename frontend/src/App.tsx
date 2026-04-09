@@ -13,7 +13,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import type { CatalogApp, CatalogResponse, ChatResponse, RecommendedApp } from "./types";
+import type { CatalogApp, CatalogResponse, RecommendedApp } from "./types";
 
 type ChatMessage = {
   id: string;
@@ -253,43 +253,6 @@ export default function App() {
     setThinkingStepIndex(0);
   }, []);
 
-  const streamAssistantMessage = useCallback(
-    (messageId: string, finalText: string, startedAt: number) => {
-      const chunks = finalText.match(/\S+\s*/g) ?? [finalText];
-      let currentIndex = 0;
-
-      if (streamIntervalRef.current !== null) {
-        window.clearInterval(streamIntervalRef.current);
-      }
-
-      streamIntervalRef.current = window.setInterval(() => {
-        currentIndex += 1;
-        const nextText = chunks.slice(0, currentIndex).join("");
-        const done = currentIndex >= chunks.length;
-
-        setMessages((prev) =>
-          prev.map((message) => {
-            if (message.id !== messageId) {
-              return message;
-            }
-
-            return {
-              ...message,
-              text: nextText,
-              isStreaming: !done,
-              responseTimeMs: done ? Date.now() - startedAt : undefined,
-            };
-          })
-        );
-
-        if (done) {
-          stopActiveResponse();
-        }
-      }, 36);
-    },
-    [stopActiveResponse]
-  );
-
   useEffect(() => {
     void loadCatalog();
   }, [loadCatalog]);
@@ -346,8 +309,10 @@ export default function App() {
     setActiveResponseStartedAt(startMs);
     setActiveResponseElapsedMs(0);
 
+    const assistantId = generateMessageId();
+
     try {
-      const response = await fetch("/api/v1/chat", {
+      const response = await fetch("/api/v1/chat/stream", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -358,43 +323,122 @@ export default function App() {
         }),
       });
 
-      if (!response.ok) {
+      if (!response.ok || !response.body) {
         throw new Error("Failed to reach chat service");
       }
 
-      const payload = (await response.json()) as ChatResponse;
-      const recommendedApps = normalizeRecommendedApps(payload.apps);
-      const assistantId = generateMessageId();
-
-      setSessionId(payload.session_id);
+      // Add empty assistant message for streaming
       setMessages((prev) => [
         ...prev,
         {
           id: assistantId,
           role: "assistant",
           text: "",
-          apps: recommendedApps,
+          apps: [],
           isStreaming: true,
         },
       ]);
       setChatLoading(false);
       setStreamingMessageId(assistantId);
-      streamAssistantMessage(assistantId, payload.message, startMs);
 
-      if (recommendedApps[0]?.app?.id) {
-        setSelectedAppId(recommendedApps[0].app.id);
+      // Parse SSE stream
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let accumulatedText = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          let evt: { type?: string; content?: string; apps?: RecommendedApp[]; session_id?: string };
+          try {
+            evt = JSON.parse(line.slice(6));
+          } catch {
+            continue;
+          }
+
+          if (evt.type === "apps") {
+            const recommendedApps = normalizeRecommendedApps(evt.apps ?? []);
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantId ? { ...m, apps: recommendedApps } : m))
+            );
+            if (recommendedApps[0]?.app?.id) {
+              setSelectedAppId(recommendedApps[0].app.id);
+            }
+          } else if (evt.type === "token") {
+            accumulatedText += evt.content ?? "";
+            const snapshot = accumulatedText;
+            setMessages((prev) =>
+              prev.map((m) => (m.id === assistantId ? { ...m, text: snapshot } : m))
+            );
+          } else if (evt.type === "done") {
+            if (evt.session_id) {
+              setSessionId(evt.session_id);
+            }
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, text: accumulatedText, isStreaming: false, responseTimeMs: Date.now() - startMs }
+                  : m
+              )
+            );
+            stopActiveResponse();
+          } else if (evt.type === "error") {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, text: evt.content ?? "An error occurred.", isStreaming: false, responseTimeMs: Date.now() - startMs }
+                  : m
+              )
+            );
+            stopActiveResponse();
+          }
+        }
       }
+
+      // If stream ended without a "done" event, finalize
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === assistantId && m.isStreaming
+            ? { ...m, isStreaming: false, responseTimeMs: Date.now() - startMs }
+            : m
+        )
+      );
+      stopActiveResponse();
     } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: generateMessageId(),
-          role: "assistant",
-          text: "Chat service is currently unavailable. Please verify containers are healthy and retry.",
-          apps: [],
-          responseTimeMs: Date.now() - startMs,
-        },
-      ]);
+      // If we already added the assistant message, update it with error
+      setMessages((prev) => {
+        const hasAssistant = prev.some((m) => m.id === assistantId);
+        if (hasAssistant) {
+          return prev.map((m) =>
+            m.id === assistantId
+              ? {
+                  ...m,
+                  text: "Chat service is currently unavailable. Please verify containers are healthy and retry.",
+                  isStreaming: false,
+                  responseTimeMs: Date.now() - startMs,
+                }
+              : m
+          );
+        }
+        return [
+          ...prev,
+          {
+            id: assistantId,
+            role: "assistant" as const,
+            text: "Chat service is currently unavailable. Please verify containers are healthy and retry.",
+            apps: [],
+            responseTimeMs: Date.now() - startMs,
+          },
+        ];
+      });
       stopActiveResponse();
       setChatLoading(false);
     }

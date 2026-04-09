@@ -1,0 +1,60 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "HEDGE-ExpertAI Metadata Ingest",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/v1/ingest/trigger": {
+      "post": {
+        "summary": "Trigger Ingest",
+        "description": "Manually trigger an ingestion cycle via Celery.",
+        "operationId": "trigger_ingest_api_v1_ingest_trigger_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/ingest/status": {
+      "get": {
+        "summary": "Ingest Status",
+        "description": "Get last ingestion run status.",
+        "operationId": "ingest_status_api_v1_ingest_status_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "description": "Health check \u2014 verifies Redis connectivity.",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

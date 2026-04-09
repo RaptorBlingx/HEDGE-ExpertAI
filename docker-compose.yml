@@ -18,8 +18,10 @@ services:
     environment:
       OLLAMA_NUM_PARALLEL: "1"
       OLLAMA_MAX_LOADED_MODELS: "1"
-    mem_limit: 5500m
-    memswap_limit: 8500m
+      OLLAMA_KV_CACHE_TYPE: "q8_0"
+      OLLAMA_FLASH_ATTENTION: "1"
+    mem_limit: 4096m
+    memswap_limit: 8192m
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/11434'"]
       interval: 30s
@@ -93,7 +95,7 @@ services:
     depends_on:
       qdrant:
         condition: service_healthy
-    mem_limit: 512m
+    mem_limit: 384m
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8003/health')\""]
       interval: 30s
@@ -139,7 +141,7 @@ services:
         condition: service_healthy
       discovery-ranking:
         condition: service_healthy
-    mem_limit: 192m
+    mem_limit: 128m
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8002/health')\""]
       interval: 15s
@@ -161,7 +163,7 @@ services:
         condition: service_healthy
       expert-recommend:
         condition: service_healthy
-    mem_limit: 192m
+    mem_limit: 128m
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8001/health')\""]
       interval: 15s

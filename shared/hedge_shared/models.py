@@ -7,17 +7,19 @@ import json
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 class AppMetadata(BaseModel):
     """Metadata for a single HEDGE-IoT App Store application."""
 
+    model_config = ConfigDict(populate_by_name=True)
+
     id: str
     title: str
     description: str
     tags: list[str] = Field(default_factory=list)
-    saref_class: str | None = None
+    saref_class: str | None = Field(default=None, alias="saref_type")
     input_datasets: list[str] = Field(default_factory=list)
     output_datasets: list[str] = Field(default_factory=list)
     version: str = "1.0.0"

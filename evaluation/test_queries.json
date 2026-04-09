@@ -51,5 +51,21 @@
   {"query": "Smart waste compactor with fill level", "expected_apps": ["app-050", "app-021"], "saref_class": "City"},
   {"query": "Renewable energy management", "expected_apps": ["app-009", "app-046", "app-016"], "saref_class": "Energy"},
   {"query": "IoT apps for smart home", "expected_apps": ["app-010", "app-001", "app-002"], "saref_class": "Building"},
-  {"query": "Environmental sensing and monitoring", "expected_apps": ["app-003", "app-026", "app-040"], "saref_class": "Environment"}
+  {"query": "Environmental sensing and monitoring", "expected_apps": ["app-003", "app-026", "app-040"], "saref_class": "Environment"},
+
+  {"query": "something for my house", "expected_apps": ["app-001", "app-010", "app-002"]},
+  {"query": "help me save money on electricity bills", "expected_apps": ["app-001", "app-032", "app-075"]},
+  {"query": "I want to monitor things", "expected_apps": ["app-001", "app-003", "app-007"]},
+  {"query": "enregy monitoring", "expected_apps": ["app-001", "app-038", "app-075"], "saref_class": "Energy"},
+  {"query": "watr leek detection", "expected_apps": ["app-005", "app-060"], "saref_class": "Water"},
+  {"query": "temperture sensors for buildigns", "expected_apps": ["app-002", "app-052"], "saref_class": "Building"},
+  {"query": "air quality combined with traffic data", "expected_apps": ["app-073", "app-003"], "saref_class": "Environment"},
+  {"query": "cold chain temperature logistics pharma", "expected_apps": ["app-069"], "saref_class": "Health"},
+  {"query": "earthquake early warning structural health", "expected_apps": ["app-070"], "saref_class": "Environment"},
+  {"query": "digital twin for factory simulation", "expected_apps": ["app-058", "app-031"], "saref_class": "Manufacturing"},
+  {"query": "microgrid islanding renewable battery", "expected_apps": ["app-059", "app-016"], "saref_class": "Energy"},
+  {"query": "vertical farming indoor crops LED", "expected_apps": ["app-063", "app-027"], "saref_class": "Agriculture"},
+  {"query": "crowd safety monitoring events", "expected_apps": ["app-056"], "saref_class": "City"},
+  {"query": "dam safety seepage monitoring", "expected_apps": ["app-072", "app-055"], "saref_class": "Water"},
+  {"query": "minimal test app empty fields", "expected_apps": ["app-067"]}
 ]

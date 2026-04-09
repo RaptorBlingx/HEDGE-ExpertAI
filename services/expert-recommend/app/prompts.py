@@ -41,22 +41,17 @@ Explain in 2-3 sentences why this app is relevant to the user's query. Focus on 
 """
 
 
-def format_apps_context(apps: list[dict]) -> str:
-    """Format a list of app results into context for the LLM."""
+def format_apps_context(apps: list[dict], max_apps: int = 5) -> str:
+    """Format a list of app results into compact context for the LLM."""
     parts = []
-    for i, result in enumerate(apps, 1):
+    for i, result in enumerate(apps[:max_apps], 1):
         app = result.get("app", result)
         tags = ", ".join(app.get("tags", []))
-        inputs = ", ".join(app.get("input_datasets", []))
-        outputs = ", ".join(app.get("output_datasets", []))
         parts.append(
             f"App {i}: {app.get('title', 'Unknown')}\n"
             f"  Description: {app.get('description', 'N/A')}\n"
             f"  Tags: {tags}\n"
-            f"  SAREF Category: {app.get('saref_type', 'N/A')}\n"
-            f"  Input Data: {inputs}\n"
-            f"  Output Data: {outputs}\n"
-            f"  Relevance Score: {result.get('score', 'N/A')}"
+            f"  Score: {result.get('score', 'N/A')}"
         )
     return "\n\n".join(parts)
 

@@ -22,14 +22,19 @@ app.include_router(router)
 
 @app.on_event("startup")
 async def startup():
-    """Initialize Qdrant connection and ensure collection exists."""
+    """Initialize Qdrant connection, ensure collection, and preload embeddings."""
     import os
 
     host = os.getenv("QDRANT_HOST", "qdrant")
     port = int(os.getenv("QDRANT_PORT", "6333"))
     client = get_client(host=host, port=port)
     ensure_collection(client)
-    logger.info("Discovery-Ranking service ready")
+
+    # Preload embedding model to avoid cold-start latency on first search
+    from .embeddings import encode_single
+    encode_single("warmup")
+
+    logger.info("Discovery-Ranking service ready (embeddings preloaded)")
 
 
 @app.get("/health")

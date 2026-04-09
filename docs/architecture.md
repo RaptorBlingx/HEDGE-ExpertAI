@@ -53,11 +53,13 @@ HEDGE-ExpertAI is a microservice-based AI assistant for the HEDGE-IoT App Store.
 
 ### Search Flow
 1. Query text embedded using **all-MiniLM-L6-v2** (384-dim vectors)
-2. Vector search in **Qdrant** retrieves candidates (top_k × 3)
-3. Keyword scoring applied (BM25-lite: token overlap ratio)
-4. SAREF ontology boost for matching categories (+0.1)
-5. Combined score: `0.6 × vector + 0.3 × keyword + 0.1 × saref`
-6. Top-k results returned with metadata
+2. Stopword removal on query tokens (~175 English + domain-neutral stopwords)
+3. Vector search in **Qdrant** retrieves candidates (top_k × 3)
+4. Keyword scoring applied (BM25-lite: token overlap ratio)
+5. SAREF ontology boost for matching categories (+0.1)
+6. Combined score: `0.6 × vector + 0.3 × keyword + 0.1 × saref`
+7. Score threshold filter (≥ 0.30) eliminates low-confidence results
+8. Top-k results returned with metadata
 
 ## Technology Choices
 
@@ -76,16 +78,16 @@ Server: 5GB RAM total, ~3GB available for containers.
 
 | Container | mem_limit | Purpose |
 |-----------|-----------|---------|
-| ollama | 1200MB | LLM model + inference runtime |
+| ollama | 4096MB | LLM model + inference runtime |
 | qdrant | 256MB | Vector storage (<1000 apps) |
 | redis | 64MB | Task queue, cache, sessions |
-| discovery-ranking | 512MB | Embedding model (~200MB) + search |
-| chat-intent | 192MB | Intent classifier + routing |
-| expert-recommend | 192MB | LLM client + prompts |
+| discovery-ranking | 384MB | Embedding model (~200MB) + search |
+| chat-intent | 128MB | Intent classifier + routing |
+| expert-recommend | 128MB | LLM client + prompts |
 | metadata-ingest | 192MB | API client + Celery worker |
 | gateway | 128MB | Reverse proxy |
 | mock-api | 128MB | Development only |
-| **Total** | **~2864MB** | Leaves ~2GB for OS |
+| **Total** | **~5504MB** | With 4GB swap for Ollama |
 
 ## Feature Flags
 

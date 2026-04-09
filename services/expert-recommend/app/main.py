@@ -19,6 +19,19 @@ app = FastAPI(
 app.include_router(router)
 
 
+@app.on_event("startup")
+async def startup():
+    """Warm up the Ollama model so it is loaded for the first request."""
+    import threading
+
+    def _warmup():
+        client = OllamaClient()
+        client.warmup()
+
+    # Run warmup in background thread to not block startup
+    threading.Thread(target=_warmup, daemon=True).start()
+
+
 @app.get("/health")
 def health():
     """Health check — verifies Ollama connectivity."""

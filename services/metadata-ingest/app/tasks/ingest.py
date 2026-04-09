@@ -23,6 +23,7 @@ HEDGE_API_URL = os.getenv("HEDGE_API_URL", "")
 CHECKSUM_PREFIX = "hedge:checksum:"
 LAST_RUN_KEY = "hedge:ingest:last_run"
 STATS_KEY = "hedge:ingest:stats"
+CHECKSUM_TTL = 7 * 24 * 3600  # 7 days
 
 
 def _get_redis() -> redis.Redis:
@@ -61,7 +62,7 @@ def ingest_all(self):
         else:
             updated_count += 1
 
-        r.set(f"{CHECKSUM_PREFIX}{app_id}", checksum)
+        r.setex(f"{CHECKSUM_PREFIX}{app_id}", CHECKSUM_TTL, checksum)
         apps_to_index.append(app)
 
     # Batch index new/updated apps

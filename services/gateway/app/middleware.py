@@ -1,7 +1,8 @@
-"""Gateway middleware — CORS, rate limiting, security headers, request ID."""
+"""Gateway middleware — CORS, rate limiting, security headers, request ID, API key auth."""
 
 from __future__ import annotations
 
+import os
 import time
 import uuid
 from collections import defaultdict
@@ -9,6 +10,40 @@ from collections import defaultdict
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
+
+# Paths that are exempt from API key authentication
+_PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
+
+
+class APIKeyMiddleware(BaseHTTPMiddleware):
+    """Optional API key authentication.
+
+    When ``GATEWAY_API_KEY`` is set in the environment, every request that is
+    not to a public path must include the key in the ``X-API-Key`` header or
+    the ``api_key`` query parameter. When the variable is empty or unset the
+    middleware is a pass-through (open access).
+    """
+
+    def __init__(self, app):
+        super().__init__(app)
+        self.api_key: str = os.getenv("GATEWAY_API_KEY", "")
+
+    async def dispatch(self, request: Request, call_next):
+        if not self.api_key:
+            # Open access — no key configured
+            return await call_next(request)
+
+        if request.url.path in _PUBLIC_PATHS:
+            return await call_next(request)
+
+        provided = request.headers.get("X-API-Key") or request.query_params.get("api_key")
+        if provided != self.api_key:
+            return JSONResponse(
+                status_code=401,
+                content={"detail": "Invalid or missing API key."},
+            )
+
+        return await call_next(request)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
