@@ -24,6 +24,9 @@ COPY services/gateway/app/ ./app/
 # Copy built frontend assets for static serving
 COPY --from=frontend-builder /frontend/dist/ ./static/
 
+# Copy embeddable widget files (not part of the Vite build)
+COPY frontend/widget/ ./static/
+
 EXPOSE 8000
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
