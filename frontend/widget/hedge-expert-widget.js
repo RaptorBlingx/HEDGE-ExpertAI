@@ -394,28 +394,49 @@
       var steps = THINKING_STEPS[intent] || THINKING_STEPS.unknown;
       var stepIdx = 0;
 
-      // Thinking indicator
-      var thinkingEl = document.createElement("div");
-      thinkingEl.className = "he-thinking he-animate-in";
-      thinkingEl.innerHTML =
-        '<span class="he-msg-icon he-msg-icon--bot">' + ICON_BOT + '</span>' +
-        '<div class="he-thinking-body">' +
-          '<div class="he-dots"><span></span><span></span><span></span></div>' +
-          '<div class="he-thinking-text">' + escapeHtml(steps[0]) + '</div>' +
-        '</div>';
-      this.messagesDiv.appendChild(thinkingEl);
-      this._scrollBottom();
-
-      this.thinkingInterval = setInterval(function () {
-        stepIdx = (stepIdx + 1) % steps.length;
-        var textEl = thinkingEl.querySelector(".he-thinking-text");
-        if (textEl) textEl.textContent = steps[stepIdx];
-      }, 1800);
-
       // Start response timer
       this.responseStartMs = Date.now();
 
+      // Create the final message container immediately
+      var msgWrap = document.createElement("div");
+      msgWrap.className = "he-msg he-msg--assistant he-animate-in";
+      msgWrap.innerHTML =
+        '<span class="he-msg-icon he-msg-icon--bot">' + ICON_BOT + '</span>' +
+        '<div class="he-msg-body">' +
+          '<div class="he-msg-top">' +
+            '<span class="he-timer">0.0s</span>' +
+          '</div>' +
+          '<div class="he-cot">' +
+            '<button class="he-cot-toggle" aria-expanded="true" disabled>' +
+              '<svg class="he-cot-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' +
+              ' <span class="he-cot-title-text">Thinking Process <span class="he-pulse-dot"></span></span>' +
+      var timerEl = msgWrap.querySelector(".he-timer");
+
       var self = this;
+
+      // Live timer spanning both thinking and streaming
+      this.timerInterval = setInterval(function () {
+        if (timerEl) timerEl.textContent = formatDuration(Date.now() - self.responseStartMs);
+      }, 100);
+
+      // Function to append a step
+      var processStep = function () {
+        if (stepIdx < steps.length) {
+          var stepEl = document.createElement("div");
+          stepEl.className = "he-cot-step he-animate-in-step";
+          stepEl.innerHTML = '<svg class="he-cot-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' +
+            escapeHtml(steps[stepIdx]);
+          cotSteps.appendChild(stepEl);
+          self._scrollBottom();
+          stepIdx++;
+        } else {
+          clearInterval(self.thinkingInterval);
+        }
+      };
+
+      // Start sequential thinking animation (every 1 second)
+      processStep();
+      this.thinkingInterval = setInterval(processStep, 1000);
 
       fetch(this.config.apiUrl + "/api/v1/chat/stream", {
         method: "POST",
@@ -425,57 +446,25 @@
         .then(function (resp) {
           if (!resp.ok || !resp.body) throw new Error("HTTP " + resp.status);
 
-          // Remove thinking, switch to streaming
-          self._clearThinking(thinkingEl);
+          // Stop thinking sequence, append remaining instantly
+          clearInterval(self.thinkingInterval);
+          while (stepIdx < steps.length) {
+            processStep();
+          }
+
+          // Transition to streaming state
           self._setStreamState("streaming");
-
-          // Build static Chain of Thought
-          var cotHtml = '<div class="he-cot">' +
-            '<button class="he-cot-toggle" aria-expanded="true">' +
-              '<svg class="he-cot-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' +
-              ' Chain of Thought' +
-            '</button>' +
-            '<div class="he-cot-steps">';
-          for (var s = 0; s < steps.length; s++) {
-            cotHtml += '<div class="he-cot-step">' +
-              '<svg class="he-cot-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' +
-              escapeHtml(steps[s]) + '</div>';
-          }
-          cotHtml += '</div></div>';
-
-          // Create assistant message container: CoT → apps slot → text
-          var msgWrap = document.createElement("div");
-          msgWrap.className = "he-msg he-msg--assistant he-animate-in";
-          msgWrap.innerHTML =
-            '<span class="he-msg-icon he-msg-icon--bot">' + ICON_BOT + '</span>' +
-            '<div class="he-msg-body">' +
-              '<div class="he-msg-top">' +
-                '<span class="he-timer">' + formatDuration(Date.now() - self.responseStartMs) + '</span>' +
-              '</div>' +
-              cotHtml +
-              '<div class="he-msg-content he-streaming-cursor"></div>' +
-            '</div>';
-          self.messagesDiv.appendChild(msgWrap);
-
-          // CoT toggle collapse/expand
-          var cotToggle = msgWrap.querySelector(".he-cot-toggle");
-          var cotSteps = msgWrap.querySelector(".he-cot-steps");
-          if (cotToggle && cotSteps) {
-            cotToggle.addEventListener("click", function () {
-              var expanded = cotToggle.getAttribute("aria-expanded") === "true";
-              cotToggle.setAttribute("aria-expanded", expanded ? "false" : "true");
-              cotSteps.style.display = expanded ? "none" : "";
-              cotToggle.querySelector(".he-cot-chevron").style.transform = expanded ? "rotate(-90deg)" : "";
-            });
-          }
-
-          var contentEl = msgWrap.querySelector(".he-msg-content");
-          var timerEl = msgWrap.querySelector(".he-timer");
-
-          // Live timer
-          self.timerInterval = setInterval(function () {
-            if (timerEl) timerEl.textContent = formatDuration(Date.now() - self.responseStartMs);
-          }, 100);
+          contentEl.style.display = ""; // reveal text section
+          cotTitleText.textContent = "Chain of Thought";
+          cotToggle.removeAttribute("disabled");
+          
+          // Enable CoT collapse
+          cotToggle.addEventListener("click", function () {
+            var expanded = cotToggle.getAttribute("aria-expanded") === "true";
+            cotToggle.setAttribute("aria-expanded", expanded ? "false" : "true");
+            cotSteps.style.display = expanded ? "none" : "";
+            cotToggle.querySelector(".he-cot-chevron").style.transform = expanded ? "rotate(-90deg)" : "";
+          });
 
           // Read SSE stream
           var reader = resp.body.getReader();
@@ -544,7 +533,7 @@
           return readChunk();
         })
         .catch(function (err) {
-          self._clearThinking(thinkingEl);
+          self._clearThinking();
           self._clearTimer();
           self._addErrorMessage("Unable to reach the assistant. Please check your connection and try again.");
           self._setStreamState("idle");
@@ -643,10 +632,9 @@
 
     /* ---------- thinking / timer helpers ---------- */
 
-    _clearThinking(el) {
+    _clearThinking() {
       clearInterval(this.thinkingInterval);
       this.thinkingInterval = null;
-      if (el && el.parentNode) el.remove();
     }
 
     _clearTimer() {
@@ -698,9 +686,7 @@
 
     _scrollBottom() {
       var md = this.messagesDiv;
-      requestAnimationFrame(function () {
-        md.scrollTop = md.scrollHeight;
-      });
+      md.scrollTop = md.scrollHeight;
     }
   }
 
