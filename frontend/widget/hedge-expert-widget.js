@@ -223,31 +223,38 @@
       // Panel
       var panel = document.createElement("div");
       panel.className = "he-panel";
-      panel.style.width = this.config.width;
-      panel.style.height = this.config.height;
 
       var sessionLabel = this.sessionId
         ? "Session: " + this.sessionId.slice(0, 8) + "…"
         : "Session: new";
 
       panel.innerHTML =
-        '<div class="he-header">' +
-          '<div class="he-header-left">' +
-            '<div class="he-header-title">' + escapeHtml(this.config.title) + '</div>' +
-            '<div class="he-header-session">' + sessionLabel + '</div>' +
+        '<div class="he-panel-main">' +
+          '<div class="he-header">' +
+            '<div class="he-header-left">' +
+              '<div class="he-header-title">' + escapeHtml(this.config.title) + '</div>' +
+              '<div class="he-header-session">' + sessionLabel + '</div>' +
+            '</div>' +
+            '<div class="he-header-actions">' +
+              '<button class="he-header-btn he-clear-btn" aria-label="Clear conversation" title="Clear conversation">' + ICON_CLEAR + '</button>' +
+              '<button class="he-header-btn he-close-btn" aria-label="Close">&times;</button>' +
+            '</div>' +
           '</div>' +
-          '<div class="he-header-actions">' +
-            '<button class="he-header-btn he-clear-btn" aria-label="Clear conversation" title="Clear conversation">' + ICON_CLEAR + '</button>' +
-            '<button class="he-header-btn he-close-btn" aria-label="Close">&times;</button>' +
+          '<div class="he-messages"></div>' +
+          '<div class="he-input-area">' +
+            '<textarea class="he-input" placeholder="Ask about IoT apps…" rows="1" maxlength="500"></textarea>' +
+            '<button class="he-send-btn" aria-label="Send message">' +
+              '<span class="he-send-icon">' + ICON_SEND + '</span>' +
+              '<span class="he-send-text">Send</span>' +
+            '</button>' +
           '</div>' +
         '</div>' +
-        '<div class="he-messages"></div>' +
-        '<div class="he-input-area">' +
-          '<textarea class="he-input" placeholder="Ask about IoT apps…" rows="1" maxlength="500"></textarea>' +
-          '<button class="he-send-btn" aria-label="Send message">' +
-            '<span class="he-send-icon">' + ICON_SEND + '</span>' +
-            '<span class="he-send-text">Send</span>' +
-          '</button>' +
+        '<div class="he-panel-side">' +
+          '<div class="he-side-header">' +
+            '<span class="he-side-title">Recommended Context</span>' +
+            '<button class="he-side-close" aria-label="Close pane">&times;</button>' +
+          '</div>' +
+          '<div class="he-side-content"></div>' +
         '</div>';
 
       c.appendChild(panel);
@@ -265,6 +272,8 @@
       this.closeBtn = panel.querySelector(".he-close-btn");
       this.clearBtn = panel.querySelector(".he-clear-btn");
       this.sessionBadge = panel.querySelector(".he-header-session");
+      this.sideContent = panel.querySelector(".he-side-content");
+      this.sideCloseBtn = panel.querySelector(".he-side-close");
     }
 
     /* ---------- event binding ---------- */
@@ -276,6 +285,9 @@
       this.closeBtn.addEventListener("click", function () { self.close(); });
       this.clearBtn.addEventListener("click", function () { self._clearChat(); });
       this.sendBtn.addEventListener("click", function () { self._send(); });
+      this.sideCloseBtn.addEventListener("click", function () {
+        self.panel.classList.remove("he-panel--expanded");
+      });
 
       this.textarea.addEventListener("keydown", function (e) {
         if (e.key === "Enter" && !e.shiftKey) {
@@ -441,7 +453,6 @@
                 '<span class="he-timer">' + formatDuration(Date.now() - self.responseStartMs) + '</span>' +
               '</div>' +
               cotHtml +
-              '<div class="he-cards-slot"></div>' +
               '<div class="he-msg-content he-streaming-cursor"></div>' +
             '</div>';
           self.messagesDiv.appendChild(msgWrap);
@@ -487,8 +498,9 @@
                   self._addCopyButton(msgWrap, accumulated);
                 }
                 // Apps already rendered when SSE event arrived; render any late-arriving ones
-                if (appsData && appsData.length > 0 && !msgWrap.querySelector(".he-cards")) {
-                  self._addAppCards(msgWrap.querySelector(".he-cards-slot") || msgWrap.querySelector(".he-msg-body"), appsData);
+                if (appsData && appsData.length > 0 && !self.sideContent.querySelector(".he-cards")) {
+                  self.panel.classList.add("he-panel--expanded");
+                  self._addAppCards(self.sideContent, appsData);
                 }
                 if (!self.isOpen) self._notify();
                 self._setStreamState("idle");
@@ -512,10 +524,10 @@
                   self._scrollBottom();
                 } else if (evt.type === "apps") {
                   appsData = evt.apps || [];
-                  // Render app cards immediately (above streaming text)
+                  // Render app cards immediately in the side pane
                   if (appsData.length > 0) {
-                    var slot = msgWrap.querySelector(".he-cards-slot");
-                    if (slot) self._addAppCards(slot, appsData);
+                    self.panel.classList.add("he-panel--expanded");
+                    self._addAppCards(self.sideContent, appsData);
                   }
                 } else if (evt.type === "done") {
                   if (evt.session_id) self._saveSession(evt.session_id);
@@ -575,8 +587,9 @@
     /* ---------- app cards ---------- */
 
     _addAppCards(parentBody, apps) {
+      parentBody.innerHTML = ""; // Clear previous context
       var container = document.createElement("div");
-      container.className = "he-cards";
+      container.className = "he-cards he-animate-in";
 
       for (var i = 0; i < Math.min(apps.length, 5); i++) {
         var result = apps[i];
