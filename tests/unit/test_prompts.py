@@ -57,6 +57,8 @@ class TestPrompts:
         assert messages[0]["role"] == "system"
         assert messages[1]["role"] == "user"
         assert "test query" in messages[1]["content"]
+        assert "markdown bullet points" in messages[1]["content"]
+        assert "Do not use numbered lists" in messages[1]["content"]
 
     def test_build_explanation_messages(self):
         app = {"title": "App1", "description": "D1", "tags": ["a"], "saref_type": "Energy", "input_datasets": ["i"], "output_datasets": ["o"]}

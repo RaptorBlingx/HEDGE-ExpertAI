@@ -24,6 +24,7 @@ All defaults are consistent across `.env.example`, `docker-compose.yml`, and `sh
 | `OLLAMA_BASE_URL` | `http://ollama:11434` | URL | Ollama API base URL |
 | `OLLAMA_MODEL` | `qwen3.5:2b` | string | LLM model name. Must be pulled into Ollama first |
 | `OLLAMA_TIMEOUT` | `180` | seconds | Request timeout for LLM inference. Increase for larger models on CPU |
+| `OLLAMA_MAX_TOKENS` | `250` | integer | Maximum response tokens requested from Ollama per recommendation turn |
 | `OLLAMA_THINK` | `false` | bool | Must be `false` for Qwen3.5 (non-thinking mode) |
 
 **Model Options:**

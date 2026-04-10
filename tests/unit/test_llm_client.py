@@ -18,6 +18,28 @@ _spec.loader.exec_module(_mod)
 OllamaClient = _mod.OllamaClient
 
 
+class _MockStreamResponse:
+    def __init__(self, lines):
+        self._lines = lines
+
+    def raise_for_status(self):
+        return None
+
+    def iter_lines(self):
+        return iter(self._lines)
+
+
+class _MockStreamContext:
+    def __init__(self, response):
+        self._response = response
+
+    def __enter__(self):
+        return self._response
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
 class TestBuildPayload:
     def test_structure(self):
         client = OllamaClient(base_url="http://test:11434", model="test-model")
@@ -55,6 +77,21 @@ class TestBuildPayload:
 
 
 class TestChat:
+    def test_default_max_tokens_is_250(self):
+        client = OllamaClient(base_url="http://test:11434")
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "message": {"content": "Hello!"},
+            "done_reason": "stop",
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("httpx.post", return_value=mock_response) as mock_post:
+            client.chat([{"role": "user", "content": "hello"}])
+
+        payload = mock_post.call_args.kwargs["json"]
+        assert payload["options"]["num_predict"] == 250
+
     def test_successful_response(self):
         client = OllamaClient(base_url="http://test:11434")
         mock_response = MagicMock()
@@ -106,6 +143,62 @@ class TestChat:
             with patch("time.sleep"):
                 with pytest.raises(ConnectionError, match="unreachable"):
                     client.chat([{"role": "user", "content": "hi"}])
+
+    def test_continues_once_when_output_limit_hit(self):
+        client = OllamaClient(base_url="http://test:11434")
+
+        first_response = MagicMock()
+        first_response.json.return_value = {
+            "message": {"content": "App 1: SmartEnergy Monitor\n\n**App"},
+            "done_reason": "length",
+            "eval_count": 250,
+        }
+        first_response.raise_for_status = MagicMock()
+
+        second_response = MagicMock()
+        second_response.json.return_value = {
+            "message": {"content": " 4:** BuildingComfort Pro"},
+            "done_reason": "stop",
+            "eval_count": 12,
+        }
+        second_response.raise_for_status = MagicMock()
+
+        with patch("httpx.post", side_effect=[first_response, second_response]) as mock_post:
+            result = client.chat([{"role": "user", "content": "find energy apps"}])
+
+        assert "BuildingComfort Pro" in result
+        assert mock_post.call_count == 2
+        second_payload = mock_post.call_args_list[1].kwargs["json"]
+        assert "cut off by the output token limit" in second_payload["messages"][-1]["content"]
+
+
+class TestChatStream:
+    def test_stream_continues_once_when_output_limit_hit(self):
+        client = OllamaClient(base_url="http://test:11434")
+
+        first_stream = _MockStreamContext(
+            _MockStreamResponse(
+                [
+                    json.dumps({"message": {"content": "Hello "}, "done": False}),
+                    json.dumps({"message": {"content": "world"}, "done": False}),
+                    json.dumps({"message": {"content": ""}, "done": True, "done_reason": "length", "eval_count": 250}),
+                ]
+            )
+        )
+        second_stream = _MockStreamContext(
+            _MockStreamResponse(
+                [
+                    json.dumps({"message": {"content": "!"}, "done": False}),
+                    json.dumps({"message": {"content": ""}, "done": True, "done_reason": "stop", "eval_count": 1}),
+                ]
+            )
+        )
+
+        with patch("httpx.stream", side_effect=[first_stream, second_stream]) as mock_stream:
+            chunks = list(client.chat_stream([{"role": "user", "content": "hello"}]))
+
+        assert "".join(chunks) == "Hello world!"
+        assert mock_stream.call_count == 2
 
 
 class TestWarmup:

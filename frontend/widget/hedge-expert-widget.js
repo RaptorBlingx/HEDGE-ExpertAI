@@ -58,6 +58,13 @@
     ],
   };
 
+  const THINKING_STOPWORDS = {
+    a: true, about: true, an: true, and: true, app: true, apps: true, details: true,
+    detail: true, explain: true, find: true, for: true, i: true, me: true, of: true,
+    on: true, please: true, recommend: true, show: true, suggest: true, tell: true,
+    the: true, to: true, what: true, with: true,
+  };
+
   const DOMAIN_COLORS = {
     energy:      { bg: "#0c4a6e", fg: "#7dd3fc", bar: "#0ea5e9" },
     building:    { bg: "#14532d", fg: "#86efac", bar: "#22c55e" },
@@ -85,6 +92,8 @@
   const ICON_SEND =
     '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>';
 
+  const THINKING_STEP_MS = 2300;
+
   /* ------------------------------------------------------------------ */
   /*  Utility functions                                                  */
   /* ------------------------------------------------------------------ */
@@ -97,6 +106,46 @@
     if (/\b(tell\s+me\s+(more\s+)?about|details?\s+(of|about|for)|explain|describe|app[-\s]?\d{3})\b/.test(t)) return "detail";
     if (/\b(find|search|looking\s+for|show\s+me|recommend|suggest|discover|monitor|manage|detect|optimi[sz]e)\b/.test(t)) return "search";
     return "unknown";
+  }
+
+  function extractThinkingFocus(message) {
+    var tokens = ((message || "").toLowerCase().match(/[a-z0-9-]+/g) || []);
+    var picked = [];
+    for (var i = 0; i < tokens.length; i++) {
+      var token = tokens[i];
+      if (THINKING_STOPWORDS[token]) continue;
+      if (picked.indexOf(token) !== -1) continue;
+      picked.push(token);
+      if (picked.length >= 3) break;
+    }
+    return picked.length ? picked.join(" ") : "your request";
+  }
+
+  function buildThinkingSteps(message, intent) {
+    var base = (THINKING_STEPS[intent] || THINKING_STEPS.unknown).slice();
+    var focus = extractThinkingFocus(message);
+    var focusPhrase = focus === "your request" ? focus : '"' + focus + '"';
+
+    base.unshift("Framing " + focusPhrase + " against the HEDGE app catalog…");
+
+    if (intent === "search") {
+      base.push("Cross-checking ranked matches for confidence and relevance…");
+      base.push("Tightening the final recommendation so it is easy to compare…");
+    } else if (intent === "detail") {
+      base.push("Verifying the explanation against the app metadata and datasets…");
+      base.push("Refining the answer so the most useful details land first…");
+    } else if (intent === "help" || intent === "greeting") {
+      base.push("Shaping a compact response with the clearest next step…");
+    } else {
+      base.push("Rechecking the safest and most useful response framing…");
+    }
+
+    return base;
+  }
+
+  function splitStreamText(text) {
+    if (!text) return [];
+    return text.replace(/\r\n/g, "\n").match(/\s+|[^\s]+\s*/g) || [];
   }
 
   function formatDuration(ms) {
@@ -198,7 +247,7 @@
         link.rel = "stylesheet";
         link.href =
           this.config.cssUrl ||
-          new URL("hedge-expert-widget.css", _scriptSrc || window.location.href).href;
+          new URL("hedge-expert-widget.css?v=" + Date.now(), _scriptSrc || window.location.href).href;
         document.head.appendChild(link);
       }
       this._createDOM();
@@ -380,6 +429,8 @@
     _send() {
       var text = this.textarea.value.trim();
       if (!text || this.isStreaming) return;
+      this._clearThinking();
+      this._clearTimer();
 
       // Remove suggestions
       var sugEl = this.messagesDiv.querySelector(".he-suggestions");
@@ -387,11 +438,12 @@
 
       this.textarea.value = "";
       this.textarea.style.height = "";
+      this.textarea.style.overflowY = "hidden";
       this._addUserMessage(text);
       this._setStreamState("thinking");
 
       var intent = inferIntent(text);
-      var steps = THINKING_STEPS[intent] || THINKING_STEPS.unknown;
+      var steps = buildThinkingSteps(text, intent);
       var stepIdx = 0;
 
       // Start response timer
@@ -407,20 +459,15 @@
             '<span class="he-timer">0.0s</span>' +
           '</div>' +
           '<div class="he-cot">' +
-            '<button class="he-cot-toggle" aria-expanded="true" disabled>' +
-              '<svg class="he-cot-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' +
-              ' <span class="he-cot-title-text">Thinking Process <span class="he-pulse-dot"></span></span>' +
-            '</button>' +
-            '<div class="he-cot-steps"></div>' +
+            '<div class="he-cot-live" aria-live="polite" aria-atomic="true"></div>' +
           '</div>' +
           '<div class="he-msg-content he-streaming-cursor" style="display: none;"></div>' +
         '</div>';
       this.messagesDiv.appendChild(msgWrap);
       this._scrollBottom();
 
-      var cotSteps = msgWrap.querySelector(".he-cot-steps");
-      var cotToggle = msgWrap.querySelector(".he-cot-toggle");
-      var cotTitleText = msgWrap.querySelector(".he-cot-title-text");
+      var cotEl = msgWrap.querySelector(".he-cot");
+      var cotLive = msgWrap.querySelector(".he-cot-live");
       var contentEl = msgWrap.querySelector(".he-msg-content");
       var timerEl = msgWrap.querySelector(".he-timer");
       var self = this;
@@ -430,24 +477,42 @@
         if (timerEl) timerEl.textContent = formatDuration(Date.now() - self.responseStartMs);
       }, 100);
 
-      // Function to append a step
+      function showThought(nextText) {
+        var activeThoughts = cotLive.querySelectorAll(".he-cot-live-text");
+        for (var idx = 0; idx < activeThoughts.length; idx++) {
+          activeThoughts[idx].classList.remove("he-cot-live-text--current");
+          activeThoughts[idx].classList.add("he-cot-live-text--exit");
+          (function (node) {
+            setTimeout(function () {
+              if (node.parentNode) node.parentNode.removeChild(node);
+            }, 280);
+          })(activeThoughts[idx]);
+        }
+
+        var nextThought = document.createElement("span");
+        nextThought.className = "he-cot-live-text";
+        nextThought.textContent = nextText;
+        nextThought.setAttribute("data-text", nextText);
+        cotLive.appendChild(nextThought);
+
+        window.requestAnimationFrame(function () {
+          nextThought.classList.add("he-cot-live-text--current");
+        });
+
+        self._scrollBottom();
+      }
+
+      // Function to swap the live thought line
       var processStep = function () {
-        if (stepIdx < steps.length) {
-          var stepEl = document.createElement("div");
-          stepEl.className = "he-cot-step he-animate-in-step";
-          stepEl.innerHTML = '<svg class="he-cot-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' +
-            escapeHtml(steps[stepIdx]);
-          cotSteps.appendChild(stepEl);
-          self._scrollBottom();
+        if (steps.length) {
+          showThought(steps[stepIdx % steps.length]);
           stepIdx++;
-        } else {
-          clearInterval(self.thinkingInterval);
         }
       };
 
-      // Start sequential thinking animation (every 1 second)
+      // Start sequential thinking animation.
       processStep();
-      this.thinkingInterval = setInterval(processStep, 1000);
+      this.thinkingInterval = setInterval(processStep, THINKING_STEP_MS);
 
       fetch(this.config.apiUrl + "/api/v1/chat/stream", {
         method: "POST",
@@ -457,25 +522,9 @@
         .then(function (resp) {
           if (!resp.ok || !resp.body) throw new Error("HTTP " + resp.status);
 
-          // Stop thinking sequence, append remaining instantly
-          clearInterval(self.thinkingInterval);
-          while (stepIdx < steps.length) {
-            processStep();
-          }
-
           // Transition to streaming state
           self._setStreamState("streaming");
           contentEl.style.display = ""; // reveal text section
-          cotTitleText.textContent = "Chain of Thought";
-          cotToggle.removeAttribute("disabled");
-          
-          // Enable CoT collapse
-          cotToggle.addEventListener("click", function () {
-            var expanded = cotToggle.getAttribute("aria-expanded") === "true";
-            cotToggle.setAttribute("aria-expanded", expanded ? "false" : "true");
-            cotSteps.style.display = expanded ? "none" : "";
-            cotToggle.querySelector(".he-cot-chevron").style.transform = expanded ? "rotate(-90deg)" : "";
-          });
 
           // Read SSE stream
           var reader = resp.body.getReader();
@@ -483,28 +532,73 @@
           var buffer = "";
           var accumulated = "";
           var appsData = null;
+          var renderQueue = [];
+          var renderInterval = null;
+          var streamComplete = false;
+          var finalSessionId = null;
+          var finalized = false;
+          var thoughtCycleStopped = false;
+
+          function stopThinkingCycle() {
+            if (thoughtCycleStopped) return;
+            thoughtCycleStopped = true;
+            self._clearThinking();
+          }
+
+          function stopRenderPump() {
+            clearInterval(renderInterval);
+            renderInterval = null;
+          }
+
+          function finalizeStream() {
+            if (finalized) return;
+            finalized = true;
+            stopRenderPump();
+            self._clearThinking();
+            cotEl.classList.add("he-cot--complete");
+            self._clearTimer();
+            var finalMs = Date.now() - self.responseStartMs;
+            if (timerEl) timerEl.textContent = formatDuration(finalMs);
+            contentEl.classList.remove("he-streaming-cursor");
+
+            if (accumulated) {
+              contentEl.innerHTML = renderMarkdown(accumulated);
+              self._addCopyButton(msgWrap, accumulated);
+            }
+            if (appsData && appsData.length > 0 && !self.sideContent.querySelector(".he-cards")) {
+              self.panel.classList.add("he-panel--expanded");
+              self._addAppCards(self.sideContent, appsData);
+            }
+            if (finalSessionId) self._saveSession(finalSessionId);
+            if (!self.isOpen) self._notify();
+            self._setStreamState("idle");
+            self._scrollBottom();
+          }
+
+          function startRenderPump() {
+            if (renderInterval) return;
+            renderInterval = setInterval(function () {
+              if (!renderQueue.length) {
+                if (streamComplete) finalizeStream();
+                return;
+              }
+
+              stopThinkingCycle();
+              accumulated += renderQueue.shift();
+              contentEl.innerHTML = renderMarkdown(accumulated);
+              self._scrollBottom();
+
+              if (!renderQueue.length && streamComplete) {
+                finalizeStream();
+              }
+            }, 36);
+          }
 
           function readChunk() {
             return reader.read().then(function (result) {
               if (result.done) {
-                // Finalize
-                self._clearTimer();
-                var finalMs = Date.now() - self.responseStartMs;
-                if (timerEl) timerEl.textContent = formatDuration(finalMs);
-                contentEl.classList.remove("he-streaming-cursor");
-
-                if (accumulated) {
-                  contentEl.innerHTML = renderMarkdown(accumulated);
-                  self._addCopyButton(msgWrap, accumulated);
-                }
-                // Apps already rendered when SSE event arrived; render any late-arriving ones
-                if (appsData && appsData.length > 0 && !self.sideContent.querySelector(".he-cards")) {
-                  self.panel.classList.add("he-panel--expanded");
-                  self._addAppCards(self.sideContent, appsData);
-                }
-                if (!self.isOpen) self._notify();
-                self._setStreamState("idle");
-                self._scrollBottom();
+                streamComplete = true;
+                if (!renderQueue.length) finalizeStream();
                 return;
               }
 
@@ -519,9 +613,8 @@
                 try { evt = JSON.parse(line.slice(6)); } catch (_) { continue; }
 
                 if (evt.type === "token") {
-                  accumulated += evt.content || "";
-                  contentEl.innerHTML = renderMarkdown(accumulated);
-                  self._scrollBottom();
+                  renderQueue = renderQueue.concat(splitStreamText(evt.content || ""));
+                  startRenderPump();
                 } else if (evt.type === "apps") {
                   appsData = evt.apps || [];
                   // Render app cards immediately in the side pane
@@ -530,9 +623,11 @@
                     self._addAppCards(self.sideContent, appsData);
                   }
                 } else if (evt.type === "done") {
-                  if (evt.session_id) self._saveSession(evt.session_id);
+                  if (evt.session_id) finalSessionId = evt.session_id;
                 } else if (evt.type === "error") {
                   accumulated = evt.content || "An error occurred.";
+                  renderQueue = [];
+                  stopRenderPump();
                   contentEl.innerHTML = '<span class="he-error-text">' + escapeHtml(accumulated) + '</span>';
                 }
               }
@@ -545,6 +640,7 @@
         })
         .catch(function (err) {
           self._clearThinking();
+          cotEl.classList.add("he-cot--complete");
           self._clearTimer();
           self._addErrorMessage("Unable to reach the assistant. Please check your connection and try again.");
           self._setStreamState("idle");
@@ -689,8 +785,10 @@
 
     _autoGrow() {
       var ta = this.textarea;
+      var maxHeight = 100;
       ta.style.height = "auto";
-      ta.style.height = Math.min(ta.scrollHeight, 100) + "px";
+      ta.style.height = Math.max(Math.min(ta.scrollHeight, maxHeight), 36) + "px";
+      ta.style.overflowY = ta.scrollHeight > maxHeight ? "auto" : "hidden";
     }
 
     /* ---------- scroll ---------- */

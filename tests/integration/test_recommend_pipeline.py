@@ -152,7 +152,7 @@ class TestRecommendPipeline:
         result = recommend(query="energy monitoring", top_k=2)
 
         # Should use fallback which mentions App 1 as top
-        assert "SmartEnergy Monitor" in result["message"]
+        assert result["message"].startswith("Start with **SmartEnergy Monitor**")
 
     @patch.object(_rec_mod, "httpx")
     @patch.object(_rec_mod, "OllamaClient")

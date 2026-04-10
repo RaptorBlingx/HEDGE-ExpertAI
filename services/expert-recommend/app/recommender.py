@@ -34,19 +34,17 @@ def _first_sentence(text: str) -> str:
 
 def _build_ranked_fallback(results: list[dict[str, Any]]) -> str:
     """Build deterministic ranking-consistent explanation when LLM output is contradictory."""
-    lines = ["Based on your query, here are the ranked matches:"]
+    top_title = (results[0].get("app", results[0]) if results else {}).get("title", "this app")
+    lines = [
+        f"Start with **{top_title}** because it is the highest-ranked match for your query.",
+        "",
+    ]
 
     for idx, result in enumerate(results, start=1):
         app = result.get("app", result)
         title = app.get("title", "Unknown app")
         reason = _first_sentence(app.get("description", ""))
-        lines.append(f"{idx}. **{title}** — {reason}")
-
-    top_title = (results[0].get("app", results[0]) if results else {}).get("title", "this app")
-    lines.append("")
-    lines.append(
-        f"Recommendation: Start with **{top_title}** because it is the highest-ranked match from search results."
-    )
+        lines.append(f"- **App {idx}: {title}** — {reason}")
 
     return "\n".join(lines)
 

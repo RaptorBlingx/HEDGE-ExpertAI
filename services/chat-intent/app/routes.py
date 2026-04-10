@@ -112,6 +112,7 @@ async def chat_stream(req: ChatRequest):
     session_id, history = get_or_create_session(req.session_id)
     result = classify(req.message)
     intent = result.intent
+    app_id = result.entities.get("app_id") if isinstance(result.entities, dict) else None
     history.append({"role": "user", "content": req.message})
 
     # For greeting/help, return static SSE response
@@ -126,6 +127,24 @@ async def chat_stream(req: ChatRequest):
 
         return StreamingResponse(
             _static(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+    if intent == "detail" and app_id:
+        async def _detail_stream():
+            response_message, apps = await _handle_detail_async(req.message, app_id)
+            if apps:
+                yield f"data: {_json.dumps({'type': 'apps', 'apps': apps})}\n\n"
+            yield f"data: {_json.dumps({'type': 'token', 'content': response_message})}\n\n"
+
+            history.append({"role": "assistant", "content": response_message})
+            context = {"last_results": apps[:5]} if apps else {}
+            update_session(session_id, history[-20:], context)
+            yield f"data: {_json.dumps({'type': 'done', 'session_id': session_id, 'intent': intent})}\n\n"
+
+        return StreamingResponse(
+            _detail_stream(),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )

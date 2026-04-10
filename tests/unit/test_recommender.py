@@ -111,13 +111,12 @@ class TestBuildRankedFallback:
 
     def test_recommendation_line(self):
         fallback = _build_ranked_fallback(SAMPLE_RESULTS)
-        assert "Recommendation:" in fallback
-        assert "SmartEnergy Monitor" in fallback.split("Recommendation:")[1]
+        assert fallback.startswith("Start with **SmartEnergy Monitor**")
 
-    def test_numbered_list(self):
+    def test_bullet_list(self):
         fallback = _build_ranked_fallback(SAMPLE_RESULTS)
-        assert "1." in fallback
-        assert "2." in fallback
+        assert "- **App 1: SmartEnergy Monitor**" in fallback
+        assert "- **App 2: BuildingComfort Pro**" in fallback
 
 
 class TestEnsureRankingConsistency:
@@ -129,7 +128,7 @@ class TestEnsureRankingConsistency:
     def test_inconsistent_replaced(self):
         explanation = "BuildingComfort Pro is the best option for your needs."
         result = _ensure_ranking_consistency(explanation, SAMPLE_RESULTS)
-        assert "Based on your query" in result  # fallback template
+        assert result.startswith("Start with **SmartEnergy Monitor**")
 
 
 class TestFirstSentence:
