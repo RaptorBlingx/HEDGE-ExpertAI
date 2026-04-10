@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>HEDGE-IoT App Store — Widget Demo</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #f1f5f9;
+      color: #1e293b;
+    }
+
+    /* Top nav */
+    .topbar {
+      background: #0f172a;
+      color: #fff;
+      padding: 0 32px;
+      height: 56px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .topbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+    .topbar-brand svg { opacity: 0.85; }
+    .topbar-nav { display: flex; gap: 24px; font-size: 13px; color: #94a3b8; }
+    .topbar-nav a { color: inherit; text-decoration: none; }
+    .topbar-nav a:hover { color: #fff; }
+
+    /* Hero */
+    .hero {
+      background: linear-gradient(135deg, #1e3a5f 0%, #0369a1 100%);
+      color: #fff;
+      padding: 56px 32px 48px;
+      text-align: center;
+    }
+    .hero h1 { font-size: 32px; font-weight: 700; margin-bottom: 12px; }
+    .hero p { font-size: 16px; opacity: 0.85; max-width: 520px; margin: 0 auto 28px; }
+    .hero-search {
+      display: flex;
+      max-width: 480px;
+      margin: 0 auto;
+      background: rgba(255,255,255,0.12);
+      border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    .hero-search input {
+      flex: 1;
+      padding: 12px 16px;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #fff;
+      font-size: 14px;
+    }
+    .hero-search input::placeholder { color: rgba(255,255,255,0.55); }
+    .hero-search button {
+      padding: 12px 20px;
+      background: rgba(255,255,255,0.2);
+      border: none;
+      border-left: 1px solid rgba(255,255,255,0.2);
+      color: #fff;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .hero-search button:hover { background: rgba(255,255,255,0.3); }
+
+    /* AI hint banner */
+    .ai-hint {
+      background: #eff6ff;
+      border-bottom: 1px solid #bfdbfe;
+      padding: 10px 32px;
+      font-size: 13px;
+      color: #1d4ed8;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .ai-hint strong { font-weight: 600; }
+
+    /* Main layout */
+    .content { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+
+    /* Category pills */
+    .categories {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 28px;
+    }
+    .cat-pill {
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      border: 1px solid #e2e8f0;
+      background: #fff;
+      color: #475569;
+    }
+    .cat-pill.active {
+      background: #0369a1;
+      border-color: #0369a1;
+      color: #fff;
+    }
+
+    /* Section heading */
+    .section-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      color: #0f172a;
+    }
+
+    /* App grid */
+    .app-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 16px;
+      margin-bottom: 40px;
+    }
+    .app-card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 20px;
+      cursor: pointer;
+      transition: box-shadow 0.15s, border-color 0.15s;
+    }
+    .app-card:hover { box-shadow: 0 4px 16px rgba(0,0,0,0.08); border-color: #93c5fd; }
+    .app-card-header { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 10px; }
+    .app-icon {
+      width: 40px; height: 40px; border-radius: 8px;
+      background: linear-gradient(135deg, #0ea5e9, #0369a1);
+      display: flex; align-items: center; justify-content: center;
+      color: #fff; font-weight: 700; font-size: 14px; flex-shrink: 0;
+    }
+    .app-icon.green { background: linear-gradient(135deg, #22c55e, #15803d); }
+    .app-icon.orange { background: linear-gradient(135deg, #f97316, #c2410c); }
+    .app-icon.purple { background: linear-gradient(135deg, #a855f7, #7e22ce); }
+    .app-icon.teal { background: linear-gradient(135deg, #14b8a6, #0f766e); }
+    .app-icon.red { background: linear-gradient(135deg, #ef4444, #b91c1c); }
+    .app-card-title { font-size: 14px; font-weight: 600; color: #0f172a; }
+    .app-card-id { font-size: 11px; color: #94a3b8; margin-top: 2px; }
+    .app-card-desc { font-size: 13px; color: #64748b; line-height: 1.5; margin-bottom: 12px; }
+    .app-card-footer { display: flex; justify-content: space-between; align-items: center; }
+    .app-domain {
+      padding: 2px 8px; border-radius: 4px;
+      font-size: 11px; font-weight: 500;
+      background: #f0f9ff; color: #0369a1;
+    }
+    .app-domain.green { background: #f0fdf4; color: #15803d; }
+    .app-domain.orange { background: #fff7ed; color: #c2410c; }
+    .app-domain.purple { background: #faf5ff; color: #7e22ce; }
+    .app-version { font-size: 11px; color: #94a3b8; }
+
+    /* Widget callout */
+    .widget-callout {
+      background: linear-gradient(135deg, #1e3a5f, #0369a1);
+      border-radius: 12px;
+      padding: 28px 32px;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 40px;
+    }
+    .widget-callout h2 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+    .widget-callout p { font-size: 13px; opacity: 0.85; }
+    .widget-callout button {
+      padding: 10px 20px;
+      background: #fff;
+      color: #0369a1;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+    .widget-callout button:hover { background: #e0f2fe; }
+
+    footer {
+      text-align: center;
+      padding: 28px;
+      color: #94a3b8;
+      font-size: 12px;
+      border-top: 1px solid #e2e8f0;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top navigation (simulates the real HEDGE-IoT App Store chrome) -->
+  <nav class="topbar">
+    <div class="topbar-brand">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      HEDGE-IoT App Store
+    </div>
+    <div class="topbar-nav">
+      <a href="#">Browse</a>
+      <a href="#">Publish</a>
+      <a href="#">Docs</a>
+      <a href="#">Dashboard</a>
+    </div>
+  </nav>
+
+  <!-- Hero search bar — represents the "existing search" -->
+  <div class="hero">
+    <h1>Discover IoT Applications</h1>
+    <p>Find, evaluate, and deploy edge-computing applications from the HEDGE-IoT ecosystem.</p>
+    <div class="hero-search">
+      <input type="text" placeholder="e.g. energy monitoring, smart irrigation…" />
+      <button>Search</button>
+    </div>
+  </div>
+
+  <!-- AI assistant hint bar -->
+  <div class="ai-hint">
+    <svg width="15" height="15" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a8 8 0 100 16A8 8 0 0010 2zm1 11H9v-2h2v2zm0-4H9V5h2v4z"/></svg>
+    <strong>HEDGE-ExpertAI is available!</strong>&nbsp;
+    Use the chat button in the bottom-right corner to get AI-powered recommendations in natural language.
+  </div>
+
+  <!-- Main content -->
+  <div class="content">
+
+    <!-- Category filter -->
+    <div class="categories">
+      <div class="cat-pill active">All</div>
+      <div class="cat-pill">Energy</div>
+      <div class="cat-pill">Building</div>
+      <div class="cat-pill">Environment</div>
+      <div class="cat-pill">Agriculture</div>
+      <div class="cat-pill">Industrial</div>
+      <div class="cat-pill">Water</div>
+      <div class="cat-pill">Transport</div>
+    </div>
+
+    <!-- AI callout box -->
+    <div class="widget-callout">
+      <div>
+        <h2>Not sure what you're looking for?</h2>
+        <p>Ask HEDGE-ExpertAI in plain language — "find apps for flood warning" — and get ranked recommendations with explanations. You can also press <kbd style="background:rgba(255,255,255,0.15);padding:2px 6px;border-radius:4px;font-size:12px">Ctrl+Shift+H</kbd> anytime.</p>
+      </div>
+      <button id="open-widget-btn">Ask the AI Assistant →</button>
+    </div>
+
+    <!-- App cards (representative static sample) -->
+    <div class="section-title">Featured Applications (75 available)</div>
+    <div class="app-grid">
+
+      <div class="app-card">
+        <div class="app-card-header">
+          <div class="app-icon">SE</div>
+          <div><div class="app-card-title">SmartEnergy Monitor</div><div class="app-card-id">app-001</div></div>
+        </div>
+        <div class="app-card-desc">Real-time energy consumption monitoring for residential buildings. Tracks electricity, gas, and water usage with anomaly detection alerts.</div>
+        <div class="app-card-footer"><span class="app-domain">Energy</span><span class="app-version">v2.1.0</span></div>
+      </div>
+
+      <div class="app-card">
+        <div class="app-card-header">
+          <div class="app-icon green">BC</div>
+          <div><div class="app-card-title">BuildingComfort Pro</div><div class="app-card-id">app-002</div></div>
+        </div>
+        <div class="app-card-desc">HVAC optimisation system for commercial buildings. Balances temperature, humidity, and air quality while minimising energy use.</div>
+        <div class="app-card-footer"><span class="app-domain green">Building</span><span class="app-version">v3.0.1</span></div>
+      </div>
+
+      <div class="app-card">
+        <div class="app-card-header">
+          <div class="app-icon orange">AS</div>
+          <div><div class="app-card-title">AirSense</div><div class="app-card-id">app-003</div></div>
+        </div>
+        <div class="app-card-desc">Outdoor air quality monitoring and forecasting. Measures PM2.5, PM10, NO2, O3 and correlates with weather patterns.</div>
+        <div class="app-card-footer"><span class="app-domain orange">Environment</span><span class="app-version">v1.5.2</span></div>
+      </div>
+
+      <div class="app-card">
+        <div class="app-card-header">
+          <div class="app-icon green">SI</div>
+          <div><div class="app-card-title">SmartIrrigation Controller</div><div class="app-card-id">app-004</div></div>
+        </div>
+        <div class="app-card-desc">Precision agriculture irrigation using soil moisture sensors and weather forecasts to reduce water consumption by up to 40%.</div>
+        <div class="app-card-footer"><span class="app-domain green">Agriculture</span><span class="app-version">v2.0.0</span></div>
+      </div>
+
+      <div class="app-card">
+        <div class="app-card-header">
+          <div class="app-icon purple">EV</div>
+          <div><div class="app-card-title">EV Charging Optimizer</div><div class="app-card-id">app-005</div></div>
+        </div>
+        <div class="app-card-desc">Manages EV charging schedules across a fleet to balance grid load, minimise peak demand charges, and exploit off-peak tariffs.</div>
+        <div class="app-card-footer"><span class="app-domain purple">Transport</span><span class="app-version">v1.2.0</span></div>
+      </div>
+
+      <div class="app-card">
+        <div class="app-card-header">
+          <div class="app-icon teal">MG</div>
+          <div><div class="app-card-title">MicroGrid Controller</div><div class="app-card-id">app-059</div></div>
+        </div>
+        <div class="app-card-desc">Island-mode microgrid management combining solar, wind, and battery storage. Ensures stable power supply for remote installations.</div>
+        <div class="app-card-footer"><span class="app-domain">Energy</span><span class="app-version">v1.0.0</span></div>
+      </div>
+
+      <div class="app-card">
+        <div class="app-card-header">
+          <div class="app-icon red">SW</div>
+          <div><div class="app-card-title">Stormwater Flow Monitor</div><div class="app-card-id">app-063</div></div>
+        </div>
+        <div class="app-card-desc">Urban stormwater flow monitoring with predictive flood-risk scoring. Integrates with city GIS and emergency alert systems.</div>
+        <div class="app-card-footer"><span class="app-domain orange">Water</span><span class="app-version">v1.0.0</span></div>
+      </div>
+
+      <div class="app-card">
+        <div class="app-card-header">
+          <div class="app-icon orange">VF</div>
+          <div><div class="app-card-title">VerticalFarm Controller</div><div class="app-card-id">app-064</div></div>
+        </div>
+        <div class="app-card-desc">Automated control for vertical farming. Manages LEDs, CO₂, nutrients, and climate to maximise yield per square metre.</div>
+        <div class="app-card-footer"><span class="app-domain green">Agriculture</span><span class="app-version">v1.0.0</span></div>
+      </div>
+
+    </div>
+
+  </div>
+
+  <footer>
+    HEDGE-IoT App Store &mdash; Widget Integration Demo &middot; HEDGE-ExpertAI Widget v2.0
+  </footer>
+
+  <!-- ============================================================
+       HEDGE-ExpertAI Widget — this is the only code a third-party
+       App Store page needs to add to embed the assistant.
+  ============================================================= -->
+  <link rel="stylesheet" href="/hedge-expert-widget.css" />
+  <script src="/hedge-expert-widget.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", function () {
+      // Instantiate pointing at this server's own origin (works on any host/port)
+      window._hedgeWidgetInstance = new HedgeExpertWidget({
+        apiUrl: window.location.origin
+      });
+
+      // Wire the "Ask the AI Assistant" call-to-action button
+      document.getElementById("open-widget-btn").addEventListener("click", function () {
+        window._hedgeWidgetInstance.open();
+      });
+    });
+  </script>
+
+</body>
+</html>
