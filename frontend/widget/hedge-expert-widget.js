@@ -410,8 +410,19 @@
             '<button class="he-cot-toggle" aria-expanded="true" disabled>' +
               '<svg class="he-cot-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' +
               ' <span class="he-cot-title-text">Thinking Process <span class="he-pulse-dot"></span></span>' +
-      var timerEl = msgWrap.querySelector(".he-timer");
+            '</button>' +
+            '<div class="he-cot-steps"></div>' +
+          '</div>' +
+          '<div class="he-msg-content he-streaming-cursor" style="display: none;"></div>' +
+        '</div>';
+      this.messagesDiv.appendChild(msgWrap);
+      this._scrollBottom();
 
+      var cotSteps = msgWrap.querySelector(".he-cot-steps");
+      var cotToggle = msgWrap.querySelector(".he-cot-toggle");
+      var cotTitleText = msgWrap.querySelector(".he-cot-title-text");
+      var contentEl = msgWrap.querySelector(".he-msg-content");
+      var timerEl = msgWrap.querySelector(".he-timer");
       var self = this;
 
       // Live timer spanning both thinking and streaming
