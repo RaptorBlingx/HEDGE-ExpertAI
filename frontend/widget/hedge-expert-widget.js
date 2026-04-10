@@ -417,7 +417,21 @@
           self._clearThinking(thinkingEl);
           self._setStreamState("streaming");
 
-          // Create assistant message container
+          // Build static Chain of Thought
+          var cotHtml = '<div class="he-cot">' +
+            '<button class="he-cot-toggle" aria-expanded="true">' +
+              '<svg class="he-cot-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>' +
+              ' Chain of Thought' +
+            '</button>' +
+            '<div class="he-cot-steps">';
+          for (var s = 0; s < steps.length; s++) {
+            cotHtml += '<div class="he-cot-step">' +
+              '<svg class="he-cot-check" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>' +
+              escapeHtml(steps[s]) + '</div>';
+          }
+          cotHtml += '</div></div>';
+
+          // Create assistant message container: CoT → apps slot → text
           var msgWrap = document.createElement("div");
           msgWrap.className = "he-msg he-msg--assistant he-animate-in";
           msgWrap.innerHTML =
@@ -426,9 +440,23 @@
               '<div class="he-msg-top">' +
                 '<span class="he-timer">' + formatDuration(Date.now() - self.responseStartMs) + '</span>' +
               '</div>' +
+              cotHtml +
+              '<div class="he-cards-slot"></div>' +
               '<div class="he-msg-content he-streaming-cursor"></div>' +
             '</div>';
           self.messagesDiv.appendChild(msgWrap);
+
+          // CoT toggle collapse/expand
+          var cotToggle = msgWrap.querySelector(".he-cot-toggle");
+          var cotSteps = msgWrap.querySelector(".he-cot-steps");
+          if (cotToggle && cotSteps) {
+            cotToggle.addEventListener("click", function () {
+              var expanded = cotToggle.getAttribute("aria-expanded") === "true";
+              cotToggle.setAttribute("aria-expanded", expanded ? "false" : "true");
+              cotSteps.style.display = expanded ? "none" : "";
+              cotToggle.querySelector(".he-cot-chevron").style.transform = expanded ? "rotate(-90deg)" : "";
+            });
+          }
 
           var contentEl = msgWrap.querySelector(".he-msg-content");
           var timerEl = msgWrap.querySelector(".he-timer");
@@ -458,8 +486,9 @@
                   contentEl.innerHTML = renderMarkdown(accumulated);
                   self._addCopyButton(msgWrap, accumulated);
                 }
-                if (appsData && appsData.length > 0) {
-                  self._addAppCards(msgWrap.querySelector(".he-msg-body"), appsData);
+                // Apps already rendered when SSE event arrived; render any late-arriving ones
+                if (appsData && appsData.length > 0 && !msgWrap.querySelector(".he-cards")) {
+                  self._addAppCards(msgWrap.querySelector(".he-cards-slot") || msgWrap.querySelector(".he-msg-body"), appsData);
                 }
                 if (!self.isOpen) self._notify();
                 self._setStreamState("idle");
@@ -483,6 +512,11 @@
                   self._scrollBottom();
                 } else if (evt.type === "apps") {
                   appsData = evt.apps || [];
+                  // Render app cards immediately (above streaming text)
+                  if (appsData.length > 0) {
+                    var slot = msgWrap.querySelector(".he-cards-slot");
+                    if (slot) self._addAppCards(slot, appsData);
+                  }
                 } else if (evt.type === "done") {
                   if (evt.session_id) self._saveSession(evt.session_id);
                 } else if (evt.type === "error") {

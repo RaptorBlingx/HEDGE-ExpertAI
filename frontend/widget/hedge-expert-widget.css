@@ -406,6 +406,63 @@
 }
 
 /* ------------------------------------------------------------------ */
+/*  Chain of Thought (static CoT display)                              */
+/* ------------------------------------------------------------------ */
+
+.he-cot {
+  margin-bottom: 8px;
+}
+.he-cot-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: none;
+  border: none;
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  padding: 2px 0;
+  transition: color 0.15s;
+}
+.he-cot-toggle:hover { color: #94a3b8; }
+.he-cot-chevron {
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+.he-cot-steps {
+  margin-top: 4px;
+  padding: 8px 10px;
+  background: rgba(14, 165, 233, 0.04);
+  border: 1px solid rgba(14, 165, 233, 0.1);
+  border-radius: 8px;
+}
+.he-cot-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 11.5px;
+  color: #94a3b8;
+  line-height: 1.5;
+  padding: 2px 0;
+}
+.he-cot-check {
+  color: #34d399;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* Cards slot (between CoT and text) */
+.he-cards-slot {
+  /* Only takes space when cards are added */
+}
+.he-cards-slot .he-cards {
+  margin-top: 6px;
+}
+
+/* ------------------------------------------------------------------ */
 /*  Suggested Chips                                                    */
 /* ------------------------------------------------------------------ */
 
