@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     # --- Feature flags ---
     RASA_ENABLED: bool = False
     RERANKER_ENABLED: bool = False
+    RASA_URL: str = "http://rasa:5005"
+    RASA_TIMEOUT: int = 5
+    RASA_CONFIDENCE_THRESHOLD: float = 0.6
+    RASA_SHADOW_MODE: bool = False
+    RASA_CIRCUIT_OPEN_SECONDS: int = 60
 
     # --- App Store API ---
     MOCK_API_URL: str = "http://mock-api:9000"
@@ -49,6 +54,27 @@ class Settings(BaseSettings):
     # --- Security ---
     GATEWAY_API_KEY: str = ""
     CORS_ALLOWED_ORIGINS: str = "*"
+    TRUST_PROXY_HEADERS: bool = False
+    ENABLE_HSTS: bool = False
+    ENABLE_RBAC: bool = False
+
+    # --- OAuth / OIDC ---
+    OAUTH_ENABLED: bool = False
+    OAUTH_ISSUER: str = ""
+    OAUTH_AUDIENCE: str = "hedge-expert-api"
+    OAUTH_CLIENT_ID: str = "hedge-expert-api"
+    OAUTH_JWKS_URL: str = ""
+    OAUTH_SHARED_SECRET: str = ""
+    OAUTH_JWT_ALGORITHMS: str = "RS256"
+    RBAC_ADMIN_ROLES: str = "admin,administrator"
+    RBAC_ANALYST_ROLES: str = "analyst,admin"
+
+    # --- TLS edge / local auth tooling ---
+    TLS_SERVER_NAME: str = "localhost"
+    TLS_SELF_SIGNED_DAYS: int = 30
+    TLS_CERT_PATH: str = ""
+    TLS_KEY_PATH: str = ""
+    KEYCLOAK_PORT: int = 8081
 
     # --- Service URLs (for inter-service calls) ---
     CHAT_INTENT_URL: str = "http://chat-intent:8001"

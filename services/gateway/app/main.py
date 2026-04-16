@@ -10,7 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .middleware import APIKeyMiddleware, RateLimitMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
+from .middleware import APIKeyMiddleware, JWTAuthMiddleware, RateLimitMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
 from .routes import router, _SERVICES
 
 try:
@@ -36,7 +36,7 @@ app.add_middleware(
     allow_origins=[o.strip() for o in _allowed_origins],
     allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-API-Key", "X-Request-ID"],
+    allow_headers=["Authorization", "Content-Type", "X-API-Key", "X-Request-ID"],
 )
 
 # Custom middleware (order matters: first added = outermost)
@@ -44,6 +44,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(RateLimitMiddleware, max_requests=60, window_seconds=60)
 app.add_middleware(APIKeyMiddleware)
+app.add_middleware(JWTAuthMiddleware)
 if _HAS_METRICS:
     app.add_middleware(MetricsMiddleware, service_name="gateway")
 

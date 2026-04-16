@@ -76,7 +76,37 @@ make evaluate
 
 ### TLS/HTTPS
 
-Add a reverse proxy (nginx, Caddy, Traefik) in front of the gateway:
+The stack now includes an optional nginx TLS edge profile. This keeps the
+gateway on internal HTTP while exposing only ports 80/443 publicly.
+
+```bash
+# Start the base stack (services remain bound to 127.0.0.1 on the host)
+docker compose up -d
+
+# Add the TLS edge
+docker compose --profile tls up -d nginx
+```
+
+The nginx container will:
+- use mounted certificates from `TLS_CERT_PATH` / `TLS_KEY_PATH` if provided,
+- otherwise generate a short-lived self-signed certificate automatically,
+- proxy SSE traffic on `/api/v1/chat/stream` with buffering disabled.
+
+Example production variables in `.env`:
+
+```bash
+TLS_SERVER_NAME=hedge.example.com
+TLS_CERT_PATH=/etc/letsencrypt/live/hedge.example.com/fullchain.pem
+TLS_KEY_PATH=/etc/letsencrypt/live/hedge.example.com/privkey.pem
+ENABLE_HSTS=true
+TRUST_PROXY_HEADERS=true
+CORS_ALLOWED_ORIGINS=https://hedge.example.com
+```
+
+If you prefer an external ingress/load balancer, keep the `tls` profile off and
+terminate TLS outside Compose instead.
+
+Legacy manual reverse-proxy example:
 
 ```nginx
 server {
@@ -97,12 +127,58 @@ server {
 }
 ```
 
+### Auth / Keycloak
+
+The stack now includes an optional Keycloak + Postgres auth profile for local or
+staging OIDC setup:
+
+```bash
+docker compose --profile auth up -d keycloak-db keycloak
+```
+
+Default local access:
+- Keycloak admin console: `http://127.0.0.1:${KEYCLOAK_PORT:-8081}`
+- Admin user: `KEYCLOAK_ADMIN`
+
+Recommended staged rollout:
+1. Enable TLS first.
+2. Start Keycloak and configure issuer / audience values.
+3. Turn on `OAUTH_ENABLED=true` while keeping `ENABLE_RBAC=false` to validate token parsing.
+4. Turn on `ENABLE_RBAC=true` to protect admin and analytics endpoints.
+
+Relevant `.env` values:
+
+```bash
+OAUTH_ENABLED=true
+ENABLE_RBAC=true
+OAUTH_ISSUER=http://127.0.0.1:8081/realms/hedge
+OAUTH_AUDIENCE=hedge-expert-api
+OAUTH_CLIENT_ID=hedge-expert-api
+OAUTH_JWKS_URL=http://keycloak:8080/realms/hedge/protocol/openid-connect/certs
+RBAC_ADMIN_ROLES=admin,administrator
+RBAC_ANALYST_ROLES=analyst,admin
+```
+
+For test-only or bootstrap environments, `OAUTH_SHARED_SECRET` can be used in
+place of JWKS-based validation. Do not use that mode in production.
+
+### Protected Endpoints
+
+With `ENABLE_RBAC=true`, the gateway keeps public discovery open but protects:
+- `POST /api/v1/ingest/trigger` — admin role
+- `GET /api/v1/ingest/status` — analyst/admin role
+- `GET /api/v1/feedback/stats` — analyst/admin role
+- `GET /api/v1/sessions/recorded*` — analyst/admin role
+
+Chat, search, catalog browsing, app details, and feedback submission remain
+public in the first hardening rollout.
+
 ### CORS Configuration
 
-Update `CORS allow_origins` in `services/gateway/app/main.py` for production:
+Use `.env` for production CORS instead of editing code directly:
 
-```python
-allow_origins=["https://your-app-store-domain.com"],
+```bash
+CORS_ALLOWED_ORIGINS=https://your-app-store-domain.com
 ```
 
 ### Monitoring
@@ -148,5 +224,8 @@ docker run --rm -v "$(basename "$PWD")_redis-data:/data" -v "$(pwd)/backups:/bac
 | discovery-ranking fails healthcheck | Allow 3+ minutes for model download on first start (`start_period: 180s`) |
 | Ollama timeout errors | Increase `OLLAMA_TIMEOUT` in `.env` (default: 180s, try 240s) |
 | Out of memory (OOM kill) | Enable swap, or reduce `mem_limit` values and use smaller model |
+| RASA + Keycloak pressure on 5GB host | Keep `rasa` / `auth` profiles off by default, or move to an 8GB+ node |
+| TLS profile serves self-signed cert | Set `TLS_CERT_PATH` and `TLS_KEY_PATH` to real certificate files |
+| Admin routes return 401/403 | Verify `OAUTH_ENABLED`, `ENABLE_RBAC`, issuer/audience config, and token roles |
 | Qdrant version mismatch | Using `check_compatibility=False` — this is expected |
 | Celery tasks not found | Verify `include=["app.tasks.ingest"]` in celery_app.py |

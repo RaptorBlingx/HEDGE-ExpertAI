@@ -1,0 +1,51 @@
+version: "3.1"
+
+nlu:
+  - intent: greeting
+    examples: |
+      - hi
+      - hello
+      - hey
+      - greetings
+      - good morning
+      - good afternoon
+      - welcome
+
+  - intent: help
+    examples: |
+      - help
+      - what can you do
+      - how do I use this
+      - usage instructions
+      - guide me
+      - how does this work
+
+  - intent: detail
+    examples: |
+      - tell me about [app-001](app_id)
+      - details for [app-005](app_id)
+      - explain [app-023](app_id)
+      - what does SmartEnergy do
+      - describe [app-042](app_id)
+
+  - intent: search
+    examples: |
+      - find apps for energy monitoring
+      - I need a smart irrigation solution
+      - search for building automation
+      - show me environmental sensors
+      - recommend IoT apps for water management
+      - looking for traffic optimization
+      - air quality monitoring for cities
+      - predictive maintenance for factory equipment
+      - renewable energy management
+      - smart waste compactor with fill level
+      - digital twin for factory simulation
+      - vertical farming indoor crops led
+
+  - intent: unknown
+    examples: |
+      - ok
+      - hmm
+      - maybe
+      - not sure

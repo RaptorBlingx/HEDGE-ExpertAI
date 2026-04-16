@@ -6,7 +6,7 @@ import logging
 import os
 
 import httpx
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,41 @@ _SERVICES = {
     "metadata-ingest": f"{METADATA_INGEST_URL}/health",
     "mock-api": f"{MOCK_API_URL}/health",
 }
+
+
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_roles(name: str, default: str) -> set[str]:
+    raw = os.getenv(name, default)
+    return {item.strip() for item in raw.split(",") if item.strip()}
+
+
+def _require_roles(request: Request, allowed_roles: set[str]) -> None:
+    if not _env_flag("ENABLE_RBAC"):
+        return
+    if getattr(request.state, "api_key_authenticated", False):
+        return
+
+    user = getattr(request.state, "user", None)
+    if user is None:
+        raise HTTPException(status_code=401, detail="Bearer token required.")
+
+    user_roles = set(getattr(user, "roles", []))
+    if not user_roles.intersection(allowed_roles):
+        raise HTTPException(status_code=403, detail="Insufficient role for this endpoint.")
+
+
+def _require_admin(request: Request) -> None:
+    _require_roles(request, _env_roles("RBAC_ADMIN_ROLES", "admin,administrator"))
+
+
+def _require_analyst(request: Request) -> None:
+    _require_roles(request, _env_roles("RBAC_ANALYST_ROLES", "analyst,admin"))
 
 
 @router.post("/api/v1/chat")
@@ -176,8 +211,9 @@ async def proxy_get_app(app_id: str):
 
 
 @router.post("/api/v1/ingest/trigger")
-async def proxy_ingest_trigger():
+async def proxy_ingest_trigger(request: Request):
     """Proxy ingest trigger to metadata-ingest service."""
+    _require_admin(request)
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
@@ -194,8 +230,9 @@ async def proxy_ingest_trigger():
 
 
 @router.get("/api/v1/ingest/status")
-async def proxy_ingest_status():
+async def proxy_ingest_status(request: Request):
     """Proxy ingest status to metadata-ingest service."""
+    _require_analyst(request)
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(
@@ -234,8 +271,9 @@ async def proxy_feedback(request: Request):
 
 
 @router.get("/api/v1/feedback/stats")
-async def proxy_feedback_stats():
+async def proxy_feedback_stats(request: Request):
     """Proxy feedback stats for KPI reporting."""
+    _require_analyst(request)
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(
@@ -254,8 +292,9 @@ async def proxy_feedback_stats():
 # Session recording proxy (Obj 5)
 # ---------------------------------------------------------------------------
 @router.get("/api/v1/sessions/recorded")
-async def proxy_sessions_list(limit: int = Query(100, ge=1, le=1000)):
+async def proxy_sessions_list(request: Request, limit: int = Query(100, ge=1, le=1000)):
     """List recorded sessions."""
+    _require_analyst(request)
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(
@@ -272,8 +311,9 @@ async def proxy_sessions_list(limit: int = Query(100, ge=1, le=1000)):
 
 
 @router.get("/api/v1/sessions/recorded/{session_id}")
-async def proxy_session_log(session_id: str):
+async def proxy_session_log(session_id: str, request: Request):
     """Get full event log for a recorded session."""
+    _require_analyst(request)
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(

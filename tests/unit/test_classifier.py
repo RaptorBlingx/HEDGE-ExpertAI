@@ -2,6 +2,7 @@
 
 import importlib.util
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -74,6 +75,10 @@ class TestClassifier:
         result = classify("tell me about app-001")
         assert result.entities.get("app_id") == "app-001"
 
+    def test_saref_class_extraction(self):
+        result = classify("find apps for energy monitoring")
+        assert result.entities.get("saref_class") == "Energy"
+
     # --- Unknown / fallback ---
     def test_empty_input(self):
         result = classify("")
@@ -87,3 +92,60 @@ class TestClassifier:
     def test_long_input_defaults_to_search(self):
         result = classify("something about weather and climate data analysis")
         assert result.intent == "search"
+
+
+class TestRasaFallback:
+    def setup_method(self):
+        _mod._RASA_CONSECUTIVE_FAILURES = 0
+        _mod._RASA_CIRCUIT_OPEN_UNTIL = 0.0
+
+    def test_rasa_high_confidence_used(self, monkeypatch):
+        monkeypatch.setenv("RASA_ENABLED", "true")
+        monkeypatch.setenv("RASA_CONFIDENCE_THRESHOLD", "0.6")
+
+        with patch.object(
+            _mod,
+            "_request_rasa_parse",
+            return_value={"intent": {"name": "help", "confidence": 0.91}, "entities": []},
+        ):
+            result = classify("find apps for energy monitoring")
+
+        assert result.intent == "help"
+
+    def test_rasa_low_confidence_falls_back(self, monkeypatch):
+        monkeypatch.setenv("RASA_ENABLED", "true")
+        monkeypatch.setenv("RASA_CONFIDENCE_THRESHOLD", "0.8")
+
+        with patch.object(
+            _mod,
+            "_request_rasa_parse",
+            return_value={"intent": {"name": "help", "confidence": 0.41}, "entities": []},
+        ):
+            result = classify("find apps for energy monitoring")
+
+        assert result.intent == "search"
+
+    def test_rasa_shadow_mode_keeps_regex_result(self, monkeypatch):
+        monkeypatch.setenv("RASA_ENABLED", "true")
+        monkeypatch.setenv("RASA_SHADOW_MODE", "true")
+
+        with patch.object(
+            _mod,
+            "_request_rasa_parse",
+            return_value={"intent": {"name": "help", "confidence": 0.99}, "entities": []},
+        ):
+            result = classify("find apps for energy monitoring")
+
+        assert result.intent == "search"
+
+    def test_rasa_failure_opens_circuit_after_three_errors(self, monkeypatch):
+        monkeypatch.setenv("RASA_ENABLED", "true")
+        monkeypatch.setenv("RASA_CIRCUIT_OPEN_SECONDS", "60")
+
+        with patch.object(_mod, "_request_rasa_parse", side_effect=TimeoutError("boom")) as mock_request:
+            for _ in range(4):
+                result = classify("find apps for energy monitoring")
+                assert result.intent == "search"
+
+        assert mock_request.call_count == 3
+        assert _mod._RASA_CIRCUIT_OPEN_UNTIL > 0

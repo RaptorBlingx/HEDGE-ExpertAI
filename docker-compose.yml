@@ -12,7 +12,7 @@ services:
     image: ollama/ollama:latest
     container_name: hedge-ollama
     ports:
-      - "11434:11434"
+      - "127.0.0.1:11434:11434"
     volumes:
       - ollama-data:/root/.ollama
     environment:
@@ -34,8 +34,8 @@ services:
     image: qdrant/qdrant:v1.9.7
     container_name: hedge-qdrant
     ports:
-      - "6333:6333"
-      - "6334:6334"
+      - "127.0.0.1:6333:6333"
+      - "127.0.0.1:6334:6334"
     volumes:
       - qdrant-data:/qdrant/storage
     mem_limit: 256m
@@ -51,7 +51,7 @@ services:
     image: redis:7-alpine
     container_name: hedge-redis
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     volumes:
       - redis-data:/data
     command: redis-server --maxmemory 50mb --maxmemory-policy allkeys-lru
@@ -73,7 +73,7 @@ services:
       dockerfile: services/mock-api/Dockerfile
     container_name: hedge-mock-api
     ports:
-      - "9000:9000"
+      - "127.0.0.1:9000:9000"
     env_file: .env
     mem_limit: 128m
     healthcheck:
@@ -90,7 +90,7 @@ services:
       dockerfile: services/discovery-ranking/Dockerfile
     container_name: hedge-discovery-ranking
     ports:
-      - "8003:8003"
+      - "127.0.0.1:8003:8003"
     env_file: .env
     depends_on:
       qdrant:
@@ -110,7 +110,7 @@ services:
       dockerfile: services/metadata-ingest/Dockerfile
     container_name: hedge-metadata-ingest
     ports:
-      - "8004:8004"
+      - "127.0.0.1:8004:8004"
     env_file: .env
     depends_on:
       redis:
@@ -134,7 +134,7 @@ services:
       dockerfile: services/expert-recommend/Dockerfile
     container_name: hedge-expert-recommend
     ports:
-      - "8002:8002"
+      - "127.0.0.1:8002:8002"
     env_file: .env
     depends_on:
       ollama:
@@ -156,7 +156,7 @@ services:
       dockerfile: services/chat-intent/Dockerfile
     container_name: hedge-chat-intent
     ports:
-      - "8001:8001"
+      - "127.0.0.1:8001:8001"
     env_file: .env
     depends_on:
       redis:
@@ -178,7 +178,7 @@ services:
       dockerfile: services/gateway/Dockerfile
     container_name: hedge-gateway
     ports:
-      - "8080:8000"
+      - "127.0.0.1:8080:8000"
     env_file: .env
     depends_on:
       chat-intent:
@@ -199,12 +199,98 @@ services:
   # ---------------------------------------------------------------------------
   rasa:
     <<: *common
-    image: rasa/rasa:3.6.20
+    build:
+      context: .
+      dockerfile: services/rasa/Dockerfile
     container_name: hedge-rasa
     ports:
-      - "5005:5005"
+      - "127.0.0.1:5005:5005"
     profiles:
       - full
+      - rasa
+    env_file: .env
+    mem_limit: 1024m
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5005/status')\""]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ---------------------------------------------------------------------------
+  # Optional: TLS edge proxy (public 80/443 entrypoint)
+  # Start with: docker compose --profile tls up nginx
+  # ---------------------------------------------------------------------------
+  nginx:
+    <<: *common
+    build:
+      context: .
+      dockerfile: services/nginx/Dockerfile
+    container_name: hedge-nginx
+    profiles:
+      - tls
+    ports:
+      - "80:80"
+      - "443:443"
+    env_file: .env
+    depends_on:
+      gateway:
+        condition: service_healthy
+    volumes:
+      - nginx-certs:/etc/nginx/certs
+    mem_limit: 64m
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/healthz >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Optional: Keycloak auth stack
+  # Start with: docker compose --profile auth up keycloak keycloak-db
+  # ---------------------------------------------------------------------------
+  keycloak-db:
+    <<: *common
+    image: postgres:16-alpine
+    container_name: hedge-keycloak-db
+    profiles:
+      - auth
+    environment:
+      POSTGRES_DB: ${KEYCLOAK_DB_NAME:-keycloak}
+      POSTGRES_USER: ${KEYCLOAK_DB_USER:-keycloak}
+      POSTGRES_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-change-me}
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    mem_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  keycloak:
+    <<: *common
+    image: quay.io/keycloak/keycloak:25.0
+    container_name: hedge-keycloak
+    profiles:
+      - auth
+    command: ["start-dev", "--http-port=8080", "--proxy-headers=xforwarded", "--hostname-strict=false"]
+    ports:
+      - "127.0.0.1:${KEYCLOAK_PORT:-8081}:8080"
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-change-me}
+      KC_DB: postgres
+      KC_DB_URL_HOST: keycloak-db
+      KC_DB_URL_DATABASE: ${KEYCLOAK_DB_NAME:-keycloak}
+      KC_DB_USERNAME: ${KEYCLOAK_DB_USER:-keycloak}
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:-change-me}
+      KC_PROXY_HEADERS: xforwarded
+    depends_on:
+      keycloak-db:
+        condition: service_healthy
     mem_limit: 1024m
 
 networks:
@@ -215,3 +301,5 @@ volumes:
   ollama-data:
   qdrant-data:
   redis-data:
+  nginx-certs:
+  keycloak-db-data:

@@ -23,8 +23,20 @@ Intents:
 
 from __future__ import annotations
 
+import logging
+import os
 import re
+import time
 from dataclasses import dataclass
+
+import httpx
+
+
+logger = logging.getLogger(__name__)
+
+_TRUTHY = {"1", "true", "yes", "on"}
+_RASA_CONSECUTIVE_FAILURES = 0
+_RASA_CIRCUIT_OPEN_UNTIL = 0.0
 
 
 @dataclass
@@ -82,31 +94,131 @@ _SAREF_ENTITY_PATTERNS: list[tuple[str, re.Pattern]] = [
 ]
 
 
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in _TRUTHY
+
+
+def _extract_entities(text_clean: str) -> dict:
+    entities: dict = {}
+    app_id_match = _APP_ID_RE.search(text_clean)
+    if app_id_match:
+        entities["app_id"] = app_id_match.group(1).replace(" ", "-").lower()
+
+    for saref_class, pattern in _SAREF_ENTITY_PATTERNS:
+        if pattern.search(text_clean):
+            entities.setdefault("saref_class", saref_class)
+            break
+    return entities
+
+
+def _classify_via_regex(text_clean: str, entities: dict) -> IntentResult:
+    for intent_name, patterns in _INTENT_PATTERNS:
+        for pattern in patterns:
+            if pattern.search(text_clean):
+                return IntentResult(intent=intent_name, confidence=0.85, entities=entities)
+
+    if len(text_clean.split()) >= 3:
+        return IntentResult(intent="search", confidence=0.5, entities=entities)
+
+    return IntentResult(intent="unknown", confidence=0.3, entities=entities)
+
+
+def _request_rasa_parse(text: str) -> dict:
+    rasa_url = os.getenv("RASA_URL", "http://rasa:5005").rstrip("/")
+    timeout_s = float(os.getenv("RASA_TIMEOUT", "5"))
+    response = httpx.post(
+        f"{rasa_url}/model/parse",
+        json={"text": text},
+        timeout=timeout_s,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def _classify_via_rasa(text_clean: str, entities: dict) -> IntentResult:
+    payload = _request_rasa_parse(text_clean)
+    intent_data = payload.get("intent") or {}
+    intent_name = str(intent_data.get("name") or "unknown")
+    confidence = float(intent_data.get("confidence") or 0.0)
+
+    merged_entities = dict(entities)
+    for entity in payload.get("entities") or []:
+        entity_name = str(entity.get("entity") or "")
+        entity_value = entity.get("value")
+        if entity_name == "app_id" and entity_value:
+            merged_entities["app_id"] = str(entity_value).replace(" ", "-").lower()
+        elif entity_name == "saref_class" and entity_value:
+            merged_entities["saref_class"] = str(entity_value)
+
+    if intent_name not in {"greeting", "help", "detail", "search", "unknown"}:
+        intent_name = "unknown"
+
+    return IntentResult(intent=intent_name, confidence=confidence, entities=merged_entities)
+
+
+def _rasa_circuit_open() -> bool:
+    global _RASA_CIRCUIT_OPEN_UNTIL, _RASA_CONSECUTIVE_FAILURES
+    if _RASA_CIRCUIT_OPEN_UNTIL <= 0:
+        return False
+    if time.monotonic() >= _RASA_CIRCUIT_OPEN_UNTIL:
+        _RASA_CIRCUIT_OPEN_UNTIL = 0.0
+        _RASA_CONSECUTIVE_FAILURES = 0
+        return False
+    return True
+
+
+def _record_rasa_failure() -> None:
+    global _RASA_CONSECUTIVE_FAILURES, _RASA_CIRCUIT_OPEN_UNTIL
+    _RASA_CONSECUTIVE_FAILURES += 1
+    if _RASA_CONSECUTIVE_FAILURES >= 3:
+        _RASA_CIRCUIT_OPEN_UNTIL = time.monotonic() + float(os.getenv("RASA_CIRCUIT_OPEN_SECONDS", "60"))
+
+
+def _reset_rasa_failures() -> None:
+    global _RASA_CONSECUTIVE_FAILURES, _RASA_CIRCUIT_OPEN_UNTIL
+    _RASA_CONSECUTIVE_FAILURES = 0
+    _RASA_CIRCUIT_OPEN_UNTIL = 0.0
+
+
 def classify(text: str) -> IntentResult:
     """Classify user message into an intent."""
     text_clean = text.strip()
     if not text_clean:
         return IntentResult(intent="unknown", confidence=0.0, entities={})
 
-    # Extract potential app IDs
-    entities: dict = {}
-    app_id_match = _APP_ID_RE.search(text_clean)
-    if app_id_match:
-        entities["app_id"] = app_id_match.group(1).replace(" ", "-").lower()
+    entities = _extract_entities(text_clean)
+    regex_result = _classify_via_regex(text_clean, entities)
 
-    # Extract SAREF class entities
-    for saref_class, pattern in _SAREF_ENTITY_PATTERNS:
-        if pattern.search(text_clean):
-            entities.setdefault("saref_class", saref_class)
-            break
+    if not _env_flag("RASA_ENABLED"):
+        return regex_result
 
-    for intent_name, patterns in _INTENT_PATTERNS:
-        for pattern in patterns:
-            if pattern.search(text_clean):
-                return IntentResult(intent=intent_name, confidence=0.85, entities=entities)
+    if _rasa_circuit_open():
+        logger.warning("RASA circuit open; using regex fallback")
+        return regex_result
 
-    # Fallback: if text is long enough, assume search intent
-    if len(text_clean.split()) >= 3:
-        return IntentResult(intent="search", confidence=0.5, entities=entities)
+    try:
+        rasa_result = _classify_via_rasa(text_clean, entities)
+        _reset_rasa_failures()
+    except Exception:
+        logger.exception("RASA classification failed; using regex fallback")
+        _record_rasa_failure()
+        return regex_result
 
-    return IntentResult(intent="unknown", confidence=0.3, entities=entities)
+    if _env_flag("RASA_SHADOW_MODE"):
+        if rasa_result.intent != regex_result.intent:
+            logger.info(
+                "RASA shadow disagreement: rasa=%s regex=%s text=%s",
+                rasa_result.intent,
+                regex_result.intent,
+                text_clean,
+            )
+        return regex_result
+
+    threshold = float(os.getenv("RASA_CONFIDENCE_THRESHOLD", "0.6"))
+    if rasa_result.confidence >= threshold:
+        return rasa_result
+
+    return regex_result

@@ -21,14 +21,16 @@
 ## Roadmap for Production (OC2 / TRL 8)
 
 ### Phase 1: TLS Termination
-- Add nginx/traefik reverse proxy with Let's Encrypt TLS certificates
+- Add nginx reverse proxy profile inside Docker Compose (implemented) or use an external ingress
+- Support mounted certificates or short-lived self-signed certificates for local validation
 - Enable `ENABLE_HSTS=true` for Strict-Transport-Security
 - Inter-service communication remains HTTP (inside Docker network)
 
 ### Phase 2: RBAC & OAuth
-- Integrate with HEDGE-IoT identity provider (OAuth 2.0 / OIDC)
-- Define roles: `viewer` (search/chat), `admin` (ingest trigger, session export)
-- Replace API key with JWT token validation
+- Integrate self-hosted Keycloak first, then switch to HEDGE-IoT identity provider when available
+- Define roles: `viewer` (search/chat), `admin` (ingest trigger), `analyst` (session export / stats)
+- Validate JWTs at the gateway using JWKS, keeping API key as a temporary fallback
+- Keep discovery endpoints public in the first rollout; protect only admin and analytics routes
 
 ### Phase 3: Key Rotation
 - Implement periodic API key rotation mechanism
@@ -45,3 +47,12 @@
 - Read-only filesystem where possible
 - Scan images with Trivy/Snyk in CI pipeline
 - Pin base image digests
+
+## Current Implementation Notes
+
+- Internal service host ports are now bound to `127.0.0.1` by default to reduce accidental exposure.
+- Optional profiles:
+	- `tls` → nginx edge on ports 80/443
+	- `auth` → Keycloak + Postgres
+	- `rasa` / `full` → RASA NLU service
+- RASA activation is implemented as RASA-first with regex fallback, low-confidence fallback, and a short circuit breaker to avoid chat outages.
