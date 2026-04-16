@@ -9,11 +9,13 @@ Modes:
   - all:              run all three modes sequentially
 
 Computes:
-  - Precision@2, Recall@5, MRR, latency          (search)
-  - Precision@2, latency, explanation accuracy    (chat)
-  - TTFT, Time-to-First-App, total duration       (stream)
-  - App exposure rate                              (chat)
-  - Feedback acceptance rate                       (feedback endpoint)
+  - Precision@2, Recall@5, MRR, NDCG@5, MAP, latency   (search)
+  - Precision@2, latency, explanation accuracy           (chat)
+  - TTFT, Time-to-First-App, total duration              (stream)
+  - App exposure rate                                    (search & chat)
+  - Per-SAREF-category breakdown                         (search)
+  - Confidence intervals (95% bootstrap)                 (search)
+  - Feedback acceptance rate                             (feedback endpoint)
 
 Usage:
   python evaluate.py --api-url http://localhost:8000
@@ -25,8 +27,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import random
 import statistics
 import time
+from collections import defaultdict
 from pathlib import Path
 
 import httpx
@@ -41,6 +46,62 @@ FALLBACK_TEMPLATE_MARKERS = [
 def load_queries(path: str) -> list[dict]:
     with open(path) as f:
         return json.load(f)
+
+
+# ---------------------------------------------------------------------------
+# Statistical helpers
+# ---------------------------------------------------------------------------
+
+
+def _dcg(relevances: list[float], k: int) -> float:
+    """Discounted Cumulative Gain at rank k."""
+    score = 0.0
+    for i, rel in enumerate(relevances[:k]):
+        score += rel / math.log2(i + 2)  # i+2 because rank is 1-indexed
+    return score
+
+
+def _ndcg_at_k(result_ids: list[str], expected: set[str], k: int = 5) -> float:
+    """Normalized Discounted Cumulative Gain at k (binary relevance)."""
+    relevances = [1.0 if rid in expected else 0.0 for rid in result_ids[:k]]
+    dcg = _dcg(relevances, k)
+    # Ideal: all relevant docs first
+    ideal_relevances = sorted(relevances, reverse=True)
+    # In case there are more relevant docs than returned
+    n_relevant = min(len(expected), k)
+    ideal_relevances = [1.0] * n_relevant + [0.0] * (k - n_relevant)
+    idcg = _dcg(ideal_relevances, k)
+    return dcg / idcg if idcg > 0 else 0.0
+
+
+def _average_precision(result_ids: list[str], expected: set[str]) -> float:
+    """Average Precision for a single query."""
+    if not expected:
+        return 0.0
+    hits = 0
+    sum_prec = 0.0
+    for i, rid in enumerate(result_ids):
+        if rid in expected:
+            hits += 1
+            sum_prec += hits / (i + 1)
+    return sum_prec / len(expected)
+
+
+def _bootstrap_ci(values: list[float], n_bootstrap: int = 2000, alpha: float = 0.05) -> tuple[float, float]:
+    """Bootstrap 95% confidence interval for the mean."""
+    if len(values) < 2:
+        m = values[0] if values else 0.0
+        return (m, m)
+    rng = random.Random(42)
+    n = len(values)
+    means = []
+    for _ in range(n_bootstrap):
+        sample = [rng.choice(values) for _ in range(n)]
+        means.append(statistics.mean(sample))
+    means.sort()
+    lo = means[int(n_bootstrap * alpha / 2)]
+    hi = means[int(n_bootstrap * (1 - alpha / 2))]
+    return (lo, hi)
 
 
 # ---------------------------------------------------------------------------
@@ -75,7 +136,13 @@ def evaluate(api_url: str, queries: list[dict]) -> dict:
     precision_at_2_scores = []
     recall_at_5_scores = []
     mrr_scores = []
+    ndcg_at_5_scores = []
+    ap_scores = []
     latencies = []
+    all_returned_app_ids: set[str] = set()
+
+    # Per-SAREF tracking
+    saref_scores: dict[str, list[float]] = defaultdict(list)
 
     for i, q in enumerate(queries):
         query_text = q["query"]
@@ -85,6 +152,7 @@ def evaluate(api_url: str, queries: list[dict]) -> dict:
         try:
             result_ids, latency = search(api_url, query_text, saref_class=saref_class)
             latencies.append(latency)
+            all_returned_app_ids.update(result_ids)
 
             # Precision@2
             top2 = result_ids[:2]
@@ -110,8 +178,20 @@ def evaluate(api_url: str, queries: list[dict]) -> dict:
                     break
             mrr_scores.append(rr)
 
+            # NDCG@5
+            ndcg = _ndcg_at_k(result_ids, expected, k=5)
+            ndcg_at_5_scores.append(ndcg)
+
+            # Average Precision
+            ap = _average_precision(result_ids, expected)
+            ap_scores.append(ap)
+
+            # Track per-SAREF
+            if saref_class:
+                saref_scores[saref_class].append(p2)
+
             status = "OK" if p2 > 0 else "MISS"
-            print(f"  [{status}] Q{i+1}: '{query_text}' → P@2={p2:.2f} R@5={r5:.2f} RR={rr:.2f} ({latency:.2f}s)")
+            print(f"  [{status}] Q{i+1}: '{query_text}' → P@2={p2:.2f} R@5={r5:.2f} RR={rr:.2f} NDCG@5={ndcg:.2f} ({latency:.2f}s)")
 
         except Exception as e:
             print(f"  [ERR] Q{i+1}: '{query_text}' → {e}")
@@ -122,8 +202,22 @@ def evaluate(api_url: str, queries: list[dict]) -> dict:
         "precision_at_2": statistics.mean(precision_at_2_scores) if precision_at_2_scores else 0,
         "recall_at_5": statistics.mean(recall_at_5_scores) if recall_at_5_scores else 0,
         "mrr": statistics.mean(mrr_scores) if mrr_scores else 0,
+        "ndcg_at_5": statistics.mean(ndcg_at_5_scores) if ndcg_at_5_scores else 0,
+        "map": statistics.mean(ap_scores) if ap_scores else 0,
         "median_latency_s": statistics.median(latencies) if latencies else 0,
         "p95_latency_s": sorted(latencies)[int(len(latencies) * 0.95)] if latencies else 0,
+        "unique_apps_returned": len(all_returned_app_ids),
+        # Confidence intervals
+        "precision_at_2_ci": _bootstrap_ci(precision_at_2_scores) if precision_at_2_scores else (0, 0),
+        "mrr_ci": _bootstrap_ci(mrr_scores) if mrr_scores else (0, 0),
+        # Per-SAREF breakdown
+        "per_saref": {
+            cat: {
+                "count": len(scores),
+                "precision_at_2": statistics.mean(scores),
+            }
+            for cat, scores in sorted(saref_scores.items())
+        },
     }
     return metrics
 
@@ -302,31 +396,55 @@ def fetch_feedback_stats(api_url: str) -> dict | None:
 # ---------------------------------------------------------------------------
 
 
-def _print_search_results(metrics: dict) -> None:
-    print(f"\n{'='*55}")
+def _print_search_results(metrics: dict, total_apps: int = 75) -> None:
+    p2_ci = metrics.get("precision_at_2_ci", (0, 0))
+    mrr_ci = metrics.get("mrr_ci", (0, 0))
+    exposure = metrics.get("unique_apps_returned", 0) / total_apps if total_apps else 0
+    exposure_pass = exposure >= 0.60
+
+    print(f"\n{'='*60}")
     print("  SEARCH RESULTS  (/api/v1/apps/search)")
-    print(f"{'='*55}")
+    print(f"{'='*60}")
     print(f"  Queries evaluated: {metrics['evaluated']}/{metrics['total_queries']}")
-    print(f"  Precision@2:      {metrics['precision_at_2']:.1%}  (target: ≥70%)")
+    print(f"  Precision@2:      {metrics['precision_at_2']:.1%}  (target: ≥70%)  95% CI [{p2_ci[0]:.1%}, {p2_ci[1]:.1%}]")
     print(f"  Recall@5:         {metrics['recall_at_5']:.1%}")
-    print(f"  MRR:              {metrics['mrr']:.3f}")
+    print(f"  MRR:              {metrics['mrr']:.3f}  95% CI [{mrr_ci[0]:.3f}, {mrr_ci[1]:.3f}]")
+    print(f"  NDCG@5:           {metrics.get('ndcg_at_5', 0):.3f}")
+    print(f"  MAP:              {metrics.get('map', 0):.3f}")
     print(f"  Median latency:   {metrics['median_latency_s']:.2f}s  (target: <5s)")
     print(f"  P95 latency:      {metrics['p95_latency_s']:.2f}s")
+    print(f"  App exposure:     {exposure:.1%}  ({metrics.get('unique_apps_returned', 0)}/{total_apps})  (target: ≥60%)  {'✓' if exposure_pass else '✗'}")
+
+    # Per-SAREF breakdown
+    per_saref = metrics.get("per_saref", {})
+    if per_saref:
+        print(f"\n  {'─'*50}")
+        print(f"  Per-SAREF Category Breakdown:")
+        print(f"  {'Category':<16} {'Queries':>8} {'P@2':>8}")
+        print(f"  {'─'*16} {'─'*8} {'─'*8}")
+        for cat, data in per_saref.items():
+            p2 = data["precision_at_2"]
+            flag = " ✓" if p2 >= 0.70 else " ✗"
+            print(f"  {cat:<16} {data['count']:>8} {p2:>7.1%}{flag}")
+
     passed = metrics["precision_at_2"] >= 0.70 and metrics["median_latency_s"] < 5.0
     print(f"\n  Search: {'PASS ✓' if passed else 'FAIL ✗'}")
 
 
-def _print_chat_results(metrics: dict, total_apps: int = 50) -> None:
+def _print_chat_results(metrics: dict, total_apps: int = 75) -> None:
     exposure = metrics["unique_apps_returned"] / total_apps if total_apps else 0
+    latency_pass = metrics["median_latency_s"] < 5.0
+    exposure_pass = exposure >= 0.60
+    accuracy_pass = metrics["explanation_accuracy"] >= 0.80
     print(f"\n{'='*55}")
-    print("  CHAT RESULTS  (/api/v1/chat)")
+    print("  CHAT RESULTS (E2E)  (/api/v1/chat)")
     print(f"{'='*55}")
     print(f"  Queries evaluated:    {metrics['evaluated']}/{metrics['total_queries']}")
     print(f"  Precision@2:          {metrics['precision_at_2']:.1%}  (target: ≥70%)")
-    print(f"  Median latency:       {metrics['median_latency_s']:.1f}s")
-    print(f"  P95 latency:          {metrics['p95_latency_s']:.1f}s")
-    print(f"  Explanation accuracy:  {metrics['explanation_accuracy']:.1%}  (target: ≥80%)")
-    print(f"  App exposure rate:     {exposure:.1%}  ({metrics['unique_apps_returned']}/{total_apps} apps)  (target: ≥60%)")
+    print(f"  Median E2E latency:   {metrics['median_latency_s']:.1f}s  (target: <5s)  {'✓' if latency_pass else '✗'}")
+    print(f"  P95 E2E latency:      {metrics['p95_latency_s']:.1f}s")
+    print(f"  Explanation accuracy:  {metrics['explanation_accuracy']:.1%}  (target: ≥80%)  {'✓' if accuracy_pass else '✗'}")
+    print(f"  App exposure rate:     {exposure:.1%}  ({metrics['unique_apps_returned']}/{total_apps} apps)  (target: ≥60%)  {'✓' if exposure_pass else '✗'}")
 
 
 def _print_stream_results(metrics: dict) -> None:
@@ -346,7 +464,7 @@ def main():
     parser.add_argument("--queries", default=str(Path(__file__).parent / "test_queries.json"), help="Path to test queries JSON")
     parser.add_argument("--mode", choices=["search", "chat", "stream", "all"], default="search", help="Evaluation mode")
     parser.add_argument("--max-queries", type=int, default=None, help="Limit number of queries (for chat/stream)")
-    parser.add_argument("--total-apps", type=int, default=50, help="Total apps in catalog (for exposure rate)")
+    parser.add_argument("--total-apps", type=int, default=75, help="Total apps in catalog (for exposure rate)")
     parser.add_argument("--report-feedback", action="store_true", help="Also report feedback acceptance stats")
     args = parser.parse_args()
 
@@ -364,7 +482,7 @@ def main():
         if mode == "search":
             print(f"Running {len(queries)} search queries...\n")
             metrics = evaluate(args.api_url, queries)
-            _print_search_results(metrics)
+            _print_search_results(metrics, total_apps=args.total_apps)
             search_passed = metrics["precision_at_2"] >= 0.70 and metrics["median_latency_s"] < 5.0
 
         elif mode == "chat":
@@ -379,19 +497,29 @@ def main():
             metrics = stream_evaluate(args.api_url, queries, max_queries=args.max_queries)
             _print_stream_results(metrics)
 
-    if args.report_feedback:
-        print(f"\n{'='*55}")
-        print("  FEEDBACK STATS")
-        print(f"{'='*55}")
-        fb = fetch_feedback_stats(args.api_url)
-        if fb:
-            rate = fb.get("acceptance_rate")
-            print(f"  Acceptance rate: {rate:.1%}" if rate is not None else "  Acceptance rate: N/A (no feedback data)")
-            print(f"  Total clicks:    {fb.get('total_click', 0)}")
-            print(f"  Total accepts:   {fb.get('total_accept', 0)}")
-            print(f"  Total dismisses: {fb.get('total_dismiss', 0)}")
+    # Always report feedback stats when available
+    print(f"\n{'='*55}")
+    print("  FEEDBACK STATS")
+    print(f"{'='*55}")
+    fb = fetch_feedback_stats(args.api_url)
+    if fb:
+        total_accept = fb.get("total_accept", 0)
+        total_dismiss = fb.get("total_dismiss", 0)
+        total_actions = total_accept + total_dismiss
+        if total_actions > 0:
+            acceptance_rate = total_accept / total_actions
+            rate_pass = acceptance_rate >= 0.70
+            print(f"  Acceptance rate:  {acceptance_rate:.1%}  (target: ≥70%)  {'✓' if rate_pass else '✗'}")
         else:
-            print("  Could not fetch feedback stats.")
+            print("  Acceptance rate:  N/A (no feedback data yet)")
+        print(f"  Total clicks:     {fb.get('total_click', 0)}")
+        print(f"  Total accepts:    {total_accept}")
+        print(f"  Total dismisses:  {total_dismiss}")
+        avg = fb.get("avg_rating")
+        if avg is not None:
+            print(f"  Avg rating:       {avg}/5")
+    else:
+        print("  Could not fetch feedback stats.")
 
     print(f"\n{'='*55}")
     if args.mode in ("search", "all"):

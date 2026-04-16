@@ -13,6 +13,12 @@ from fastapi.staticfiles import StaticFiles
 from .middleware import APIKeyMiddleware, RateLimitMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
 from .routes import router, _SERVICES
 
+try:
+    from hedge_shared.metrics import MetricsMiddleware
+    _HAS_METRICS = True
+except ImportError:
+    _HAS_METRICS = False
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -38,6 +44,8 @@ app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(RateLimitMiddleware, max_requests=60, window_seconds=60)
 app.add_middleware(APIKeyMiddleware)
+if _HAS_METRICS:
+    app.add_middleware(MetricsMiddleware, service_name="gateway")
 
 app.include_router(router)
 

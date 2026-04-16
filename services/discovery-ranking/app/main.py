@@ -9,6 +9,12 @@ from fastapi import FastAPI
 from .indexer import ensure_collection, get_client
 from .routes import router
 
+try:
+    from hedge_shared.metrics import MetricsMiddleware
+    _HAS_METRICS = True
+except ImportError:
+    _HAS_METRICS = False
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
@@ -16,6 +22,9 @@ app = FastAPI(
     title="HEDGE-ExpertAI Discovery & Ranking",
     version="0.1.0",
 )
+
+if _HAS_METRICS:
+    app.add_middleware(MetricsMiddleware, service_name="discovery-ranking")
 
 app.include_router(router)
 

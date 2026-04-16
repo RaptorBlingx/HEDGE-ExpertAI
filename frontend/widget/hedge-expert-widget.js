@@ -569,6 +569,16 @@
               self.panel.classList.add("he-panel--expanded");
               self._addAppCards(self.sideContent, appsData);
             }
+            // Add feedback buttons when apps were recommended
+            if (appsData && appsData.length > 0) {
+              var feedbackAppIds = appsData.map(function (r) {
+                var a = r.app || r;
+                return a.id || "";
+              }).filter(Boolean);
+              if (feedbackAppIds.length > 0) {
+                self._addFeedbackButtons(msgWrap, feedbackAppIds);
+              }
+            }
             if (finalSessionId) self._saveSession(finalSessionId);
             if (!self.isOpen) self._notify();
             self._setStreamState("idle");
@@ -735,6 +745,65 @@
       });
       var topEl = msgWrap.querySelector(".he-msg-top");
       if (topEl) topEl.appendChild(btn);
+    }
+
+    /* ---------- feedback buttons ---------- */
+
+    _addFeedbackButtons(msgWrap, appIds) {
+      var self = this;
+      var bar = document.createElement("div");
+      bar.className = "he-feedback-bar";
+      bar.innerHTML =
+        '<span class="he-feedback-label">Was this helpful?</span>' +
+        '<button class="he-feedback-btn he-feedback-accept" aria-label="Helpful">' +
+          '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M7 10v12"/><path d="M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2h2.76a2 2 0 0 0 1.79-1.11L12 2h0a3.13 3.13 0 0 1 3 3.88Z"/>' +
+          '</svg> Yes' +
+        '</button>' +
+        '<button class="he-feedback-btn he-feedback-dismiss" aria-label="Not helpful">' +
+          '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' +
+            '<path d="M17 14V2"/><path d="M9 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2.76a2 2 0 0 0-1.79 1.11L12 22h0a3.13 3.13 0 0 1-3-3.88Z"/>' +
+          '</svg> No' +
+        '</button>';
+
+      var acceptBtn = bar.querySelector(".he-feedback-accept");
+      var dismissBtn = bar.querySelector(".he-feedback-dismiss");
+
+      function handleFeedback(action) {
+        acceptBtn.disabled = true;
+        dismissBtn.disabled = true;
+        if (action === "accept") {
+          acceptBtn.classList.add("he-feedback-btn--active-accept");
+          acceptBtn.innerHTML = '&#10003; Thanks!';
+        } else {
+          dismissBtn.classList.add("he-feedback-btn--active-dismiss");
+          dismissBtn.innerHTML = '&#10003; Noted';
+        }
+        self._sendFeedback(appIds, action);
+      }
+
+      acceptBtn.addEventListener("click", function () { handleFeedback("accept"); });
+      dismissBtn.addEventListener("click", function () { handleFeedback("dismiss"); });
+
+      var bodyEl = msgWrap.querySelector(".he-msg-body");
+      if (bodyEl) bodyEl.appendChild(bar);
+    }
+
+    _sendFeedback(appIds, action) {
+      var self = this;
+      for (var i = 0; i < Math.min(appIds.length, 5); i++) {
+        (function (appId) {
+          fetch(self.config.apiUrl + "/api/v1/feedback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              session_id: self.sessionId || "",
+              app_id: appId,
+              action: action,
+            }),
+          }).catch(function () { /* best-effort */ });
+        })(appIds[i]);
+      }
     }
 
     /* ---------- thinking / timer helpers ---------- */

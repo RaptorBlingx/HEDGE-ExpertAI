@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import time
 import uuid
 
 import redis
@@ -14,6 +15,7 @@ logger = logging.getLogger(__name__)
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
 SESSION_TTL = 1800  # 30 minutes
 SESSION_PREFIX = "hedge:session:"
+SESSION_LOG_PREFIX = "hedge:session_log:"
 
 _redis: redis.Redis | None = None
 
@@ -136,3 +138,56 @@ def get_session_feedback(session_id: str) -> list[dict]:
     r = _get_redis()
     raw = r.lrange(f"{FEEDBACK_PREFIX}{session_id}", 0, -1)
     return [json.loads(entry) for entry in raw]
+
+
+# ---------------------------------------------------------------------------
+# Session event recording (Obj 5: ≥ 10 complete user-interaction sessions)
+# ---------------------------------------------------------------------------
+SESSION_LOG_TTL = 604800  # 7 days
+SESSION_INDEX_KEY = "hedge:session_index"
+
+
+def log_session_event(session_id: str, event_type: str, data: dict | None = None):
+    """Append a timestamped event to the session log.
+
+    Events: ``start``, ``message``, ``recommendation``, ``feedback``, ``end``.
+    """
+    r = _get_redis()
+    entry = json.dumps({
+        "ts": time.time(),
+        "event": event_type,
+        "data": data or {},
+    })
+    key = f"{SESSION_LOG_PREFIX}{session_id}"
+    r.rpush(key, entry)
+    r.expire(key, SESSION_LOG_TTL)
+    # Track session ID in a sorted set keyed by creation time
+    r.zadd(SESSION_INDEX_KEY, {session_id: time.time()}, nx=True)
+
+
+def get_session_log(session_id: str) -> list[dict]:
+    """Return all events for a session."""
+    r = _get_redis()
+    raw = r.lrange(f"{SESSION_LOG_PREFIX}{session_id}", 0, -1)
+    return [json.loads(entry) for entry in raw]
+
+
+def list_recorded_sessions(limit: int = 100) -> list[dict]:
+    """Return summary of recorded sessions (newest first)."""
+    r = _get_redis()
+    # Get session IDs from sorted set (newest first)
+    session_ids = r.zrevrange(SESSION_INDEX_KEY, 0, limit - 1, withscores=True)
+    summaries = []
+    for sid, created_ts in session_ids:
+        events = r.lrange(f"{SESSION_LOG_PREFIX}{sid}", 0, -1)
+        n_events = len(events)
+        n_messages = sum(1 for e in events if '"message"' in e)
+        has_feedback = any('"feedback"' in e for e in events)
+        summaries.append({
+            "session_id": sid,
+            "created_at": created_ts,
+            "total_events": n_events,
+            "messages": n_messages,
+            "has_feedback": has_feedback,
+        })
+    return summaries

@@ -248,3 +248,41 @@ async def proxy_feedback_stats():
             status_code=502,
             content={"detail": "Feedback service unavailable"},
         )
+
+
+# ---------------------------------------------------------------------------
+# Session recording proxy (Obj 5)
+# ---------------------------------------------------------------------------
+@router.get("/api/v1/sessions/recorded")
+async def proxy_sessions_list(limit: int = Query(100, ge=1, le=1000)):
+    """List recorded sessions."""
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{CHAT_INTENT_URL}/api/v1/sessions/recorded",
+                params={"limit": limit},
+                timeout=10.0,
+            )
+        return JSONResponse(status_code=resp.status_code, content=resp.json())
+    except Exception:
+        return JSONResponse(
+            status_code=502,
+            content={"detail": "Session service unavailable"},
+        )
+
+
+@router.get("/api/v1/sessions/recorded/{session_id}")
+async def proxy_session_log(session_id: str):
+    """Get full event log for a recorded session."""
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(
+                f"{CHAT_INTENT_URL}/api/v1/sessions/recorded/{session_id}",
+                timeout=10.0,
+            )
+        return JSONResponse(status_code=resp.status_code, content=resp.json())
+    except Exception:
+        return JSONResponse(
+            status_code=502,
+            content={"detail": "Session service unavailable"},
+        )

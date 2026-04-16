@@ -101,11 +101,13 @@ class TestTokenizeQuery:
 class TestKeywordScore:
     def test_full_match(self):
         score = _keyword_score(["energy", "monitoring"], "SmartEnergy Monitor for energy monitoring")
-        assert score == 1.0
+        # Both query tokens are present; score should be high (BM25 normalized)
+        assert score > 0.5
 
     def test_partial_match(self):
         score = _keyword_score(["energy", "water"], "SmartEnergy Monitor for energy monitoring")
-        assert score == 0.5
+        full = _keyword_score(["energy", "monitoring"], "SmartEnergy Monitor for energy monitoring")
+        assert 0 < score < full
 
     def test_no_match(self):
         score = _keyword_score(["agriculture"], "SmartEnergy Monitor")

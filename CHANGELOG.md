@@ -7,6 +7,69 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-04-15
+
+### Added
+- **Evaluation metrics** — NDCG@5, MAP (Mean Average Precision), 95% bootstrap
+  confidence intervals for P@2 and MRR, per-SAREF-category breakdown, and app
+  exposure rate in search mode
+- **Session recording** — new event logging system (`log_session_event`) records
+  timestamped start/message/recommendation/feedback events; new endpoints
+  `GET /api/v1/sessions/recorded` and `GET /api/v1/sessions/recorded/{id}` for
+  Objective 5 validation (≥ 10 complete user-interaction sessions)
+- **SAREF entity extraction** — classifier now extracts SAREF class entities from
+  queries (8 domains: Energy, Building, Environment, Water, Agriculture, City,
+  Health, Manufacturing) in addition to app ID entities
+- **BM25 with TF saturation** — keyword scoring upgraded from simple token
+  fraction to BM25-inspired scoring with k1/b parameters and term frequency
+  normalization
+- **Multilingual stopwords** — search tokenizer now filters stopwords in 7
+  European languages (EN, DE, FR, ES, IT, NL, PT)
+- **Prometheus metrics** — all services now expose `/metrics` endpoint with
+  request counters, latency summaries, and error counts in Prometheus text format
+  via shared `MetricsMiddleware`
+- **Security headers** — gateway adds Content-Security-Policy, Permissions-Policy,
+  and optional HSTS (`ENABLE_HSTS=true`) headers
+- **Security roadmap** — new `docs/security-roadmap.md` documenting current state
+  and phased plan for TLS, RBAC, OAuth, key rotation, and log anonymization
+
+### Changed
+- Classifier module now includes RASA design-decision documentation explaining
+  why regex is sufficient for OC1 scope; additional search patterns for domain
+  keywords and intent verbs
+- `_keyword_score` in searcher uses BM25 k1=1.2, b=0.75 saturation instead of
+  raw token fraction
+
+## [0.3.0] — 2026-04-15
+
+### Added
+- **Feedback UI** — thumbs-up/down buttons on every recommendation in both React
+  frontend (`App.tsx`) and embeddable widget (`hedge-expert-widget.js`); submits
+  accept/dismiss actions to `/api/v1/feedback` for KPI tracking
+- **Celery beat reliability** — metadata-ingest container now uses `supervisord`
+  to manage both Celery worker+beat and Uvicorn; either process is auto-restarted
+  on crash (replaces fragile `&` background shell pattern)
+- **Celery health monitoring** — `/health` endpoint on metadata-ingest now checks
+  `hedge:ingest:last_run` timestamp; reports `degraded` if Celery beat appears
+  stale (configurable via `CELERY_STALE_SECONDS`, default 6 h)
+- **CI/CD coverage enforcement** — GitHub Actions workflow now installs all
+  service dependencies, runs unit tests with `--cov-fail-under=80`, and triggers
+  on `develop` branch pushes
+- **Evaluation improvements** — feedback stats always reported (no longer
+  requires `--report-feedback`); chat results now show E2E latency with KPI
+  target check; app exposure rate computes against 75 apps; acceptance rate
+  computed from accept/(accept+dismiss)
+
+### Changed
+- D3.1 Evaluation Report updated to v1.2: consistent 75-app / 69-query numbers
+  throughout; added E2E latency note distinguishing search vs chat latency;
+  added pending KPI rows for acceptance rate and explanation accuracy
+- `--total-apps` default in `evaluate.py` changed from 50 to 75
+
+### Fixed
+- D3.1 report inconsistency where body referenced 50 apps / 53 queries while
+  v1.1 note mentioned 75 apps / 69 queries
+
 ## [0.2.0] — 2025-06-06
 
 ### Added

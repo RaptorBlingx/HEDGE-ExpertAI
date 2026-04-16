@@ -31,6 +31,9 @@ for _name in [
     "get_or_create_session",
     "get_session",
     "get_session_feedback",
+    "get_session_log",
+    "list_recorded_sessions",
+    "log_session_event",
     "record_feedback",
     "update_session",
 ]:

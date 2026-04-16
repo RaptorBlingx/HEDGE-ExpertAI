@@ -17,6 +17,9 @@ from .session import (
     get_or_create_session,
     get_session,
     get_session_feedback,
+    get_session_log,
+    list_recorded_sessions,
+    log_session_event,
     record_feedback,
     update_session,
 )
@@ -56,12 +59,17 @@ async def chat(req: ChatRequest):
     """Main chat endpoint — classify intent, route, respond."""
     session_id, history = get_or_create_session(req.session_id)
 
+    # Log session start if new
+    if not req.session_id:
+        log_session_event(session_id, "start")
+
     # Classify intent
     result = classify(req.message)
     intent = result.intent
 
     # Add user message to history
     history.append({"role": "user", "content": req.message})
+    log_session_event(session_id, "message", {"role": "user", "intent": intent})
 
     response_message = ""
     apps: list = []
@@ -94,6 +102,8 @@ async def chat(req: ChatRequest):
     context = {}
     if apps:
         context["last_results"] = apps[:5]
+        app_ids = [a.get("app", {}).get("id", "") if isinstance(a, dict) else "" for a in apps[:5]]
+        log_session_event(session_id, "recommendation", {"app_ids": app_ids, "count": len(apps)})
     update_session(session_id, history, context)
 
     return {
@@ -227,6 +237,7 @@ def submit_feedback(req: FeedbackRequest):
         action=req.action,
         rating=req.rating,
     )
+    log_session_event(req.session_id, "feedback", {"app_id": req.app_id, "action": req.action})
     return {"status": "recorded"}
 
 
@@ -247,6 +258,26 @@ def session_feedback(session_id: str):
     """Feedback entries for a specific session."""
     entries = get_session_feedback(session_id)
     return {"session_id": session_id, "feedback": entries}
+
+
+# ---------------------------------------------------------------------------
+# Session recording (Obj 5: ≥ 10 complete user-interaction sessions)
+# ---------------------------------------------------------------------------
+
+@router.get("/sessions/recorded")
+def list_sessions(limit: int = 100):
+    """List all recorded sessions with summary stats."""
+    sessions = list_recorded_sessions(limit=limit)
+    return {"total": len(sessions), "sessions": sessions}
+
+
+@router.get("/sessions/recorded/{session_id}")
+def get_recorded_session(session_id: str):
+    """Get full event log for a recorded session."""
+    events = get_session_log(session_id)
+    if not events:
+        raise HTTPException(status_code=404, detail="Session log not found")
+    return {"session_id": session_id, "events": events}
 
 
 def _handle_search(query: str) -> tuple[str, list]:

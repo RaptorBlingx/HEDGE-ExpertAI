@@ -8,6 +8,8 @@ import {
   Search,
   SendHorizontal,
   Sparkles,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -22,6 +24,7 @@ type ChatMessage = {
   apps: RecommendedApp[];
   responseTimeMs?: number;
   isStreaming?: boolean;
+  feedback?: "accept" | "dismiss";
 };
 
 type IntentHint = "search" | "detail" | "help" | "greeting" | "unknown";
@@ -241,6 +244,30 @@ export default function App() {
 
   const currentThinkingSteps = THINKING_STEPS[activeIntentHint];
   const currentThinkingStep = currentThinkingSteps[thinkingStepIndex % currentThinkingSteps.length];
+
+  const submitFeedback = useCallback(
+    async (messageId: string, action: "accept" | "dismiss", appIds: string[]) => {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === messageId ? { ...m, feedback: action } : m))
+      );
+      try {
+        for (const appId of appIds.slice(0, 5)) {
+          await fetch("/api/v1/feedback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              session_id: sessionId ?? "",
+              app_id: appId,
+              action,
+            }),
+          });
+        }
+      } catch {
+        // Feedback is best-effort; don't block the user.
+      }
+    },
+    [sessionId]
+  );
 
   const stopActiveResponse = useCallback(() => {
     if (streamIntervalRef.current !== null) {
@@ -718,6 +745,50 @@ export default function App() {
                         </button>
                       );
                     })}
+                  </div>
+                ) : null}
+
+                {message.role === "assistant" && message.apps.length > 0 && !message.isStreaming ? (
+                  <div className="mt-3 flex items-center gap-2 border-t border-slate-700/50 pt-2">
+                    <span className="text-xs text-slate-400">Was this helpful?</span>
+                    <button
+                      type="button"
+                      disabled={!!message.feedback}
+                      onClick={() =>
+                        submitFeedback(
+                          message.id,
+                          "accept",
+                          message.apps.map((a) => a.app.id)
+                        )
+                      }
+                      className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition ${
+                        message.feedback === "accept"
+                          ? "border border-emerald-400/50 bg-emerald-500/20 text-emerald-200"
+                          : "border border-slate-700 bg-slate-800/60 text-slate-300 hover:border-emerald-400/50 hover:text-emerald-200 disabled:opacity-50"
+                      }`}
+                    >
+                      <ThumbsUp size={12} />
+                      {message.feedback === "accept" ? "Thanks!" : "Yes"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!!message.feedback}
+                      onClick={() =>
+                        submitFeedback(
+                          message.id,
+                          "dismiss",
+                          message.apps.map((a) => a.app.id)
+                        )
+                      }
+                      className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition ${
+                        message.feedback === "dismiss"
+                          ? "border border-rose-400/50 bg-rose-500/20 text-rose-200"
+                          : "border border-slate-700 bg-slate-800/60 text-slate-300 hover:border-rose-400/50 hover:text-rose-200 disabled:opacity-50"
+                      }`}
+                    >
+                      <ThumbsDown size={12} />
+                      Not really
+                    </button>
                   </div>
                 ) : null}
               </motion.div>

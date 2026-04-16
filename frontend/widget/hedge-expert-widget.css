@@ -873,3 +873,52 @@
   .he-suggestions { padding-left: 0; }
   .he-chip { font-size: 11px; padding: 4px 10px; }
 }
+
+/* ------------------------------------------------------------------ */
+/*  Feedback Buttons                                                   */
+/* ------------------------------------------------------------------ */
+
+.he-feedback-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(148, 163, 184, 0.15);
+}
+.he-feedback-label {
+  font-size: 11px;
+  color: #94a3b8;
+  margin-right: 2px;
+}
+.he-feedback-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  border-radius: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.5);
+  color: #94a3b8;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.he-feedback-btn:hover:not(:disabled) {
+  border-color: rgba(148, 163, 184, 0.4);
+  color: #e2e8f0;
+}
+.he-feedback-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.he-feedback-btn--active-accept {
+  border-color: rgba(52, 211, 153, 0.5) !important;
+  background: rgba(16, 185, 129, 0.15) !important;
+  color: #6ee7b7 !important;
+}
+.he-feedback-btn--active-dismiss {
+  border-color: rgba(251, 113, 133, 0.5) !important;
+  background: rgba(244, 63, 94, 0.15) !important;
+  color: #fda4af !important;
+}

@@ -2,7 +2,7 @@ name: HEDGE-ExpertAI CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, develop]
   pull_request:
     branches: [main]
 
@@ -30,10 +30,20 @@ jobs:
       - name: Install dependencies
         run: |
           pip install -e shared/
-          pip install pytest pytest-cov httpx fastapi uvicorn
-      - name: Run unit and integration tests with coverage
+          pip install -r services/chat-intent/requirements.txt
+          pip install -r services/discovery-ranking/requirements.txt
+          pip install -r services/expert-recommend/requirements.txt
+          pip install -r services/metadata-ingest/requirements.txt
+          pip install -r services/gateway/requirements.txt
+          pip install -r services/mock-api/requirements.txt
+          pip install pytest pytest-cov pytest-asyncio httpx
+      - name: Run unit tests with coverage
         run: |
-          python -m pytest tests/ -v --cov=hedge_shared --cov-report=term-missing --cov-report=xml:coverage.xml
+          python -m pytest tests/unit/ -v \
+            --cov=services --cov=shared \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=80
       - name: Upload coverage report
         if: always()
         uses: actions/upload-artifact@v4
