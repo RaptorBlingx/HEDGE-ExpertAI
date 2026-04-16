@@ -158,6 +158,53 @@
     return d.innerHTML;
   }
 
+  function normalizeHexColor(value) {
+    var raw = String(value || "").trim();
+    if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(raw)) {
+      return DEFAULTS.primaryColor;
+    }
+    if (raw.length === 4) {
+      return (
+        "#" +
+        raw[1] + raw[1] +
+        raw[2] + raw[2] +
+        raw[3] + raw[3]
+      ).toLowerCase();
+    }
+    return raw.toLowerCase();
+  }
+
+  function hexToRgb(hex) {
+    var normalized = normalizeHexColor(hex);
+    return {
+      r: parseInt(normalized.slice(1, 3), 16),
+      g: parseInt(normalized.slice(3, 5), 16),
+      b: parseInt(normalized.slice(5, 7), 16),
+    };
+  }
+
+  function clampChannel(value) {
+    return Math.max(0, Math.min(255, Math.round(value)));
+  }
+
+  function rgbToHex(rgb) {
+    function part(value) {
+      return clampChannel(value).toString(16).padStart(2, "0");
+    }
+    return "#" + part(rgb.r) + part(rgb.g) + part(rgb.b);
+  }
+
+  function blendHex(baseHex, targetHex, ratio) {
+    var safeRatio = Math.max(0, Math.min(1, ratio));
+    var base = hexToRgb(baseHex);
+    var target = hexToRgb(targetHex);
+    return rgbToHex({
+      r: base.r + (target.r - base.r) * safeRatio,
+      g: base.g + (target.g - base.g) * safeRatio,
+      b: base.b + (target.b - base.b) * safeRatio,
+    });
+  }
+
   function domainColor(domainRaw) {
     var d = (domainRaw || "").toLowerCase().replace(/^saref4/, "");
     return DOMAIN_COLORS[d] || DOMAIN_COLORS.default;
@@ -282,6 +329,9 @@
           '<div class="he-header">' +
             '<div class="he-header-left">' +
               '<div class="he-header-title">' + escapeHtml(this.config.title) + '</div>' +
+              (this.config.subtitle
+                ? '<div class="he-header-subtitle">' + escapeHtml(this.config.subtitle) + '</div>'
+                : '') +
               '<div class="he-header-session">' + sessionLabel + '</div>' +
             '</div>' +
             '<div class="he-header-actions">' +
@@ -323,6 +373,25 @@
       this.sessionBadge = panel.querySelector(".he-header-session");
       this.sideContent = panel.querySelector(".he-side-content");
       this.sideCloseBtn = panel.querySelector(".he-side-close");
+
+      this._applyThemeConfig();
+    }
+
+    _applyThemeConfig() {
+      var primary = normalizeHexColor(this.config.primaryColor);
+      var primaryDark = blendHex(primary, "#0f172a", 0.35);
+      var primarySoft = blendHex(primary, "#ffffff", 0.2);
+      var primaryRgb = hexToRgb(primary);
+
+      this.container.style.setProperty("--he-primary", primary);
+      this.container.style.setProperty("--he-primary-dark", primaryDark);
+      this.container.style.setProperty("--he-primary-soft", primarySoft);
+      this.container.style.setProperty(
+        "--he-primary-rgb",
+        primaryRgb.r + ", " + primaryRgb.g + ", " + primaryRgb.b
+      );
+      this.container.style.setProperty("--he-panel-width", this.config.width || DEFAULTS.width);
+      this.container.style.setProperty("--he-panel-height", this.config.height || DEFAULTS.height);
     }
 
     /* ---------- event binding ---------- */
@@ -421,7 +490,15 @@
     _clearChat() {
       if (this.isStreaming) return;
       this.messagesDiv.innerHTML = "";
+      this._clearSidePane();
       this._showWelcome();
+    }
+
+    _clearSidePane() {
+      if (this.sideContent) {
+        this.sideContent.innerHTML = "";
+      }
+      this.panel.classList.remove("he-panel--expanded");
     }
 
     /* ---------- send message ---------- */
@@ -439,6 +516,7 @@
       this.textarea.value = "";
       this.textarea.style.height = "";
       this.textarea.style.overflowY = "hidden";
+      this._clearSidePane();
       this._addUserMessage(text);
       this._setStreamState("thinking");
 
@@ -877,8 +955,13 @@
     if (script) {
       var config = {};
       if (script.dataset.apiUrl) config.apiUrl = script.dataset.apiUrl;
+      if (script.dataset.position) config.position = script.dataset.position;
+      if (script.dataset.subtitle) config.subtitle = script.dataset.subtitle;
       if (script.dataset.primaryColor) config.primaryColor = script.dataset.primaryColor;
       if (script.dataset.title) config.title = script.dataset.title;
+      if (script.dataset.width) config.width = script.dataset.width;
+      if (script.dataset.height) config.height = script.dataset.height;
+      if (script.dataset.cssUrl) config.cssUrl = script.dataset.cssUrl;
       new HedgeExpertWidget(config);
     }
   });

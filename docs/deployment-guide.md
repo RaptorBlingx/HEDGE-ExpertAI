@@ -62,7 +62,23 @@ make health
 
 All services should report "ok" or "degraded" (degraded is normal if Ollama model is still loading).
 
-### 8. Run evaluation (optional)
+### 8. Validate the production widget surface
+
+Open the widget smoke-test page after the stack is up:
+
+```text
+http://localhost:8080/demo.html
+```
+
+If the `tls` profile is enabled, validate the public edge path instead:
+
+```text
+https://your-domain.example/demo.html
+```
+
+This page is the thin production host for the embeddable widget. The React app at `/` remains useful for development and evaluation, but it is not the primary delivery surface.
+
+### 9. Run evaluation (optional)
 
 ```bash
 # Search quality only (fast, no LLM needed)

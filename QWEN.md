@@ -24,12 +24,12 @@ The system consists of **6 microservices** + **3 infrastructure components**, al
 - **Qdrant** (port 6333) — persistent vector storage
 - **Redis** (port 6379) — task queue (Celery), sessions, caching
 
-**Frontend:** React + TypeScript + Vite + Tailwind + Framer Motion validation console (port 8080 via gateway proxy).
+**Frontend:** Production embeddable widget plus a separate React validation console (both served through the gateway).
 
 ### Data Flow
 
 ```
-User → [React Validation Console] → [Gateway :8080]
+User → [Embeddable Widget / Validation Console] → [Gateway :8080]
                            → [Chat-Intent :8001]
                            → [Expert-Recommend :8002] → [Ollama / Qwen3.5:2b]
                            → [Discovery-Ranking :8003] → [Qdrant]
@@ -45,7 +45,7 @@ Async: [Metadata-Ingest :8004] → [App Store API] → [Discovery-Ranking] (inde
 | Embeddings | all-MiniLM-L6-v2 (384-dim) |
 | Vector DB | Qdrant v1.9.7 |
 | Task Queue | Celery + Redis |
-| Frontend | React 18, TypeScript, Vite, Tailwind CSS, Framer Motion |
+| Frontend | Embeddable widget, React 18, TypeScript, Vite, Tailwind CSS, Framer Motion |
 | Containerization | Docker Compose |
 | Shared Package | `hedge-shared` (Pydantic models, config, SAREF utilities) |
 
@@ -117,9 +117,9 @@ hedge/
 ├── docker-compose.yml          # Full stack orchestration
 ├── Makefile                    # CLI commands
 ├── .env.example                # Environment configuration template
-├── frontend/                   # React + TypeScript validation console
-│   ├── src/                    # Frontend source code
-│   ├── widget/                 # Embeddable widget source
+├── frontend/                   # Frontend surfaces
+│   ├── src/                    # React + TypeScript validation console
+│   ├── widget/                 # Production widget assets and thin host demo
 │   └── package.json
 ├── services/
 │   ├── gateway/                # API gateway (:8080 → :8000)

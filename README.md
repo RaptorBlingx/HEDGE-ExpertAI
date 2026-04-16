@@ -27,7 +27,8 @@ HEDGE-ExpertAI is an AI-powered conversational assistant that makes the HEDGE-Io
 | **Hybrid Retrieval** | Combines vector similarity, keyword matching, and SAREF ontology signals |
 | **Explainable Recommendations** | LLM-generated explanations grounded in real app metadata |
 | **Continuous Indexing** | Automated metadata ingestion keeps the catalogue fresh (≤ 24h) |
-| **Validation Console** | React-based interface to browse all app metadata and validate chatbot recommendations |
+| **Embeddable Widget** | Production delivery artifact for App Store integration |
+| **Validation Console** | React-based internal tool for development and evaluation |
 | **SAREF Alignment** | Leverages SAREF ontology classes as ranking signals |
 
 ---
@@ -35,7 +36,7 @@ HEDGE-ExpertAI is an AI-powered conversational assistant that makes the HEDGE-Io
 ## Architecture
 
 ```
-User → [React Validation Console / Optional Widget] → [Gateway :8080]
+User → [Embeddable Widget / Dev Console] → [Gateway :8080]
                                │
                          [Chat-Intent :8001]
                                │
@@ -91,7 +92,7 @@ make seed
 make health
 ```
 
-Open **http://localhost:8080** to use the validation console (catalog browser + chatbot test bench), or query the API directly:
+Open **http://localhost:8080/demo.html** to validate the production widget delivery, or **http://localhost:8080** to access the internal validation console. You can also query the API directly:
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/chat \
@@ -115,7 +116,9 @@ HEDGE-ExpertAI/
 │   └── proposals/
 │       └── HEDGE-IoT-OC1-Proposal-HedgeExpertAI.md
 ├── evaluation/                                 # Test queries & evaluation scripts
-├── frontend/                                   # React + TypeScript + Tailwind validation console
+├── frontend/
+│   ├── src/                                    # React + TypeScript validation console (dev only)
+│   └── widget/                                 # Production widget assets + demo host page
 ├── scripts/                                    # Utility scripts
 ├── services/
 │   ├── gateway/                                # API gateway & reverse proxy (:8080 -> :8000)
@@ -142,7 +145,8 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 | [Services Guide](docs/services-guide.md) | Deep dive into each microservice's internals |
 | [Configuration Reference](docs/configuration-reference.md) | All environment variables with defaults and descriptions |
 | [Deployment Guide](docs/deployment-guide.md) | Production setup, TLS, monitoring, backup, troubleshooting |
-| [Plugin Integration Guide](docs/plugin-integration-guide.md) | Embedding the optional widget in external sites |
+| [Plugin Integration Guide](docs/plugin-integration-guide.md) | Embedding the production widget in external sites |
+| [Widget Quick Start](docs/widget-quick-start.md) | Fast path for deploying and testing the production widget |
 | [SAREF Ontology Mapping](docs/saref-ontology-mapping.md) | SAREF class inference and ontology alignment |
 | [Evaluation & Testing](docs/evaluation-and-testing.md) | Search quality metrics, test framework, KPI targets |
 | [Development Guide](docs/development-guide.md) | Local setup, coding standards, testing, contributing |
@@ -154,7 +158,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 | Metric | Target | Description |
 |---|---|---|
 | **Top-2 Relevance (P@2)** | ≥ 70% | Fraction of top-2 results that are relevant |
-| **Median Response Latency** | < 5 seconds | End-to-end query response time |
+| **Median Response Latency** | < 5 seconds | Search-path KPI target from the proposal; end-to-end chat varies with model/runtime |
 | **Catalogue Freshness** | ≤ 24h update delay | Time from app publication to searchability |
 | **MRR** | Tracked | Mean Reciprocal Rank across test queries |
 | **Recall@5** | Tracked | Fraction of expected apps found in top-5 |
@@ -170,7 +174,7 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 | **Vector DB** | Qdrant v1.9.7 | Persistent vector storage |
 | **Task Queue** | Celery + Redis | Async ingestion, scheduling, sessions |
 | **Web Framework** | FastAPI + Uvicorn | Async REST APIs with auto-docs |
-| **Frontend** | React + TypeScript + Vite + Tailwind + Framer Motion | Premium, responsive validation console for catalog + chatbot |
+| **Frontend** | Widget + React + TypeScript + Vite + Tailwind + Framer Motion | Production embeddable widget plus internal validation console |
 | **Containerization** | Docker Compose | Single-command deployment |
 | **Language** | Python 3.11 | All backend services |
 

@@ -26,7 +26,6 @@ COPY --from=frontend-builder /frontend/dist/ ./static/
 
 # Copy embeddable widget files (not part of the Vite build)
 COPY frontend/widget/ ./static/
-RUN if [ -f ./static/demo.html ]; then cp ./static/demo.html ./static/widget-demo.html; fi
 
 EXPOSE 8000
 

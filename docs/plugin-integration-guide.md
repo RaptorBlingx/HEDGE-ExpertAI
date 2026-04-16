@@ -2,35 +2,48 @@
 
 ## Overview
 
-The HEDGE-ExpertAI chat widget is a self-contained JavaScript component that can be embedded in any web page. It requires no build tools and has zero framework dependencies.
+The HEDGE-ExpertAI widget is the production delivery artifact for the project. It is a self-contained JavaScript component with no framework dependency and can be dropped into any page that can load two static files:
+
+- `hedge-expert-widget.js`
+- `hedge-expert-widget.css`
+
+Use `server-ip/demo.html` as the smoke-test host page for deployment validation. The React validation console is a development tool and is not the canonical delivery surface.
 
 ## Quick Integration
 
 ### Option 1: Script tag with auto-initialization
 
-Add this to your HTML page, just before `</body>`:
+Add this just before `</body>`:
 
 ```html
-<link rel="stylesheet" href="https://your-cdn.com/hedge-expert-widget.css" />
+<link rel="stylesheet" href="https://your-host/hedge-expert-widget.css" />
 <script
-  src="https://your-cdn.com/hedge-expert-widget.js"
+  src="https://your-host/hedge-expert-widget.js"
   data-hedge-expert
-  data-api-url="https://your-api-gateway.com"
+  data-api-url="https://your-host"
+  data-title="HEDGE-ExpertAI"
+  data-subtitle="IoT App Discovery Assistant"
+  data-position="bottom-right"
+  data-primary-color="#0ea5e9"
+  data-width="400px"
+  data-height="580px"
 ></script>
 ```
 
 ### Option 2: Manual initialization
 
 ```html
-<link rel="stylesheet" href="https://your-cdn.com/hedge-expert-widget.css" />
-<script src="https://your-cdn.com/hedge-expert-widget.js"></script>
+<link rel="stylesheet" href="https://your-host/hedge-expert-widget.css" />
+<script src="https://your-host/hedge-expert-widget.js"></script>
 <script>
   const widget = new HedgeExpertWidget({
-    apiUrl: "https://your-api-gateway.com",
+    apiUrl: "https://your-host",
     title: "HEDGE-ExpertAI",
     subtitle: "IoT App Discovery Assistant",
-    primaryColor: "#2563eb",
+    primaryColor: "#0ea5e9",
     position: "bottom-right",
+    width: "400px",
+    height: "580px",
   });
 </script>
 ```
@@ -38,53 +51,73 @@ Add this to your HTML page, just before `</body>`:
 ## Configuration Options
 
 | Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `apiUrl` | string | `http://localhost:8000` | Gateway API URL |
+|---|---|---|---|
+| `apiUrl` | string | `window.location.origin` | Gateway origin used by the widget |
 | `position` | string | `bottom-right` | `bottom-right` or `bottom-left` |
-| `title` | string | `HEDGE-ExpertAI` | Chat panel title |
-| `subtitle` | string | `IoT App Discovery Assistant` | Chat panel subtitle |
-| `primaryColor` | string | `#2563eb` | Theme color (hex) |
-| `width` | string | `380px` | Panel width |
-| `height` | string | `520px` | Panel height |
+| `title` | string | `HEDGE-ExpertAI` | Header title |
+| `subtitle` | string | `IoT App Discovery Assistant` | Header subtitle |
+| `primaryColor` | string | `#0ea5e9` | Theme color used for bubble, header, chips, and CTA |
+| `width` | string | `400px` | Desktop panel width |
+| `height` | string | `580px` | Desktop panel height |
+| `cssUrl` | string | widget-relative path | Override stylesheet location if needed |
 
-## Features
+## Runtime Behavior
 
-- **Responsive**: Full-screen on mobile (<480px)
-- **Dark mode**: Automatically adapts to system preference
-- **Session management**: Maintains conversation context across page navigation
-- **App cards**: Displays recommended apps with SAREF category badges and relevance scores
-- **Loading states**: Animated dots during API calls
-- **Error handling**: Graceful fallback messages on network errors
+- SSE streaming via the gateway, including Thinking and Typing states.
+- Side pane with Recommended Context cards.
+- Feedback controls for recommended apps.
+- Copy-response action for assistant answers.
+- Session continuity via `sessionStorage`.
+- Full-screen mobile layout below tablet widths.
 
-## API Requirements
+## API Contract
 
-The widget communicates with the HEDGE-ExpertAI Gateway API:
+The widget requires these gateway endpoints:
 
-- `POST /api/v1/chat` — Send chat messages
+- `POST /api/v1/chat/stream`
   - Request: `{"session_id": "...", "message": "..."}`
-  - Response: `{"session_id": "...", "message": "...", "intent": "...", "apps": [...]}`
+  - Response: server-sent events with token chunks, recommended apps, and session completion metadata.
+- `POST /api/v1/feedback`
+  - Optional but recommended.
+  - Used for `accept` and `dismiss` actions on recommendations.
+
+The widget does not depend on the validation-console catalog endpoints.
 
 ## Security Notes
 
-- The widget respects CORS policies — ensure the Gateway allows your domain
-- Session IDs are stored in `sessionStorage` (cleared when browser tab closes)
-- No cookies or local storage used
-- All communication is via JSON over HTTPS (in production)
+- Serve the widget over HTTPS in production.
+- Ensure `CORS_ALLOWED_ORIGINS` allows the embedding host.
+- Session IDs are stored in `sessionStorage`, not cookies.
+- The widget assumes the gateway handles auth, rate limiting, and headers.
 
-## Customization
+## Styling Hooks
 
-### CSS Override
+All runtime classes use the `.he-` prefix.
 
-All widget classes are prefixed with `.hedge-expert-` for isolation. Override styles in your stylesheet:
+Useful CSS custom properties set on the widget container:
+
+- `--he-primary`
+- `--he-primary-dark`
+- `--he-primary-soft`
+- `--he-panel-width`
+- `--he-panel-height`
+
+Example override:
 
 ```css
-.hedge-expert-bubble {
-  width: 64px;
-  height: 64px;
-}
-
-.hedge-expert-badge {
-  background: #fef3c7;
-  color: #92400e;
+.he-container {
+  --he-primary: #f97316;
+  --he-primary-dark: #c2410c;
+  --he-primary-soft: #fdba74;
 }
 ```
+
+## Deployment Path
+
+Recommended public files:
+
+- `https://server-ip/demo.html` — smoke-test host page
+- `https://server-ip/hedge-expert-widget.js` — widget asset
+- `https://server-ip/hedge-expert-widget.css` — widget stylesheet
+
+For a step-by-step deployment flow, see [Widget Quick Start](widget-quick-start.md).

@@ -229,7 +229,7 @@ ruff check shared/ services/ tests/
 ### JavaScript
 
 - **No framework dependencies** — vanilla JS only
-- **Class names** — prefixed with `hedge-expert-` for CSS isolation
+- **Class names** — prefixed with `he-` for CSS isolation
 - **XSS prevention** — all user input escaped via `textContent`
 
 ### Configuration
