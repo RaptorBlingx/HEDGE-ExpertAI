@@ -700,7 +700,7 @@
                 var evt;
                 try { evt = JSON.parse(line.slice(6)); } catch (_) { continue; }
 
-                if (evt.type === "token") {
+                if (evt.type === "token" || evt.type === "message") {
                   renderQueue = renderQueue.concat(splitStreamText(evt.content || ""));
                   startRenderPump();
                 } else if (evt.type === "apps") {

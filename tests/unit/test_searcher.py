@@ -238,3 +238,41 @@ class TestHybridSearch:
         assert r1 == r2
         # Qdrant should only be called once (second call is cached)
         assert client.query_points.call_count == 1
+
+    def test_fuzzy_query_fallback_recovers_typo(self):
+        invalidate_cache()
+
+        low_point = self._make_mock_point(
+            "app-005",
+            "WaterLeak Detector",
+            "Smart water leak detection system for buildings.",
+            ["water", "leak-detection"],
+            "Water",
+            0.1,
+        )
+        high_point = self._make_mock_point(
+            "app-005",
+            "WaterLeak Detector",
+            "Smart water leak detection system for buildings.",
+            ["water", "leak-detection"],
+            "Water",
+            0.75,
+        )
+
+        first_response = MagicMock()
+        first_response.points = [low_point]
+        second_response = MagicMock()
+        second_response.points = [high_point]
+
+        scroll_point = MagicMock()
+        scroll_point.payload = high_point.payload
+
+        client = MagicMock()
+        client.query_points.side_effect = [first_response, second_response]
+        client.scroll.return_value = ([scroll_point], None)
+
+        results = hybrid_search(client, "watr leek detection", top_k=5)
+
+        assert len(results) == 1
+        assert results[0]["app"]["id"] == "app-005"
+        assert client.query_points.call_count == 2

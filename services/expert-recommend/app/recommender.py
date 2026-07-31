@@ -170,7 +170,7 @@ def recommend_stream(
     logger.info("Search completed in %.2fs (%d results)", search_elapsed, len(results))
 
     if not results:
-        yield _sse({"type": "message", "content": "I couldn't find any apps matching your query. Could you try rephrasing or being more specific?"})
+        yield _sse({"type": "token", "content": "I couldn't find any apps matching your query. Could you try rephrasing or being more specific?"})
         yield _sse({"type": "done", "apps": []})
         return
 

@@ -18,11 +18,11 @@ logs:
 
 # Run unit tests with coverage
 test:
-	python -m pytest tests/unit/ -v --cov=hedge_shared --cov-report=term-missing
+	python3 -m pytest tests/unit/ -v --cov=hedge_shared --cov-report=term-missing
 
 # Run unit tests with coverage enforcement (CI mode)
 test-ci:
-	python -m pytest tests/unit/ -v --cov=hedge_shared --cov-report=term-missing --cov-fail-under=80
+	python3 -m pytest tests/unit/ -v --cov=hedge_shared --cov-report=term-missing --cov-fail-under=80
 
 # Lint with ruff
 lint:
@@ -34,11 +34,11 @@ pull-model:
 
 # Seed mock data by triggering ingestion
 seed:
-	curl -s -X POST http://localhost:8004/api/v1/ingest/trigger | python -m json.tool
+	curl -s -X POST http://localhost:8004/api/v1/ingest/trigger | python3 -m json.tool
 
 # Check health of all services
 health:
-	@echo "=== Gateway ===" && curl -sf http://localhost:8000/health || echo "DOWN"
+	@echo "=== Gateway ===" && curl -sf http://$$(docker compose port gateway 8000)/health || echo "DOWN"
 	@echo "=== Chat-Intent ===" && curl -sf http://localhost:8001/health || echo "DOWN"
 	@echo "=== Expert-Recommend ===" && curl -sf http://localhost:8002/health || echo "DOWN"
 	@echo "=== Discovery-Ranking ===" && curl -sf http://localhost:8003/health || echo "DOWN"

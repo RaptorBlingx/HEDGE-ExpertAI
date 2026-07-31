@@ -82,6 +82,7 @@ All defaults are consistent across `.env.example`, `docker-compose.yml`, and `sh
 
 | Variable | Default | Description |
 |---|---|---|
+| `GATEWAY_BIND_ADDRESS` | `127.0.0.1` | Host interface on which the gateway port is published. Set it to the server's private IP for remote LAN access. |
 | `GATEWAY_PORT` | `8080` | External-facing gateway port |
 | `CHAT_INTENT_PORT` | `8001` | Chat-Intent service port |
 | `EXPERT_RECOMMEND_PORT` | `8002` | Expert-Recommend service port |

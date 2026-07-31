@@ -45,6 +45,7 @@ _is_ranking_consistent = _mod._is_ranking_consistent
 _build_ranked_fallback = _mod._build_ranked_fallback
 _ensure_ranking_consistency = _mod._ensure_ranking_consistency
 _first_sentence = _mod._first_sentence
+recommend_stream = _mod.recommend_stream
 
 
 SAMPLE_RESULTS = [
@@ -146,3 +147,13 @@ class TestFirstSentence:
         assert _first_sentence("Great app! Very useful.") == "Great app! Very useful."
         # Pure exclamation without period
         assert _first_sentence("Great app! Very useful") == "Great app!"
+
+
+class TestRecommendStream:
+    def test_no_results_emits_token_event(self):
+        with patch.object(_mod, "_search_apps", return_value=[]):
+            events = list(recommend_stream("watr leek detection", top_k=5))
+
+        assert '"type": "token"' in events[0]
+        assert "couldn't find any apps" in events[0]
+        assert '"type": "done"' in events[1]

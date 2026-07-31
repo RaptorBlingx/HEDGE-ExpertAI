@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import difflib
 import hashlib
 import json
 import logging
@@ -75,6 +76,11 @@ STOPWORDS: frozenset[str] = frozenset({
 # LRU search-result cache (avoids re-embedding identical queries within a short window)
 _CACHE_MAX = 128
 _cache: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
+_VOCABULARY_CACHE: tuple[str, ...] | None = None
+
+FUZZY_TOKEN_MIN_LEN = 4
+FUZZY_MATCH_CUTOFF = 0.74
+CATALOG_SCROLL_LIMIT = 256
 
 
 def _cache_key(query: str, top_k: int, saref_class: str | None) -> str:
@@ -84,28 +90,107 @@ def _cache_key(query: str, top_k: int, saref_class: str | None) -> str:
 
 def invalidate_cache():
     """Clear all cached results (called after re-indexing)."""
+    global _VOCABULARY_CACHE
     _cache.clear()
+    _VOCABULARY_CACHE = None
 
 
-def hybrid_search(
+def _catalog_text(payload: dict[str, Any]) -> str:
+    """Build a searchable catalog text blob from app payload metadata."""
+    tags = payload.get("tags", [])
+    if isinstance(tags, list):
+        tag_text = " ".join(str(tag) for tag in tags)
+    else:
+        tag_text = str(tags)
+    return " ".join(
+        [
+            str(payload.get("title", "")),
+            str(payload.get("description", "")),
+            tag_text,
+            str(payload.get("saref_type", "")),
+            str(payload.get("publisher", "")),
+        ]
+    )
+
+
+def _get_catalog_vocabulary(client: QdrantClient) -> tuple[str, ...]:
+    """Collect a lightweight token vocabulary from indexed app metadata."""
+    global _VOCABULARY_CACHE
+    if _VOCABULARY_CACHE is not None:
+        return _VOCABULARY_CACHE
+
+    terms: set[str] = set()
+    offset = None
+
+    try:
+        while True:
+            points, offset = client.scroll(
+                collection_name=COLLECTION_NAME,
+                limit=CATALOG_SCROLL_LIMIT,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,
+            )
+
+            for point in points:
+                payload = point.payload or {}
+                for token in _tokenize(_catalog_text(payload)):
+                    if len(token) < 3 or token.isdigit() or token in STOPWORDS:
+                        continue
+                    terms.add(token)
+
+            if offset is None:
+                break
+    except Exception:
+        logger.exception("Failed to build catalog vocabulary for fuzzy search")
+        _VOCABULARY_CACHE = tuple()
+        return _VOCABULARY_CACHE
+
+    _VOCABULARY_CACHE = tuple(sorted(terms))
+    return _VOCABULARY_CACHE
+
+
+def _maybe_correct_query(client: QdrantClient, query: str) -> str:
+    """Best-effort typo correction against the indexed catalog vocabulary."""
+    vocabulary = _get_catalog_vocabulary(client)
+    if not vocabulary:
+        return query
+
+    corrected_tokens: list[str] = []
+    changed = False
+
+    for token in _tokenize(query):
+        if (
+            len(token) < FUZZY_TOKEN_MIN_LEN
+            or token.isdigit()
+            or token in STOPWORDS
+            or token in vocabulary
+        ):
+            corrected_tokens.append(token)
+            continue
+
+        match = difflib.get_close_matches(token, vocabulary, n=1, cutoff=FUZZY_MATCH_CUTOFF)
+        if match:
+            corrected_tokens.append(match[0])
+            changed = True
+        else:
+            corrected_tokens.append(token)
+
+    if not changed:
+        return query
+
+    corrected_query = " ".join(corrected_tokens)
+    logger.info("Retrying search with typo-corrected query '%s' -> '%s'", query, corrected_query)
+    return corrected_query
+
+
+def _hybrid_search_once(
     client: QdrantClient,
     query: str,
-    top_k: int = 5,
-    saref_class: str | None = None,
+    top_k: int,
+    saref_class: str | None,
 ) -> list[dict[str, Any]]:
-    """
-    Hybrid search combining:
-      - 0.6 × vector cosine similarity
-      - 0.3 × keyword (BM25-lite) score
-      - 0.1 × SAREF class match boost
-
-    Results are LRU-cached to avoid repeated embedding computation.
-    """
-    key = _cache_key(query, top_k, saref_class)
-    if key in _cache:
-        _cache.move_to_end(key)
-        return _cache[key]
-
+    """Run a single hybrid-search pass without typo correction fallback."""
     query_vector = encode_single(query)
 
     # Fetch more candidates for re-ranking
@@ -134,7 +219,7 @@ def hybrid_search(
         vector_score = float(hit.score)
 
         # Keyword score
-        doc_text = f"{payload.get('title', '')} {payload.get('description', '')} {' '.join(payload.get('tags', []))}"
+        doc_text = _catalog_text(payload)
         keyword_score = _keyword_score(query_tokens, doc_text)
 
         # SAREF boost
@@ -155,8 +240,34 @@ def hybrid_search(
         )
 
     scored.sort(key=lambda x: x["score"], reverse=True)
-    # Filter out low-confidence results
-    result = [r for r in scored if r["score"] >= SCORE_THRESHOLD][:top_k]
+    return [r for r in scored if r["score"] >= SCORE_THRESHOLD][:top_k]
+
+
+def hybrid_search(
+    client: QdrantClient,
+    query: str,
+    top_k: int = 5,
+    saref_class: str | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Hybrid search combining:
+      - 0.6 × vector cosine similarity
+      - 0.3 × keyword (BM25-lite) score
+      - 0.1 × SAREF class match boost
+
+    Results are LRU-cached to avoid repeated embedding computation.
+    """
+    key = _cache_key(query, top_k, saref_class)
+    if key in _cache:
+        _cache.move_to_end(key)
+        return _cache[key]
+
+    result = _hybrid_search_once(client, query, top_k, saref_class)
+
+    if not result:
+        corrected_query = _maybe_correct_query(client, query)
+        if corrected_query != query:
+            result = _hybrid_search_once(client, corrected_query, top_k, saref_class)
 
     # Store in LRU cache
     _cache[key] = result
