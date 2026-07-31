@@ -4,10 +4,21 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import uuid
 
 import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
+from hedge_shared.models_v2 import (
+    ChatRequestV2,
+    RecommendationEventRequest,
+)
+from hedge_shared.storage import (
+    create_impression,
+    recommendation_kpis,
+    record_recommendation_event,
+)
 from pydantic import BaseModel, Field
 
 from .classifier import classify
@@ -34,7 +45,8 @@ DISCOVERY_RANKING_URL = os.getenv("DISCOVERY_RANKING_URL", "http://discovery-ran
 
 class ChatRequest(BaseModel):
     session_id: str | None = None
-    message: str = Field(..., min_length=1)
+    message: str = Field(..., min_length=1, max_length=2000)
+    locale: str = Field(default="en", pattern=r"^(en|de|fr|es|it|nl|pt|tr)$")
 
 
 GREETING_RESPONSE = (
@@ -212,6 +224,7 @@ def get_chat_session(session_id: str):
 @router.delete("/chat/sessions/{session_id}")
 def end_chat_session(session_id: str):
     """End and delete a session."""
+    log_session_event(session_id, "end")
     deleted = delete_session(session_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -278,6 +291,466 @@ def get_recorded_session(session_id: str):
     if not events:
         raise HTTPException(status_code=404, detail="Session log not found")
     return {"session_id": session_id, "events": events}
+
+
+# ---------------------------------------------------------------------------
+# Version 2 conversational and telemetry contracts
+# ---------------------------------------------------------------------------
+
+v2_router = APIRouter(prefix="/api/v2")
+
+_ORDINALS = {
+    "first": 0,
+    "1": 0,
+    "second": 1,
+    "2": 1,
+    "third": 2,
+    "3": 2,
+    "fourth": 3,
+    "4": 3,
+    "fifth": 4,
+    "5": 4,
+    "erste": 0,
+    "zweite": 1,
+    "premier": 0,
+    "deuxième": 1,
+    "primero": 0,
+    "segundo": 1,
+    "ilk": 0,
+    "ikinci": 1,
+}
+
+_STATIC = {
+    "greeting": {
+        "en": "Hello! I can help you find and compare IoT applications.",
+        "de": "Hallo! Ich kann Ihnen helfen, IoT-Anwendungen zu finden und zu vergleichen.",
+        "fr": "Bonjour ! Je peux vous aider à trouver et comparer des applications IoT.",
+        "es": "¡Hola! Puedo ayudarle a encontrar y comparar aplicaciones IoT.",
+        "it": "Ciao! Posso aiutarti a trovare e confrontare applicazioni IoT.",
+        "nl": "Hallo! Ik kan u helpen IoT-apps te vinden en te vergelijken.",
+        "pt": "Olá! Posso ajudar a encontrar e comparar aplicações IoT.",
+        "tr": "Merhaba! IoT uygulamalarını bulmanıza ve karşılaştırmanıza yardımcı olabilirim.",
+    },
+    "help": {
+        "en": "Describe your use case, refine the results, ask about an app, or compare recent matches.",
+        "de": "Beschreiben Sie den Anwendungsfall, verfeinern Sie Treffer oder vergleichen Sie Apps.",
+        "fr": "Décrivez votre cas d'usage, affinez les résultats ou comparez des applications.",
+        "es": "Describa su caso de uso, refine los resultados o compare aplicaciones.",
+        "it": "Descrivi il caso d'uso, affina i risultati o confronta le applicazioni.",
+        "nl": "Beschrijf uw gebruikssituatie, verfijn resultaten of vergelijk apps.",
+        "pt": "Descreva o caso de uso, refine os resultados ou compare aplicações.",
+        "tr": "Kullanım durumunuzu açıklayın, sonuçları daraltın veya uygulamaları karşılaştırın.",
+    },
+    "out_of_scope": {
+        "en": "I can only help with discovery and explanation of IoT catalogue applications.",
+        "de": "Ich unterstütze nur die Suche und Erklärung von IoT-Kataloganwendungen.",
+        "fr": "Je peux uniquement aider à découvrir et expliquer les applications du catalogue IoT.",
+        "es": "Solo puedo ayudar a descubrir y explicar aplicaciones del catálogo IoT.",
+        "it": "Posso aiutare solo con le applicazioni del catalogo IoT.",
+        "nl": "Ik kan alleen helpen met apps uit de IoT-catalogus.",
+        "pt": "Só posso ajudar com aplicações do catálogo IoT.",
+        "tr": "Yalnızca IoT kataloğu uygulamalarını bulma ve açıklama konusunda yardımcı olabilirim.",
+    },
+    "reset": {
+        "en": "The previous search context has been cleared.",
+        "de": "Der vorherige Suchkontext wurde gelöscht.",
+        "fr": "Le contexte de recherche précédent a été effacé.",
+        "es": "Se ha borrado el contexto de búsqueda anterior.",
+        "it": "Il contesto di ricerca precedente è stato cancellato.",
+        "nl": "De vorige zoekcontext is gewist.",
+        "pt": "O contexto de pesquisa anterior foi limpo.",
+        "tr": "Önceki arama bağlamı temizlendi.",
+    },
+}
+
+
+def _static_message(intent: str, locale: str) -> str:
+    translations = _STATIC[intent]
+    return translations.get(locale, translations["en"])
+
+
+def _context_for(session_id: str) -> dict:
+    session = get_session(session_id) or {}
+    return dict(session.get("context") or {})
+
+
+def _referenced_result(message: str, context: dict) -> dict | None:
+    lowered = message.casefold()
+    for token, index in _ORDINALS.items():
+        if re.search(rf"\b{re.escape(token)}\b", lowered):
+            results = context.get("last_results") or []
+            if index < len(results):
+                return results[index]
+    return None
+
+
+def _dialogue_query(message: str, intent: str, context: dict) -> str:
+    if intent == "refine" and context.get("last_query"):
+        return f"{context['last_query']} ; refinement: {message}"
+    if intent == "compare" and context.get("last_results"):
+        titles = []
+        for item in context["last_results"][:3]:
+            app = item.get("app", item)
+            value = app.get("title", "")
+            titles.append(value.get("en", "") if isinstance(value, dict) else str(value))
+        return f"Compare {'; '.join(titles)} for: {message}"
+    return message
+
+
+def _dialogue_filters(req: ChatRequestV2, intent: str, context: dict) -> dict:
+    """Merge explicit refinements while making a new search a clean topic."""
+    incoming = req.filters.model_dump(mode="json")
+    if intent not in {"refine", "compare", "detail"}:
+        return incoming
+    merged = dict(context.get("filters") or {})
+    for key, value in incoming.items():
+        if value not in (None, [], ""):
+            merged[key] = value
+    return merged
+
+
+async def _recommend_v2(
+    *,
+    query: str,
+    locale: str,
+    filters: dict,
+) -> dict:
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{EXPERT_RECOMMEND_URL}/api/v2/recommend",
+            json={
+                "query": query,
+                "locale": locale,
+                "filters": filters,
+                "limit": 5,
+            },
+            timeout=180.0,
+        )
+    response.raise_for_status()
+    return response.json()
+
+
+@v2_router.post("/chat")
+async def chat_v2(req: ChatRequestV2) -> dict:
+    """Deterministic application-owned dialogue with durable impressions."""
+    session_id, history = get_or_create_session(req.session_id)
+    context = _context_for(session_id)
+    result = classify(req.message)
+    intent = result.intent
+
+    if not req.session_id:
+        log_session_event(session_id, "start", {"locale": req.locale})
+    log_session_event(session_id, "message", {"role": "user", "intent": intent})
+
+    if intent == "reset":
+        delete_session(session_id)
+        session_id, history = get_or_create_session(None)
+        log_session_event(session_id, "start", {"locale": req.locale, "reset": True})
+        message = _static_message("reset", req.locale)
+        history.append({"role": "assistant", "content": message})
+        update_session(session_id, history, {"locale": req.locale, "turn": 0})
+        return {
+            "schema_version": "2.0",
+            "session_id": session_id,
+            "intent": intent,
+            "message": message,
+            "apps": [],
+            "impression_id": None,
+        }
+
+    if intent in {"greeting", "help", "out_of_scope"}:
+        message = _static_message(intent, req.locale)
+        apps: list[dict] = []
+        timings: dict = {}
+    else:
+        filters = _dialogue_filters(req, intent, context)
+        extension_uri = result.entities.get("extension_uri")
+        if extension_uri and not filters.get("extension_uri"):
+            filters["extension_uri"] = extension_uri
+        referenced = _referenced_result(req.message, context)
+        if intent == "detail" and referenced:
+            app = referenced.get("app", referenced)
+            filters["semantic_uri"] = None
+            query = f"Explain application {app.get('id')}: {req.message}"
+        else:
+            query = _dialogue_query(req.message, intent, context)
+        recommendation = await _recommend_v2(
+            query=query,
+            locale=req.locale,
+            filters=filters,
+        )
+        message = recommendation.get("message", "")
+        apps = recommendation.get("apps", [])
+        timings = recommendation.get("timings", {})
+
+    impression_id = None
+    if apps:
+        app_ids = [item.get("app", item).get("id", "") for item in apps]
+        impression_id = create_impression(
+            session_id=session_id,
+            result_ids=[app_id for app_id in app_ids if app_id],
+            locale=req.locale,
+            intent=intent,
+            timings=timings,
+        )
+        log_session_event(
+            session_id,
+            "recommendation",
+            {"impression_id": impression_id, "count": len(apps)},
+        )
+
+    history.extend(
+        [
+            {"role": "user", "content": req.message},
+            {"role": "assistant", "content": message},
+        ]
+    )
+    context_update = {
+        "locale": req.locale,
+        "intent": intent,
+        "filters": filters if intent not in {"greeting", "help", "out_of_scope"} else {},
+        "last_query": req.message,
+        "turn": int(context.get("turn", 0)) + 1,
+    }
+    if apps:
+        context_update["last_results"] = apps[:5]
+        context_update["last_impression_id"] = impression_id
+    update_session(session_id, history[-20:], context_update)
+    return {
+        "schema_version": "2.0",
+        "session_id": session_id,
+        "intent": intent,
+        "message": message,
+        "apps": apps,
+        "impression_id": impression_id,
+        "timings": timings,
+    }
+
+
+def _sse_v2(event_id: str, data: dict) -> str:
+    import json
+
+    return f"id: {event_id}\nevent: {data['type']}\ndata: {json.dumps(data)}\n\n"
+
+
+@v2_router.post(
+    "/chat/stream",
+    response_class=StreamingResponse,
+    responses={200: {"content": {"text/event-stream": {}}}},
+)
+async def chat_stream_v2(req: ChatRequestV2):
+    """Versioned SSE with early ranked results and validated explanation text."""
+
+    async def generate():
+        import json
+
+        request_id = str(uuid.uuid4())
+        session_id, history = get_or_create_session(req.session_id)
+        context = _context_for(session_id)
+        classified = classify(req.message)
+        intent = classified.intent
+        sequence = 1
+
+        def event(payload: dict) -> str:
+            nonlocal sequence
+            payload.update(
+                {
+                    "request_id": request_id,
+                    "session_id": session_id,
+                    "locale": req.locale,
+                }
+            )
+            rendered = _sse_v2(f"{request_id}:{sequence}", payload)
+            sequence += 1
+            return rendered
+
+        yield _sse_v2(
+            f"{request_id}:{sequence}",
+            {
+                "type": "stage",
+                "stage": "intent",
+                "request_id": request_id,
+                "session_id": session_id,
+                "locale": req.locale,
+            },
+        )
+        sequence += 1
+
+        if intent in {"greeting", "help", "out_of_scope", "reset"}:
+            try:
+                response = await chat_v2(req)
+                session_id = response["session_id"]
+            except Exception:
+                logger.exception("Static v2 dialogue failed")
+                yield event(
+                    {
+                        "type": "problem",
+                        "title": "Dialogue service unavailable",
+                        "status": 503,
+                    }
+                )
+                return
+            yield event(
+                {
+                    "type": "explanation_delta",
+                    "content": response["message"],
+                }
+            )
+            yield event(
+                {
+                    "type": "complete",
+                    "impression_id": None,
+                    "intent": intent,
+                    "timings": {},
+                }
+            )
+            return
+
+        if not req.session_id:
+            log_session_event(session_id, "start", {"locale": req.locale})
+        log_session_event(session_id, "message", {"role": "user", "intent": intent})
+        filters = _dialogue_filters(req, intent, context)
+        extension_uri = classified.entities.get("extension_uri")
+        if extension_uri and not filters.get("extension_uri"):
+            filters["extension_uri"] = extension_uri
+        referenced = _referenced_result(req.message, context)
+        if intent == "detail" and referenced:
+            app = referenced.get("app", referenced)
+            query = f"Explain application {app.get('id')}: {req.message}"
+        else:
+            query = _dialogue_query(req.message, intent, context)
+
+        yield event({"type": "stage", "stage": "retrieval"})
+        apps: list[dict] = []
+        full_text = ""
+        timings: dict = {}
+        impression_id = None
+        try:
+            async with httpx.AsyncClient() as client:
+                async with client.stream(
+                    "POST",
+                    f"{EXPERT_RECOMMEND_URL}/api/v2/recommend/stream",
+                    json={
+                        "query": query,
+                        "locale": req.locale,
+                        "filters": filters,
+                        "limit": 5,
+                    },
+                    timeout=180.0,
+                ) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if not line.startswith("data:"):
+                            continue
+                        try:
+                            upstream = json.loads(line[5:].strip())
+                        except ValueError:
+                            continue
+                        upstream_type = upstream.get("type")
+                        if upstream_type == "recommendations":
+                            apps = upstream.get("apps", [])
+                            timings.update(upstream.get("timings", {}))
+                            if apps:
+                                app_ids = [item.get("app", item).get("id") for item in apps]
+                                impression_id = create_impression(
+                                    session_id=session_id,
+                                    result_ids=[app_id for app_id in app_ids if app_id],
+                                    locale=req.locale,
+                                    intent=intent,
+                                    timings=timings,
+                                )
+                            yield event({"type": "stage", "stage": "ranking"})
+                            yield event(
+                                {
+                                    "type": "recommendations",
+                                    "apps": apps,
+                                    "impression_id": impression_id,
+                                    "timings": timings,
+                                }
+                            )
+                        elif upstream_type == "stage":
+                            yield event({"type": "stage", "stage": upstream.get("stage")})
+                        elif upstream_type == "explanation_delta":
+                            content = str(upstream.get("content", ""))
+                            full_text += content
+                            yield event({"type": "explanation_delta", "content": content})
+                        elif upstream_type == "complete":
+                            timings.update(upstream.get("timings", {}))
+        except Exception:
+            logger.exception("V2 streaming dialogue failed")
+            yield event(
+                {
+                    "type": "problem",
+                    "title": "Recommendation service unavailable",
+                    "status": 503,
+                }
+            )
+            return
+
+        history.extend(
+            [
+                {"role": "user", "content": req.message},
+                {"role": "assistant", "content": full_text},
+            ]
+        )
+        context_update = {
+            "locale": req.locale,
+            "intent": intent,
+            "filters": filters,
+            "last_query": req.message,
+            "turn": int(context.get("turn", 0)) + 1,
+        }
+        if apps:
+            context_update["last_results"] = apps[:5]
+            context_update["last_impression_id"] = impression_id
+            log_session_event(
+                session_id,
+                "recommendation",
+                {"impression_id": impression_id, "count": len(apps)},
+            )
+        update_session(session_id, history[-20:], context_update)
+        yield event(
+            {
+                "type": "complete",
+                "impression_id": impression_id,
+                "intent": intent,
+                "timings": timings,
+            }
+        )
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@v2_router.post("/recommendation-events", status_code=201)
+def submit_recommendation_event(req: RecommendationEventRequest) -> dict:
+    """Record a verified, idempotent recommendation event."""
+    try:
+        created = record_recommendation_event(req)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"status": "recorded" if created else "duplicate", "created": created}
+
+
+@v2_router.get("/analytics/recommendations")
+def recommendation_analytics() -> dict:
+    """Durable session-level recommendation KPIs."""
+    return recommendation_kpis()
+
+
+@v2_router.delete("/sessions/{session_id}")
+def delete_session_v2(session_id: str) -> dict:
+    """End and erase operational session state."""
+    log_session_event(session_id, "end")
+    deleted = delete_session(session_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {"status": "deleted", "session_id": session_id}
 
 
 def _handle_search(query: str) -> tuple[str, list]:

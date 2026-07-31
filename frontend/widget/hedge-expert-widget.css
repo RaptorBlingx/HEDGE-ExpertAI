@@ -26,6 +26,23 @@
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+.he-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.he-container :focus-visible {
+  outline: 3px solid var(--he-primary-soft);
+  outline-offset: 2px;
+}
 .he-container[data-position="bottom-right"] { bottom: 20px; right: 20px; }
 .he-container[data-position="bottom-left"]  { bottom: 20px; left: 20px;  }
 
@@ -218,6 +235,15 @@
   font-family: "SF Mono", "Fira Code", "Consolas", monospace;
 }
 .he-header-actions { display: flex; align-items: center; gap: 6px; }
+.he-locale {
+  min-height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 7px;
+  background: rgba(15, 23, 42, 0.4);
+  color: #fff;
+  font-size: 11px;
+  cursor: pointer;
+}
 .he-header-btn {
   background: rgba(255, 255, 255, 0.1);
   border: none;
@@ -624,9 +650,35 @@
   transition: border-color 0.15s, box-shadow 0.15s;
   cursor: default;
 }
+.he-cards a.he-card {
+  display: block;
+  color: inherit;
+  text-decoration: none;
+}
 .he-card:hover {
   border-color: #475569;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.2);
+}
+
+.he-stage {
+  margin: 0 0 8px;
+  color: #bae6fd;
+  font-size: 12px;
+}
+
+.he-stage--complete {
+  color: #86efac;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .he-container *,
+  .he-container *::before,
+  .he-container *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 .he-card-top {
   display: flex;

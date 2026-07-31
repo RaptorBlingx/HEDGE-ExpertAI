@@ -1,247 +1,199 @@
 # Deployment Guide
 
-## Prerequisites
+> Current status: this repository is a production-hardening candidate. Do not
+> describe a deployment as production-ready until the Release 3 gates in the
+> traceability matrix have retained evidence.
 
-- Docker Engine 24+ and Docker Compose v2
-- Minimum 5GB RAM (8GB+ recommended)
-- ~10GB disk for images and models
-- Linux x86_64 (tested on Ubuntu 22.04)
+## Supported target
 
-## Initial Setup
+- Docker Engine 27+ with Docker Compose v2.24+
+- Linux amd64 or arm64
+- 8 GB RAM minimum; 16 GB recommended when Rasa and local generation run together
+- 20 GB free disk plus explicit capacity for PostgreSQL backups, Qdrant snapshots,
+  model caches, and retained logs
+- externally managed TLS certificates and an OIDC provider for production
 
-### 1. Clone the repository
+The production profile intentionally limits local-model concurrency to one and
+keeps operational queues bounded by container resource limits. Re-run the load
+and soak gates on the actual target node before changing those limits.
 
-```bash
-git clone git@github.com:RaptorBlingx/HEDGE-ExpertAI.git
-cd HEDGE-ExpertAI
-```
-
-### 2. Configure environment
+## Local validation stack
 
 ```bash
 cp .env.example .env
-# Edit .env if needed (defaults work for standard deployment)
-```
-
-### 3. Enable swap (recommended for 5GB servers)
-
-```bash
-sudo fallocate -l 4G /swapfile
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
-echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
-```
-
-### 4. Build and start
-
-```bash
-make build
-make up
-```
-
-### 5. Pull the LLM model
-
-```bash
-make pull-model
-```
-
-This downloads qwen3.5:2b (~2.7GB). On first run, discovery-ranking will also download the embedding model (~80MB). Allow 5-10 minutes for initial startup. Requires 4GB swap configured (see deployment guide).
-
-### 6. Seed the search index
-
-```bash
-make seed
-```
-
-### 7. Verify all services
-
-```bash
-make health
-```
-
-All services should report "ok" or "degraded" (degraded is normal if Ollama model is still loading).
-
-### 8. Validate the production widget surface
-
-Open the widget smoke-test page after the stack is up:
-
-```text
-http://localhost:8080/demo.html
-```
-
-If the `tls` profile is enabled, validate the public edge path instead:
-
-```text
-https://your-domain.example/demo.html
-```
-
-This page is the thin production host for the embeddable widget. The React app at `/` remains useful for development and evaluation, but it is not the primary delivery surface.
-
-### 9. Run evaluation (optional)
-
-```bash
-# Search quality only (fast, no LLM needed)
-make evaluate-search
-
-# Full evaluation including chat and streaming
-make evaluate
-```
-
-## Production Considerations
-
-### TLS/HTTPS
-
-The stack now includes an optional nginx TLS edge profile. This keeps the
-gateway on internal HTTP while exposing only ports 80/443 publicly.
-
-```bash
-# Start the base stack (services remain bound to 127.0.0.1 on the host)
+docker compose config --quiet
+docker compose build
 docker compose up -d
-
-# Add the TLS edge
-docker compose --profile tls up -d nginx
+docker compose exec ollama ollama pull qwen3.5:2b
+curl -X POST http://127.0.0.1:8004/api/v2/ingestion/runs
+docker compose ps
 ```
 
-The nginx container will:
-- use mounted certificates from `TLS_CERT_PATH` / `TLS_KEY_PATH` if provided,
-- otherwise generate a short-lived self-signed certificate automatically,
-- proxy SSE traffic on `/api/v1/chat/stream` with buffering disabled.
+The ingestion trigger is asynchronous. A run is complete only when
+`GET /api/v2/ingestion/runs/latest` reports `completed` and all derived-index
+outbox operations have succeeded. `degraded` is not an acceptable readiness
+state: `/ready` returns HTTP 503 whenever a required dependency is unavailable.
 
-Example production variables in `.env`:
+## Production preflight
 
-```bash
-TLS_SERVER_NAME=hedge.example.com
-TLS_CERT_PATH=/etc/letsencrypt/live/hedge.example.com/fullchain.pem
-TLS_KEY_PATH=/etc/letsencrypt/live/hedge.example.com/privkey.pem
-ENABLE_HSTS=true
+Create a production-specific environment file outside version control. At a
+minimum it must provide:
+
+```dotenv
+APP_ENV=production
+CORS_ALLOWED_ORIGINS=https://apps.example.org
 TRUST_PROXY_HEADERS=true
-CORS_ALLOWED_ORIGINS=https://hedge.example.com
-```
-
-If you prefer an external ingress/load balancer, keep the `tls` profile off and
-terminate TLS outside Compose instead.
-
-Legacy manual reverse-proxy example:
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name your-domain.com;
-
-    ssl_certificate /etc/ssl/cert.pem;
-    ssl_certificate_key /etc/ssl/key.pem;
-
-    location / {
-        proxy_pass http://localhost:8080;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 300s;
-    }
-}
-```
-
-### Auth / Keycloak
-
-The stack now includes an optional Keycloak + Postgres auth profile for local or
-staging OIDC setup:
-
-```bash
-docker compose --profile auth up -d keycloak-db keycloak
-```
-
-Default local access:
-- Keycloak admin console: `http://127.0.0.1:${KEYCLOAK_PORT:-8081}`
-- Admin user: `KEYCLOAK_ADMIN`
-
-Recommended staged rollout:
-1. Enable TLS first.
-2. Start Keycloak and configure issuer / audience values.
-3. Turn on `OAUTH_ENABLED=true` while keeping `ENABLE_RBAC=false` to validate token parsing.
-4. Turn on `ENABLE_RBAC=true` to protect admin and analytics endpoints.
-
-Relevant `.env` values:
-
-```bash
-OAUTH_ENABLED=true
+TRUSTED_PROXY_IPS=10.0.0.0/24
+ENABLE_HSTS=true
 ENABLE_RBAC=true
-OAUTH_ISSUER=http://127.0.0.1:8081/realms/hedge
+OAUTH_ENABLED=true
+OAUTH_ISSUER=https://identity.example.org/realms/hedge
 OAUTH_AUDIENCE=hedge-expert-api
 OAUTH_CLIENT_ID=hedge-expert-api
-OAUTH_JWKS_URL=http://keycloak:8080/realms/hedge/protocol/openid-connect/certs
-RBAC_ADMIN_ROLES=admin,administrator
-RBAC_ANALYST_ROLES=analyst,admin
+OAUTH_JWKS_URL=https://identity.example.org/realms/hedge/protocol/openid-connect/certs
+RATE_LIMIT_REQUIRED=true
+POSTGRES_PASSWORD=<non-default secret>
+DATABASE_URL=postgresql://hedge:<url-encoded-secret>@postgres:5432/hedge
 ```
 
-For test-only or bootstrap environments, `OAUTH_SHARED_SECRET` can be used in
-place of JWKS-based validation. Do not use that mode in production.
+`OAUTH_SHARED_SECRET`, wildcard/non-HTTPS origins, permissive rate limiting,
+default database passwords, and absent JWKS configuration are rejected at
+gateway startup when `APP_ENV=production`.
 
-### Protected Endpoints
-
-With `ENABLE_RBAC=true`, the gateway keeps public discovery open but protects:
-- `POST /api/v1/ingest/trigger` — admin role
-- `GET /api/v1/ingest/status` — analyst/admin role
-- `GET /api/v1/feedback/stats` — analyst/admin role
-- `GET /api/v1/sessions/recorded*` — analyst/admin role
-
-Chat, search, catalog browsing, app details, and feedback submission remain
-public in the first hardening rollout.
-
-### CORS Configuration
-
-Use `.env` for production CORS instead of editing code directly:
+Validate the merged configuration before rollout:
 
 ```bash
-CORS_ALLOWED_ORIGINS=https://your-app-store-domain.com
+docker compose -f docker-compose.yml -f docker-compose.production.yml config --quiet
 ```
 
-### Monitoring
+The overlay removes host port publishing from PostgreSQL, Valkey, Qdrant,
+Ollama, mock ingestion, and internal application services. Only the loopback
+gateway remains published unless the TLS profile is enabled. Application
+containers run as non-root with dropped capabilities, read-only root
+filesystems, bounded process counts, and writable `/tmp` tmpfs mounts.
+
+## TLS and renewal
+
+For production, prefer an externally managed load balancer or ingress that
+already renews certificates and forwards only to `127.0.0.1:8080`. Preserve the
+client address only from a proxy range listed in `TRUSTED_PROXY_IPS`.
+
+The optional nginx profile is suitable when certificate files are supplied to
+the container by the deployment platform. The production overlay sets
+`REQUIRE_EXTERNAL_TLS=true`; it will not generate a self-signed certificate.
+After the platform renews a mounted certificate, reload nginx with:
 
 ```bash
-# Watch container resource usage
-docker stats
-
-# Check service logs
-make logs
-
-# Check ingestion status
-curl http://localhost:8080/api/v1/ingest/status
+docker compose exec nginx nginx -s reload
 ```
 
-### Upgrading the LLM Model
+The v1 and v2 SSE routes have buffering disabled and a bounded 310-second proxy
+timeout. Browser query-string API keys are unsupported; use same-origin OIDC or
+the widget `getAccessToken` callback.
 
-To switch to a larger model (requires more RAM):
+## Rollout and rollback
+
+1. Back up PostgreSQL and create a Qdrant snapshot.
+2. Apply reversible SQL migrations before starting new application containers.
+3. Build immutable images and record their digests and SBOMs.
+4. Start dependencies, then workers, internal APIs, gateway, and edge proxy.
+5. Require HTTP 200 from every `/ready` endpoint before routing traffic.
+6. Trigger a full derived-index rebuild into a new versioned collection.
+7. Promote only after the indexed count matches the active PostgreSQL catalogue.
 
 ```bash
-# Edit .env
-OLLAMA_MODEL=qwen3:1.7b
-
-# Pull new model
-docker compose exec ollama ollama pull qwen3:1.7b
-
-# Restart services
-make down && make up
+curl -X POST http://127.0.0.1:8080/api/v2/index/rebuild \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"collection_name":"hedge_apps_v2_20260731"}'
 ```
 
-### Backup
+Rollback application containers by digest. Roll back the derived index without
+rewriting data by promoting a previously validated versioned collection:
 
 ```bash
-# Backup volumes
-docker run --rm -v "$(basename "$PWD")_qdrant-data:/data" -v "$(pwd)/backups:/backup" alpine tar czf "/backup/qdrant-$(date +%Y%m%d).tar.gz" /data
-docker run --rm -v "$(basename "$PWD")_redis-data:/data" -v "$(pwd)/backups:/backup" alpine tar czf "/backup/redis-$(date +%Y%m%d).tar.gz" /data
+curl -X POST http://127.0.0.1:8080/api/v2/index/promote \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -d '{"collection_name":"hedge_apps_v2_previous"}'
 ```
+
+Never attach a newer Qdrant image directly to an older in-place data volume.
+Follow supported intermediate upgrades or rebuild the derived collection from
+PostgreSQL, validate it, and atomically switch the alias.
+
+## Backup and restore acceptance
+
+PostgreSQL is authoritative. Use encrypted `pg_dump --format=custom` backups
+with off-node retention. Qdrant snapshots reduce recovery time but do not
+replace the PostgreSQL backup. Preserve the Valkey queue volume or RDB export so
+unacknowledged ingestion deliveries survive a queue restart; cache/session
+Valkey data is disposable.
+
+The repository provides encrypted, fail-fast backup and isolated restore tools.
+The passphrase is read from a file and is never accepted on the command line:
+
+```bash
+install -d -m 0700 /srv/hedge-backups
+BACKUP_OUTPUT_DIR=/srv/hedge-backups \
+BACKUP_PASSPHRASE_FILE=/run/secrets/hedge_backup_passphrase \
+  ./scripts/backup.sh
+
+BACKUP_PASSPHRASE_FILE=/run/secrets/hedge_backup_passphrase \
+  ./scripts/restore_drill.sh /srv/hedge-backups/20260731T122028Z
+```
+
+Each set contains AES-256-CBC/PBKDF2-encrypted PostgreSQL, Qdrant, and Valkey
+artifacts, a privacy-safe manifest, and SHA-256 checksums. The restore script
+verifies the checksums, decrypts into a mode-0700 temporary directory, restores
+all three stores into disposable isolated containers, compares authoritative
+catalogue/vector/queue counts, and removes those containers afterward. Qdrant
+must use the same supported minor release as the snapshot.
+
+A restore drill passes only when it uses isolated temporary instances and
+verifies:
+
+- schema migration versions and row counts;
+- active catalogue payload checksums and revision history;
+- pending/failed outbox entries can be replayed;
+- the Qdrant snapshot count matches the active searchable catalogue;
+- search succeeds after rebuilding Qdrant solely from PostgreSQL;
+- no live volume, alias, or database was overwritten during the drill.
+
+Repository tooling and a local 120-record restore drill are implemented.
+Scheduling, off-node replication, encryption-key custody/rotation, backup
+retention, alerting, and retained target-environment drill evidence remain
+deployment responsibilities and Release 3 gates.
+
+## Operational checks
+
+```bash
+docker compose ps
+curl -fsS http://127.0.0.1:8080/live
+curl -fsS http://127.0.0.1:8080/ready
+curl -fsS http://127.0.0.1:8080/metrics
+docker compose logs --since=15m gateway chat-intent expert-recommend discovery-ranking
+```
+
+Logs must not include message text, access tokens, raw session identifiers, or
+quarantined source payloads. Retain event-level pseudonymous KPI data for no
+more than 30 days and aggregates thereafter. Consented qualitative transcripts
+require a separate consent record, encryption, restricted access, expiry, and
+deletion support.
+
+The daily `apply-data-retention` Celery task transactionally aggregates expired
+KPI events without session hashes or App IDs, deletes their raw impressions and
+cascaded events, and hard-deletes expired consented transcripts. PostgreSQL
+migrations run once under an advisory lock before database-dependent services
+start.
 
 ## Troubleshooting
 
-| Issue | Solution |
-|-------|----------|
-| discovery-ranking fails healthcheck | Allow 3+ minutes for model download on first start (`start_period: 180s`) |
-| Ollama timeout errors | Increase `OLLAMA_TIMEOUT` in `.env` (default: 180s, try 240s) |
-| Out of memory (OOM kill) | Enable swap, or reduce `mem_limit` values and use smaller model |
-| RASA + Keycloak pressure on 5GB host | Keep `rasa` / `auth` profiles off by default, or move to an 8GB+ node |
-| TLS profile serves self-signed cert | Set `TLS_CERT_PATH` and `TLS_KEY_PATH` to real certificate files |
-| Admin routes return 401/403 | Verify `OAUTH_ENABLED`, `ENABLE_RBAC`, issuer/audience config, and token roles |
-| Qdrant version mismatch | Using `check_compatibility=False` — this is expected |
-| Celery tasks not found | Verify `include=["app.tasks.ingest"]` in celery_app.py |
+| Symptom | Required check |
+|---|---|
+| Discovery remains unready | PostgreSQL reachability, Qdrant alias, model-cache permissions, pinned model revision |
+| Ingestion retries forever | quarantine errors, outbox `last_error`, worker queue health, derived-index readiness |
+| Admin route returns 401/403 | issuer, audience, JWKS reachability, token expiry, configured role mapping |
+| Public route returns 503 | Valkey fail-closed rate limiter or a required downstream dependency |
+| SSE arrives in one block | edge buffering for both `/api/v1/chat/stream` and `/api/v2/chat/stream` |
+| Qdrant cannot open a volume | restore the old image and perform supported intermediate upgrades, or rebuild from PostgreSQL |

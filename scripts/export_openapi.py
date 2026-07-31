@@ -26,7 +26,7 @@ SERVICES = {
 }
 
 
-def export_service(name: str, svc_dir: str, module_path: str, app_attr: str):
+def export_service(name: str, svc_dir: str, module_path: str, app_attr: str) -> bool:
     """Load a FastAPI app and write its OpenAPI JSON."""
     svc_path = str(ROOT / svc_dir)
     sys.path.insert(0, svc_path)
@@ -37,8 +37,10 @@ def export_service(name: str, svc_dir: str, module_path: str, app_attr: str):
         out_file = OPENAPI_DIR / f"{name}.openapi.json"
         out_file.write_text(json.dumps(spec, indent=2) + "\n")
         print(f"  ✓ {name} → {out_file.relative_to(ROOT)}")
+        return True
     except Exception as exc:
         print(f"  ✗ {name}: {exc}")
+        return False
     finally:
         sys.path.remove(svc_path)
         # Clean up cached modules to avoid cross-service import conflicts
@@ -49,9 +51,12 @@ def export_service(name: str, svc_dir: str, module_path: str, app_attr: str):
 
 def main():
     print("Exporting OpenAPI specs...")
+    succeeded = True
     for name, (svc_dir, mod_path, attr) in SERVICES.items():
-        export_service(name, svc_dir, mod_path, attr)
+        succeeded = export_service(name, svc_dir, mod_path, attr) and succeeded
     print(f"\nOpenAPI specs saved to {OPENAPI_DIR.relative_to(ROOT)}/")
+    if not succeeded:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

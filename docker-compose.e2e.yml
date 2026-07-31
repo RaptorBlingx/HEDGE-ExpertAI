@@ -1,0 +1,28 @@
+# Deterministic end-to-end overlay. It replaces generation with the fixture
+# exposed by mock-api while preserving the real gateway, chat, PostgreSQL,
+# Valkey, Qdrant, ingestion worker, and embedding stack.
+services:
+  rasa:
+    profiles: !reset []
+
+  gateway:
+    ports: !override
+      - "127.0.0.1:8080:8000"
+
+  expert-recommend:
+    environment:
+      OLLAMA_BASE_URL: http://mock-api:9000
+      OLLAMA_MODEL: deterministic-e2e
+    depends_on: !override
+      mock-api:
+        condition: service_healthy
+      discovery-ranking:
+        condition: service_healthy
+
+  chat-intent:
+    environment:
+      RASA_ENABLED: "true"
+      RASA_URL: http://rasa:5005
+    depends_on:
+      rasa:
+        condition: service_healthy

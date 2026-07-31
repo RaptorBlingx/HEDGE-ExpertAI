@@ -1,0 +1,74 @@
+# Production hardening overlay. Use only after supplying a production .env and
+# externally managed TLS certificate files:
+# docker compose -f docker-compose.yml -f docker-compose.production.yml --profile tls up -d
+
+x-app-hardening: &app-hardening
+  restart: always
+  read_only: true
+  cap_drop: ["ALL"]
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 256
+  tmpfs:
+    - /tmp:size=64m,mode=1777
+
+services:
+  migrations:
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 64
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+  rasa:
+    <<: *app-hardening
+    profiles: !reset []
+    ports: !reset []
+  gateway:
+    <<: *app-hardening
+    environment:
+      APP_ENV: production
+  chat-intent:
+    <<: *app-hardening
+    ports: !reset []
+    environment:
+      RASA_ENABLED: "true"
+      RASA_URL: http://rasa:5005
+    depends_on:
+      rasa:
+        condition: service_healthy
+  expert-recommend:
+    <<: *app-hardening
+    ports: !reset []
+  metadata-ingest:
+    <<: *app-hardening
+    ports: !reset []
+  metadata-worker:
+    <<: *app-hardening
+  metadata-scheduler:
+    <<: *app-hardening
+  mock-api:
+    <<: *app-hardening
+    ports: !reset []
+  discovery-ranking:
+    <<: *app-hardening
+    ports: !reset []
+  ollama:
+    ports: !reset []
+  qdrant:
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    ports: !reset []
+  postgres:
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    ports: !reset []
+  valkey-cache:
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    ports: !reset []
+  valkey-queue:
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+  nginx:
+    environment:
+      REQUIRE_EXTERNAL_TLS: "true"

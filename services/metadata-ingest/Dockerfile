@@ -1,22 +1,21 @@
-FROM python:3.11-slim
-
-RUN apt-get update && apt-get install -y --no-install-recommends supervisor \
-    && rm -rf /var/lib/apt/lists/*
+FROM python:3.11.15-slim@sha256:e031123e3d85762b141ad1cbc56452ba69c6e722ebf2f042cc0dc86c47c0d8b3
 
 WORKDIR /app
 
-COPY services/metadata-ingest/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY services/metadata-ingest/requirements.lock ./service-requirements.lock
+COPY shared/requirements.lock ./shared-requirements.lock
+RUN pip install --no-cache-dir --require-hashes \
+    -r service-requirements.lock -r shared-requirements.lock
 
 # Copy shared package
 COPY shared/ /shared/
-RUN pip install --no-cache-dir /shared/
+RUN pip install --no-cache-dir --no-deps /shared/
 
 COPY services/metadata-ingest/app/ ./app/
 
-# Supervisord configuration — restarts Celery or Uvicorn if either crashes
-COPY services/metadata-ingest/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+RUN useradd --create-home --uid 10001 hedge && chown -R hedge:hedge /app
+USER 10001
 
 EXPOSE 8004
 
-CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8004"]

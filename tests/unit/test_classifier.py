@@ -1,12 +1,11 @@
 """Tests for keyword-based intent classifier."""
 
 import importlib.util
+import sys as _sys
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
-import sys as _sys
 
 _classifier_path = Path(__file__).parent.parent.parent / "services" / "chat-intent" / "app" / "classifier.py"
 _spec = importlib.util.spec_from_file_location("chat_intent_classifier", _classifier_path)

@@ -1,24 +1,9 @@
-"""Keyword-based intent classifier.
+"""Multilingual Rasa NLU adapter with a bounded deterministic fallback.
 
-Design Decision (OC1 Scope):
-  The proposal specifies RASA for intent classification & entity extraction.
-  For OC1 the regex classifier is sufficient because:
-    1. The intent space is small and well-defined (5 intents).
-    2. IoT domain queries follow predictable patterns
-       ("find apps for…", "show me…", "tell me about…").
-    3. RASA adds ~2GB memory and a separate container; the current sandbox
-       server has only 5GB RAM already saturated by Ollama.
-    4. Classification accuracy on the 69-query test set is >95%
-       (verified via unit tests in test_classifier.py).
-  RASA integration is prepared (RASA_ENABLED flag in shared config) and
-  will be activated when moving to a larger deployment or OC2.
-
-Intents:
-  - search: user wants to find/discover apps
-  - detail: user wants info about a specific app
-  - help: user needs assistance
-  - greeting: user greets
-  - unknown: fallback (treated as search)
+Rasa owns intent/entity interpretation in production and acceptance profiles;
+the application owns dialogue policy and session state. The regex path keeps
+local development available and provides a circuit-broken fallback when Rasa
+is unhealthy. It is not treated as evidence for the multilingual NLU KPI.
 """
 
 from __future__ import annotations
@@ -30,7 +15,6 @@ import time
 from dataclasses import dataclass
 
 import httpx
-
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +33,16 @@ class IntentResult:
 # Patterns ordered by priority (first match wins within each intent)
 _INTENT_PATTERNS: list[tuple[str, list[re.Pattern]]] = [
     (
+        "reset",
+        [
+            re.compile(
+                r"^(reset|start over|new search|clear|zurücksetzen|réinitialiser|reiniciar|"
+                r"reimposta|opnieuw|redefinir|sıfırla)[\s!.,?]*$",
+                re.I,
+            ),
+        ],
+    ),
+    (
         "greeting",
         [
             re.compile(r"^(hi|hello|hey|greetings|good\s*(morning|afternoon|evening)|howdy|welcome)[\s!.,?]*$", re.I),
@@ -61,10 +55,40 @@ _INTENT_PATTERNS: list[tuple[str, list[re.Pattern]]] = [
         ],
     ),
     (
+        "compare",
+        [
+            re.compile(
+                r"\b(compare|versus|vs\.?|difference|vergleich|comparer|comparar|"
+                r"confronta|vergelijken|comparar|karşılaştır)\b",
+                re.I,
+            ),
+        ],
+    ),
+    (
+        "refine",
+        [
+            re.compile(
+                r"\b(only|instead|with support|without|filter|narrow|nur|seulement|solo|"
+                r"soltanto|alleen|apenas|yalnızca)\b",
+                re.I,
+            ),
+        ],
+    ),
+    (
         "detail",
         [
             re.compile(r"\b(tell\s+me\s+(more\s+)?about|details?\s+(of|about|for)|what\s+does\b.*\bdo|explain|describe)\b", re.I),
             re.compile(r"\bapp[-\s]?\d{3}\b", re.I),  # explicit app ID reference
+        ],
+    ),
+    (
+        "out_of_scope",
+        [
+            re.compile(
+                r"\b(write (me )?a poem|political advice|medical diagnosis|legal advice|"
+                r"investment advice|homework answer)\b",
+                re.I,
+            ),
         ],
     ),
     (
@@ -93,6 +117,17 @@ _SAREF_ENTITY_PATTERNS: list[tuple[str, re.Pattern]] = [
     ("Manufacturing", re.compile(r"\b(manufactur|factory|predictive\s+maintenance|assembly|warehouse|cnc|robot)\b", re.I)),
 ]
 
+_EXTENSION_BY_DOMAIN = {
+    "Energy": "https://saref.etsi.org/saref4ener/",
+    "Building": "https://saref.etsi.org/saref4bldg/",
+    "Environment": "https://saref.etsi.org/saref4envi/",
+    "Water": "https://saref.etsi.org/saref4watr/",
+    "Agriculture": "https://saref.etsi.org/saref4agri/",
+    "City": "https://saref.etsi.org/saref4city/",
+    "Health": "https://saref.etsi.org/saref4ehaw/",
+    "Manufacturing": "https://saref.etsi.org/saref4inma/",
+}
+
 
 def _env_flag(name: str, default: bool = False) -> bool:
     raw = os.getenv(name)
@@ -110,6 +145,7 @@ def _extract_entities(text_clean: str) -> dict:
     for saref_class, pattern in _SAREF_ENTITY_PATTERNS:
         if pattern.search(text_clean):
             entities.setdefault("saref_class", saref_class)
+            entities.setdefault("extension_uri", _EXTENSION_BY_DOMAIN[saref_class])
             break
     return entities
 
@@ -153,7 +189,17 @@ def _classify_via_rasa(text_clean: str, entities: dict) -> IntentResult:
         elif entity_name == "saref_class" and entity_value:
             merged_entities["saref_class"] = str(entity_value)
 
-    if intent_name not in {"greeting", "help", "detail", "search", "unknown"}:
+    if intent_name not in {
+        "greeting",
+        "help",
+        "detail",
+        "search",
+        "refine",
+        "compare",
+        "reset",
+        "out_of_scope",
+        "unknown",
+    }:
         intent_name = "unknown"
 
     return IntentResult(intent=intent_name, confidence=confidence, entities=merged_entities)

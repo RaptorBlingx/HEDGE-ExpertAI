@@ -9,7 +9,7 @@ services:
   # ---------------------------------------------------------------------------
   ollama:
     <<: *common
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.32.0@sha256:57f573b47f1f71ebb445789f279fe3e596a8beab182f7cf486db9205bad87c5a
     container_name: hedge-ollama
     ports:
       - "127.0.0.1:11434:11434"
@@ -31,13 +31,14 @@ services:
 
   qdrant:
     <<: *common
-    image: qdrant/qdrant:v1.9.7
+    image: qdrant/qdrant:v1.18.2@sha256:75eab8c4ba42096724fdcfde8b4de0b5713d529dde32f285a1f86fdcb2c9e50c
     container_name: hedge-qdrant
     ports:
       - "127.0.0.1:6333:6333"
       - "127.0.0.1:6334:6334"
     volumes:
-      - qdrant-data:/qdrant/storage
+      # Versioned volume: never open an older collection in-place during an upgrade.
+      - qdrant-v118-data:/qdrant/storage
     mem_limit: 256m
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'echo > /dev/tcp/localhost/6333'"]
@@ -46,18 +47,68 @@ services:
       retries: 5
       start_period: 10s
 
-  redis:
+  postgres:
     <<: *common
-    image: redis:7-alpine
-    container_name: hedge-redis
+    image: postgres:16.9-alpine@sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7
+    container_name: hedge-postgres
+    ports:
+      - "127.0.0.1:5432:5432"
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-hedge}
+      POSTGRES_USER: ${POSTGRES_USER:-hedge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-hedge-dev-only}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/migrations/0001_initial.up.sql:/docker-entrypoint-initdb.d/0001_initial.sql:ro
+    mem_limit: 512m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  valkey-cache:
+    <<: *common
+    image: valkey/valkey:8.1.3-alpine@sha256:d827e7f7552cdee40cc7482dbae9da020f42bc47669af6f71182a4ef76a22773
+    container_name: hedge-valkey-cache
     ports:
       - "127.0.0.1:6379:6379"
-    volumes:
-      - redis-data:/data
-    command: redis-server --maxmemory 50mb --maxmemory-policy allkeys-lru
-    mem_limit: 64m
+    command:
+      - valkey-server
+      - --save
+      - ""
+      - --appendonly
+      - "no"
+      - --maxmemory
+      - 128mb
+      - --maxmemory-policy
+      - allkeys-lru
+    mem_limit: 160m
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  valkey-queue:
+    <<: *common
+    image: valkey/valkey:8.1.3-alpine@sha256:d827e7f7552cdee40cc7482dbae9da020f42bc47669af6f71182a4ef76a22773
+    container_name: hedge-valkey-queue
+    volumes:
+      - valkey-queue-data:/data
+    command:
+      - valkey-server
+      - --appendonly
+      - "yes"
+      - --appendfsync
+      - everysec
+      - --maxmemory-policy
+      - noeviction
+    mem_limit: 192m
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -66,6 +117,24 @@ services:
   # ---------------------------------------------------------------------------
   # Application Services
   # ---------------------------------------------------------------------------
+  migrations:
+    build:
+      context: .
+      dockerfile: services/metadata-ingest/Dockerfile
+    container_name: hedge-migrations
+    command: ["python", "/database/migrate.py"]
+    restart: "no"
+    networks:
+      - hedge-net
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-hedge}:${POSTGRES_PASSWORD:-hedge-dev-only}@postgres:5432/${POSTGRES_DB:-hedge}
+    volumes:
+      - ./database:/database:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 96m
+
   mock-api:
     <<: *common
     build:
@@ -92,10 +161,22 @@ services:
     ports:
       - "127.0.0.1:8003:8003"
     env_file: .env
+    environment:
+      # Release-2 retrieval contract: changing either value requires a reviewed
+      # full reindex and a new versioned Compose revision.
+      EMBEDDING_MODEL: intfloat/multilingual-e5-small
+      EMBEDDING_MODEL_REVISION: 614241f622f53c4eeff9890bdc4f31cfecc418b3
+      QDRANT_COLLECTION_VERSION: ${QDRANT_COLLECTION_VERSION:-v2}
+      HF_HOME: /model-cache
+      SENTENCE_TRANSFORMERS_HOME: /model-cache
+    volumes:
+      - embedding-model-cache:/model-cache
     depends_on:
       qdrant:
         condition: service_healthy
-    mem_limit: 384m
+      migrations:
+        condition: service_completed_successfully
+    mem_limit: 768m
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8003/health')\""]
       interval: 30s
@@ -113,7 +194,9 @@ services:
       - "127.0.0.1:8004:8004"
     env_file: .env
     depends_on:
-      redis:
+      migrations:
+        condition: service_completed_successfully
+      valkey-queue:
         condition: service_healthy
       discovery-ranking:
         condition: service_healthy
@@ -126,6 +209,38 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  metadata-worker:
+    <<: *common
+    build:
+      context: .
+      dockerfile: services/metadata-ingest/Dockerfile
+    container_name: hedge-metadata-worker
+    command: ["celery", "-A", "app.celery_app:celery_app", "worker", "--loglevel=info", "--concurrency=1"]
+    env_file: .env
+    depends_on:
+      migrations:
+        condition: service_completed_successfully
+      valkey-queue:
+        condition: service_healthy
+      discovery-ranking:
+        condition: service_healthy
+      mock-api:
+        condition: service_healthy
+    mem_limit: 256m
+
+  metadata-scheduler:
+    <<: *common
+    build:
+      context: .
+      dockerfile: services/metadata-ingest/Dockerfile
+    container_name: hedge-metadata-scheduler
+    command: ["celery", "-A", "app.celery_app:celery_app", "beat", "--loglevel=info", "--schedule=/tmp/celerybeat-schedule"]
+    env_file: .env
+    depends_on:
+      valkey-queue:
+        condition: service_healthy
+    mem_limit: 128m
 
   expert-recommend:
     <<: *common
@@ -158,8 +273,12 @@ services:
     ports:
       - "127.0.0.1:8001:8001"
     env_file: .env
+    environment:
+      # Override the one-release REDIS_URL compatibility alias so a stale
+      # local .env cannot point session state at the removed Redis service.
+      VALKEY_SESSION_URL: redis://valkey-cache:6379/0
     depends_on:
-      redis:
+      valkey-cache:
         condition: service_healthy
       expert-recommend:
         condition: service_healthy
@@ -185,6 +304,8 @@ services:
         condition: service_healthy
       mock-api:
         condition: service_healthy
+      migrations:
+        condition: service_completed_successfully
     mem_limit: 128m
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
@@ -252,7 +373,7 @@ services:
   # ---------------------------------------------------------------------------
   keycloak-db:
     <<: *common
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
     container_name: hedge-keycloak-db
     profiles:
       - auth
@@ -272,7 +393,7 @@ services:
 
   keycloak:
     <<: *common
-    image: quay.io/keycloak/keycloak:25.0
+    image: quay.io/keycloak/keycloak:25.0@sha256:82c5b7a110456dbd42b86ea572e728878549954cc8bd03cd65410d75328095d2
     container_name: hedge-keycloak
     profiles:
       - auth
@@ -299,7 +420,9 @@ networks:
 
 volumes:
   ollama-data:
-  qdrant-data:
-  redis-data:
+  qdrant-v118-data:
+  embedding-model-cache:
+  postgres-data:
+  valkey-queue-data:
   nginx-certs:
   keycloak-db-data:

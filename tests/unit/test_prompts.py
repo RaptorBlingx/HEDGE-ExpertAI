@@ -1,11 +1,8 @@
 """Tests for LLM prompt templates."""
 
 import importlib.util
-from pathlib import Path
-
-import pytest
-
 import sys as _sys
+from pathlib import Path
 
 _prompts_path = Path(__file__).parent.parent.parent / "services" / "expert-recommend" / "app" / "prompts.py"
 _spec = importlib.util.spec_from_file_location("expert_recommend_prompts", _prompts_path)

@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Strict `/api/v2` metadata, search, dialogue, SSE, event, catalogue and JSON-LD contracts.
+- PostgreSQL authority for catalogue revisions, transactional indexing outbox, ingestion runs/quarantine, corpus manifests and verified recommendation events.
+- Deterministic 120-app synthetic `AppMetadataV2` catalogue with eight locales and ten records for each of twelve SAREF extensions.
+- URI-level SAREF annotation registry, provenance/review fields and JSON-LD export.
+- Independent PostgreSQL full-text and Qdrant dense retrieval with weighted reciprocal-rank fusion and typed filters.
+- Eight-language Rasa NLU corpus with 25 examples per intent/language; deterministic application-owned dialogue state and follow-ups.
+- Production configuration validator, hardening Compose overlay, non-root images, readiness semantics and distributed Valkey rate limits.
+- Proposal traceability matrix, provisional Store adapter contract, corpus manifest and honest v2 evaluation evidence register.
+- Deterministic Docker end-to-end acceptance profile covering real multilingual Rasa NLU, transactional ingestion, localized filtered retrieval, and versioned grounded SSE without requiring Ollama.
+- Frontend component tests plus CI secret-history scanning, SPDX SBOM generation, and high-severity dependency scanning.
+- Advisory-locked database migrations, scheduled 30-day event aggregation/erasure, encrypted three-store backups, and disposable restore drills.
+- Machine-enforced Python licence denial and a reviewed exact npm licence allowlist with retained CI inventories.
+
+### Changed
+- PostgreSQL is authoritative; Qdrant is a versioned rebuildable index promoted through an alias.
+- Redis is replaced by separate Valkey cache/session/rate-limit and AOF queue services.
+- Embeddings use pinned `intfloat/multilingual-e5-small` with required E5 prefixes.
+- Streaming emits real server stages and early recommendations; generated explanation text is validated before emission and hidden-reasoning tags are suppressed.
+- Widget and validation console use v2 locale, feedback, app-open, cancellation and session-deletion flows.
+- Backend runtime dependencies now install from hash-verified locks; direct container images and GitHub Actions are pinned by immutable digest or commit.
+- CI enforces zero Ruff findings, 80% core branch coverage, OpenAPI drift, generated catalogue/NLU/evaluation drift, dependency audits, frontend tests, and the live deterministic stack gate.
+
+### Removed
+- Incomplete 75-record demo catalogue, fabricated client-side “thinking” stages and browser query-string API-key support.
+
+### Security
+- Added fail-closed production defaults, trusted-proxy parsing, OIDC role boundaries, privacy-minimized metrics/logging and idempotent verified events.
+- Upgraded FastAPI/Starlette and PyJWT to audited pinned versions; all seven Python runtime locks and the npm production/development graph currently report no known vulnerabilities.
+
 ## [0.4.0] — 2026-04-15
 
 ### Added

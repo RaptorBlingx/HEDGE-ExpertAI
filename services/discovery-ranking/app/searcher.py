@@ -60,16 +60,16 @@ STOPWORDS: frozenset[str] = frozenset({
     "le", "la", "les", "un", "une", "des", "est", "et", "en", "que", "qui",
     "dans", "ce", "il", "ne", "pas", "sur", "se", "au", "avec", "je", "sont",
     # Spanish
-    "el", "los", "las", "una", "unos", "unas", "es", "por", "con", "para",
+    "el", "los", "las", "una", "unos", "unas", "por", "con", "para",
     "del", "al", "lo", "ya", "su", "sus", "nos", "hay",
     # Italian
-    "il", "lo", "gli", "uno", "sono", "che", "di", "da", "per", "non",
-    "si", "nel", "con", "suo",
+    "gli", "uno", "sono", "che", "di", "da", "per", "non",
+    "si", "nel", "suo",
     # Dutch
-    "de", "het", "een", "en", "van", "ik", "te", "dat", "er", "op", "aan",
+    "de", "het", "een", "van", "ik", "te", "dat", "er", "op", "aan",
     "met", "zijn", "ze", "niet", "voor", "ook", "maar",
     # Portuguese
-    "ou", "um", "uma", "os", "as", "do", "da", "no", "na", "em", "mas",
+    "ou", "um", "uma", "os", "na", "em", "mas",
     "como", "mais", "ao",
 })
 

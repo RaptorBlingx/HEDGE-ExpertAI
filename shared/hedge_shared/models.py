@@ -63,7 +63,8 @@ class AppMetadata(BaseModel):
 class SearchQuery(BaseModel):
     """A search request."""
 
-    query: str
+    query: str = Field(min_length=1, max_length=500)
+    locale: str = Field(default="en", pattern=r"^(en|de|fr|es|it|nl|pt|tr)$")
     filters: dict[str, Any] | None = None
     top_k: int = Field(default=5, ge=1, le=20)
 
@@ -88,6 +89,7 @@ class ChatRequest(BaseModel):
 
     session_id: str | None = None
     message: str = Field(min_length=1, max_length=2000)
+    locale: str = Field(default="en", pattern=r"^(en|de|fr|es|it|nl|pt|tr)$")
 
 
 class ChatResponse(BaseModel):
@@ -120,6 +122,7 @@ class IngestStatus(BaseModel):
 class RecommendRequest(BaseModel):
     """Request for LLM-powered recommendation."""
 
-    query: str
+    query: str = Field(min_length=1, max_length=2000)
     search_results: list[SearchResult] = Field(default_factory=list)
     session_id: str | None = None
+    locale: str = Field(default="en", pattern=r"^(en|de|fr|es|it|nl|pt|tr)$")

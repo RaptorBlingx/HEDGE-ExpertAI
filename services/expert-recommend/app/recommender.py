@@ -18,6 +18,17 @@ logger = logging.getLogger(__name__)
 
 DISCOVERY_URL = os.getenv("DISCOVERY_RANKING_URL", "http://discovery-ranking:8003")
 
+LOCALIZED_INTROS = {
+    "en": "Start with **{title}** because it is the highest-ranked evidence-backed match.",
+    "de": "Beginnen Sie mit **{title}**, da dies der bestplatzierte, belegte Treffer ist.",
+    "fr": "Commencez par **{title}**, le résultat étayé le mieux classé.",
+    "es": "Empiece con **{title}**, el resultado fundamentado mejor clasificado.",
+    "it": "Inizia con **{title}**, il risultato documentato con il ranking più alto.",
+    "nl": "Begin met **{title}**, de hoogst gerangschikte onderbouwde match.",
+    "pt": "Comece com **{title}**, o resultado fundamentado mais bem classificado.",
+    "tr": "En yüksek sıralı ve kanıta dayalı eşleşme olan **{title}** ile başlayın.",
+}
+
 
 def _first_sentence(text: str) -> str:
     """Return first sentence-like chunk for compact summaries."""
@@ -32,17 +43,28 @@ def _first_sentence(text: str) -> str:
     return cleaned
 
 
-def _build_ranked_fallback(results: list[dict[str, Any]]) -> str:
+def _title(app: dict[str, Any], locale: str = "en") -> str:
+    value = app.get("title", "Unknown app")
+    if isinstance(value, dict):
+        return str(value.get(locale) or value.get("en") or "Unknown app")
+    return str(value)
+
+
+def _build_ranked_fallback(
+    results: list[dict[str, Any]],
+    locale: str = "en",
+) -> str:
     """Build deterministic ranking-consistent explanation when LLM output is contradictory."""
-    top_title = (results[0].get("app", results[0]) if results else {}).get("title", "this app")
+    top_app = results[0].get("app", results[0]) if results else {}
+    top_title = _title(top_app, locale)
     lines = [
-        f"Start with **{top_title}** because it is the highest-ranked match for your query.",
+        LOCALIZED_INTROS.get(locale, LOCALIZED_INTROS["en"]).format(title=top_title),
         "",
     ]
 
     for idx, result in enumerate(results, start=1):
         app = result.get("app", result)
-        title = app.get("title", "Unknown app")
+        title = _title(app, locale)
         reason = _first_sentence(app.get("description", ""))
         lines.append(f"- **App {idx}: {title}** — {reason}")
 
@@ -54,7 +76,7 @@ def _is_ranking_consistent(explanation: str, results: list[dict[str, Any]]) -> b
     if not explanation or not results:
         return True
 
-    top_title = (results[0].get("app", results[0]) if results else {}).get("title", "").strip()
+    top_title = _title(results[0].get("app", results[0]), "en").strip()
     if not top_title:
         return True
 
@@ -76,12 +98,16 @@ def _is_ranking_consistent(explanation: str, results: list[dict[str, Any]]) -> b
     return True
 
 
-def _ensure_ranking_consistency(explanation: str, results: list[dict[str, Any]]) -> str:
+def _ensure_ranking_consistency(
+    explanation: str,
+    results: list[dict[str, Any]],
+    locale: str = "en",
+) -> str:
     """Return explanation only if ranking claims align with returned ordering."""
     if _is_ranking_consistent(explanation, results):
         return explanation
     logger.warning("LLM recommendation narrative contradicted ranked order; using deterministic fallback")
-    return _build_ranked_fallback(results)
+    return _build_ranked_fallback(results, locale)
 
 
 def _search_apps(query: str, top_k: int = 5, saref_class: str | None = None) -> list[dict[str, Any]]:
@@ -101,6 +127,177 @@ def _search_apps(query: str, top_k: int = 5, saref_class: str | None = None) -> 
     except Exception:
         logger.exception("Failed to search apps")
         return []
+
+
+def _search_apps_v2(
+    query: str,
+    *,
+    locale: str,
+    filters: dict[str, Any],
+    limit: int,
+) -> list[dict[str, Any]]:
+    try:
+        response = httpx.post(
+            f"{DISCOVERY_URL}/api/v2/apps/search",
+            json={
+                "query": query,
+                "locale": locale,
+                "filters": filters,
+                "limit": limit,
+            },
+            timeout=30.0,
+        )
+        response.raise_for_status()
+        return response.json().get("results", [])
+    except Exception:
+        logger.exception("Failed to search v2 catalogue")
+        return []
+
+
+def _evidence_explanations(
+    results: list[dict[str, Any]],
+    locale: str,
+) -> list[dict[str, Any]]:
+    explanations = []
+    for result in results:
+        app = result.get("app", result)
+        summary = app.get("summary") or {}
+        localized_summary = (
+            summary.get(locale) or summary.get("en")
+            if isinstance(summary, dict)
+            else summary
+        )
+        explanations.append(
+            {
+                "app_id": app.get("id"),
+                "text": localized_summary or _first_sentence(app.get("description", "")),
+                "evidence_fields": [
+                    "summary",
+                    "capabilities",
+                    "semantic_annotations",
+                ],
+            }
+        )
+    return explanations
+
+
+def _all_results_mentioned_in_order(
+    explanation: str,
+    results: list[dict[str, Any]],
+    locale: str,
+) -> bool:
+    """Require every returned app title to appear in retrieval order."""
+    cursor = -1
+    lowered = explanation.casefold()
+    for result in results:
+        title = _title(result.get("app", result), locale).casefold()
+        position = lowered.find(title, cursor + 1)
+        if position < 0:
+            return False
+        cursor = position
+    return True
+
+
+def recommend_v2(
+    *,
+    query: str,
+    locale: str,
+    filters: dict[str, Any],
+    limit: int,
+) -> dict[str, Any]:
+    """Run v2 retrieval and emit validated, field-grounded explanations."""
+    start = time.monotonic()
+    results = _search_apps_v2(
+        query,
+        locale=locale,
+        filters=filters,
+        limit=limit,
+    )
+    search_elapsed = time.monotonic() - start
+    if not results:
+        return {
+            "message": "No supported catalogue match was found.",
+            "apps": [],
+            "explanations": [],
+            "timings": {"search_seconds": search_elapsed},
+        }
+
+    messages = build_recommendation_messages(query, results, locale=locale)
+    try:
+        generated = OllamaClient().chat(messages)
+    except Exception:
+        logger.exception("V2 LLM generation failed")
+        generated = ""
+
+    if not (
+        generated
+        and _is_ranking_consistent(generated, results)
+        and _all_results_mentioned_in_order(generated, results, locale)
+    ):
+        generated = _build_ranked_fallback(results, locale)
+
+    return {
+        "message": generated,
+        "apps": results,
+        "explanations": _evidence_explanations(results, locale),
+        "timings": {
+            "search_seconds": search_elapsed,
+            "complete_seconds": time.monotonic() - start,
+        },
+    }
+
+
+def recommend_v2_stream(
+    *,
+    query: str,
+    locale: str,
+    filters: dict[str, Any],
+    limit: int,
+):
+    """Retrieve first, then validate the complete narrative before streaming it.
+
+    This provides a useful recommendation as soon as retrieval finishes while
+    preserving the rule that no unvalidated model output reaches a client.
+    """
+    start = time.monotonic()
+    results = _search_apps_v2(query, locale=locale, filters=filters, limit=limit)
+    search_elapsed = time.monotonic() - start
+    yield {
+        "type": "recommendations",
+        "apps": results,
+        "timings": {"search_seconds": search_elapsed},
+    }
+    yield {"type": "stage", "stage": "explanation"}
+
+    if not results:
+        generated = "No supported catalogue match was found."
+    else:
+        messages = build_recommendation_messages(query, results, locale=locale)
+        try:
+            generated = OllamaClient().chat(messages)
+        except Exception:
+            logger.exception("V2 LLM generation failed")
+            generated = ""
+        if not (
+            generated
+            and _is_ranking_consistent(generated, results)
+            and _all_results_mentioned_in_order(generated, results, locale)
+        ):
+            generated = _build_ranked_fallback(results, locale)
+
+    for offset in range(0, len(generated), 120):
+        yield {
+            "type": "explanation_delta",
+            "content": generated[offset : offset + 120],
+        }
+    yield {
+        "type": "complete",
+        "explanations": _evidence_explanations(results, locale),
+        "timings": {
+            "search_seconds": search_elapsed,
+            "complete_seconds": time.monotonic() - start,
+        },
+    }
 
 
 def recommend(

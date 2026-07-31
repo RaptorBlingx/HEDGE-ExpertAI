@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -21,23 +22,38 @@ def _get_model():
     if _model is None:
         from sentence_transformers import SentenceTransformer
 
-        model_name = "all-MiniLM-L6-v2"
-        logger.info("Loading embedding model: %s", model_name)
-        _model = SentenceTransformer(model_name)
+        model_name = os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
+        revision = os.getenv("EMBEDDING_MODEL_REVISION", "main")
+        logger.info("Loading embedding model: %s revision=%s", model_name, revision)
+        _model = SentenceTransformer(model_name, revision=revision)
         logger.info("Embedding model loaded successfully")
     return _model
 
 
-def encode(texts: list[str]) -> np.ndarray:
-    """Encode a list of texts into 384-dim embedding vectors."""
+def _encode_prefixed(texts: list[str], prefix: str) -> np.ndarray:
+    """Encode E5-prefixed text into normalized 384-dimensional vectors."""
     model = _get_model()
-    embeddings = model.encode(texts, show_progress_bar=False, normalize_embeddings=True)
+    embeddings = model.encode(
+        [f"{prefix}: {text}" for text in texts],
+        show_progress_bar=False,
+        normalize_embeddings=True,
+    )
     return np.array(embeddings, dtype=np.float32)
 
 
+def encode(texts: list[str]) -> np.ndarray:
+    """Encode catalogue passages."""
+    return _encode_prefixed(texts, "passage")
+
+
+def encode_queries(texts: list[str]) -> np.ndarray:
+    """Encode user queries with the E5 query prefix."""
+    return _encode_prefixed(texts, "query")
+
+
 def encode_single(text: str) -> list[float]:
-    """Encode a single text and return as a plain list."""
-    vec = encode([text])
+    """Encode one user query and return a plain list."""
+    vec = encode_queries([text])
     return vec[0].tolist()
 
 

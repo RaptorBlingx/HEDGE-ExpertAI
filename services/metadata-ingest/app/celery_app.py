@@ -8,15 +8,14 @@ from __future__ import annotations
 import os
 
 from celery import Celery
-from celery.schedules import crontab
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+QUEUE_URL = os.getenv("VALKEY_QUEUE_URL", "redis://valkey-queue:6379/0")
 INGEST_INTERVAL = int(os.getenv("INGEST_INTERVAL_SECONDS", "7200"))
 
 celery_app = Celery(
     "metadata_ingest",
-    broker=REDIS_URL,
-    backend=REDIS_URL,
+    broker=QUEUE_URL,
+    backend=QUEUE_URL,
     include=["app.tasks.ingest"],  # MUST be explicit
 )
 
@@ -32,6 +31,14 @@ celery_app.conf.update(
         "periodic-ingest": {
             "task": "app.tasks.ingest.ingest_all",
             "schedule": INGEST_INTERVAL,
+        },
+        "replay-index-outbox": {
+            "task": "app.tasks.ingest.deliver_outbox",
+            "schedule": 60,
+        },
+        "apply-data-retention": {
+            "task": "app.tasks.ingest.apply_data_retention",
+            "schedule": 86400,
         },
     },
 )

@@ -4,14 +4,22 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from hedge_shared.production import validate_production_environment
 
-from .middleware import APIKeyMiddleware, JWTAuthMiddleware, RateLimitMiddleware, RequestIDMiddleware, SecurityHeadersMiddleware
-from .routes import router, _SERVICES
+from .middleware import (
+    APIKeyMiddleware,
+    JWTAuthMiddleware,
+    RateLimitMiddleware,
+    RequestIDMiddleware,
+    SecurityHeadersMiddleware,
+)
+from .routes import _SERVICES, router
 
 try:
     from hedge_shared.metrics import MetricsMiddleware
@@ -22,10 +30,18 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Validate the production trust boundary before accepting traffic."""
+    validate_production_environment()
+    yield
+
 app = FastAPI(
     title="HEDGE-ExpertAI Gateway",
-    version="0.1.0",
+    version="2.0.0",
     description="API Gateway for HEDGE-ExpertAI services",
+    lifespan=lifespan,
 )
 
 # CORS — restrict origins in production via CORS_ALLOWED_ORIGINS env var.
@@ -52,7 +68,7 @@ app.include_router(router)
 
 
 @app.get("/health")
-def health():
+def health(response: Response):
     """Aggregated health check across all services."""
     statuses = {"gateway": "ok"}
     overall = "ok"
@@ -62,18 +78,30 @@ def health():
             resp = httpx.get(url, timeout=5.0)
             data = resp.json()
             statuses[name] = data.get("status", "unknown")
-            if data.get("status") != "ok":
+            if resp.status_code >= 400 or data.get("status") != "ok":
                 overall = "degraded"
         except Exception:
             statuses[name] = "down"
             overall = "degraded"
 
+    if overall != "ok":
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return {
         "status": overall,
         "service": "gateway",
-        "version": "0.1.0",
+        "version": "2.0.0",
         "services": statuses,
     }
+
+
+@app.get("/live")
+def live():
+    return {"status": "ok", "service": "gateway"}
+
+
+@app.get("/ready")
+def ready(response: Response):
+    return health(response)
 
 
 # Serve frontend static files if available.

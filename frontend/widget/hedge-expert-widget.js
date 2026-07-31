@@ -1,5 +1,5 @@
 /**
- * HEDGE-ExpertAI Chat Widget v2.0
+ * HEDGE-ExpertAI Chat Widget v3.0
  * Embeddable, self-contained chat widget for the HEDGE-IoT App Store.
  * Zero external dependencies — vanilla JS only.
  */
@@ -21,6 +21,8 @@
     primaryColor: "#0ea5e9",
     width: "400px",
     height: "580px",
+    locale: "en",
+    getAccessToken: null,
   };
 
   const SUGGESTIONS = [
@@ -29,40 +31,13 @@
     "Recommend building comfort apps",
   ];
 
-  const THINKING_STEPS = {
-    search: [
-      "Interpreting your request and extracting domain intent…",
-      "Scanning indexed applications across semantic and keyword signals…",
-      "Prioritizing strongest matches based on metadata relevance…",
-      "Drafting a concise, evidence-based recommendation…",
-    ],
-    detail: [
-      "Resolving the referenced app and loading full metadata…",
-      "Cross-checking domain, tags, and dataset signals…",
-      "Building a focused explanation around your request…",
-    ],
-    help: [
-      "Detecting assistance intent and preparing guidance…",
-      "Selecting the most useful interaction examples…",
-      "Formatting quick-start instructions…",
-    ],
-    greeting: [
-      "Detecting conversational greeting intent…",
-      "Preparing a compact onboarding response…",
-      "Finalizing a friendly welcome message…",
-    ],
-    unknown: [
-      "Clarifying ambiguous intent from your prompt…",
-      "Applying fallback retrieval strategy on catalog metadata…",
-      "Preparing the most likely helpful response…",
-    ],
-  };
+  const SUPPORTED_LOCALES = ["en", "de", "fr", "es", "it", "nl", "pt", "tr"];
 
-  const THINKING_STOPWORDS = {
-    a: true, about: true, an: true, and: true, app: true, apps: true, details: true,
-    detail: true, explain: true, find: true, for: true, i: true, me: true, of: true,
-    on: true, please: true, recommend: true, show: true, suggest: true, tell: true,
-    the: true, to: true, what: true, with: true,
+  const STAGE_LABELS = {
+    intent: "Understanding the request…",
+    retrieval: "Searching the application catalogue…",
+    ranking: "Ranking evidence-backed matches…",
+    explanation: "Preparing a grounded explanation…",
   };
 
   const DOMAIN_COLORS = {
@@ -92,61 +67,9 @@
   const ICON_SEND =
     '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>';
 
-  const THINKING_STEP_MS = 2300;
-
   /* ------------------------------------------------------------------ */
   /*  Utility functions                                                  */
   /* ------------------------------------------------------------------ */
-
-  function inferIntent(message) {
-    var t = (message || "").trim().toLowerCase();
-    if (!t) return "unknown";
-    if (/^(hi|hello|hey|greetings|good\s*(morning|afternoon|evening))[\s!.,?]*$/.test(t)) return "greeting";
-    if (/\b(help|how\s+do\s+i|what\s+can\s+you\s+do|usage|guide|instructions)\b/.test(t)) return "help";
-    if (/\b(tell\s+me\s+(more\s+)?about|details?\s+(of|about|for)|explain|describe|app[-\s]?\d{3})\b/.test(t)) return "detail";
-    if (/\b(find|search|looking\s+for|show\s+me|recommend|suggest|discover|monitor|manage|detect|optimi[sz]e)\b/.test(t)) return "search";
-    return "unknown";
-  }
-
-  function extractThinkingFocus(message) {
-    var tokens = ((message || "").toLowerCase().match(/[a-z0-9-]+/g) || []);
-    var picked = [];
-    for (var i = 0; i < tokens.length; i++) {
-      var token = tokens[i];
-      if (THINKING_STOPWORDS[token]) continue;
-      if (picked.indexOf(token) !== -1) continue;
-      picked.push(token);
-      if (picked.length >= 3) break;
-    }
-    return picked.length ? picked.join(" ") : "your request";
-  }
-
-  function buildThinkingSteps(message, intent) {
-    var base = (THINKING_STEPS[intent] || THINKING_STEPS.unknown).slice();
-    var focus = extractThinkingFocus(message);
-    var focusPhrase = focus === "your request" ? focus : '"' + focus + '"';
-
-    base.unshift("Framing " + focusPhrase + " against the HEDGE app catalog…");
-
-    if (intent === "search") {
-      base.push("Cross-checking ranked matches for confidence and relevance…");
-      base.push("Tightening the final recommendation so it is easy to compare…");
-    } else if (intent === "detail") {
-      base.push("Verifying the explanation against the app metadata and datasets…");
-      base.push("Refining the answer so the most useful details land first…");
-    } else if (intent === "help" || intent === "greeting") {
-      base.push("Shaping a compact response with the clearest next step…");
-    } else {
-      base.push("Rechecking the safest and most useful response framing…");
-    }
-
-    return base;
-  }
-
-  function splitStreamText(text) {
-    if (!text) return [];
-    return text.replace(/\r\n/g, "\n").match(/\s+|[^\s]+\s*/g) || [];
-  }
 
   function formatDuration(ms) {
     return (ms / 1000).toFixed(1) + "s";
@@ -210,6 +133,18 @@
     return DOMAIN_COLORS[d] || DOMAIN_COLORS.default;
   }
 
+  function localized(value, locale) {
+    if (value && typeof value === "object") return value[locale] || value.en || "";
+    return value || "";
+  }
+
+  function eventKey() {
+    if (window.crypto && typeof window.crypto.randomUUID === "function") {
+      return "evt-" + window.crypto.randomUUID();
+    }
+    return "evt-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+  }
+
   /** Lightweight markdown → HTML (no external library). */
   function renderMarkdown(raw) {
     var html = escapeHtml(raw);
@@ -259,14 +194,20 @@
       if (!this.config.apiUrl) {
         this.config.apiUrl = window.location.origin;
       }
+      if (SUPPORTED_LOCALES.indexOf(this.config.locale) === -1) {
+        var browserLocale = (navigator.language || "en").split("-")[0];
+        this.config.locale = SUPPORTED_LOCALES.indexOf(browserLocale) >= 0 ? browserLocale : "en";
+      }
 
       this.sessionId = this._loadSession();
       this.isOpen = false;
       this.isStreaming = false;
       this.pendingNotification = false;
-      this.thinkingInterval = null;
       this.timerInterval = null;
       this.responseStartMs = null;
+      this.activeController = null;
+      this.previouslyFocused = null;
+      this.lastMessage = "";
 
       this._inject();
     }
@@ -285,6 +226,13 @@
       this._updateSessionBadge();
     }
 
+    _forgetSession() {
+      this.sessionId = null;
+      try { sessionStorage.removeItem("hedge_session_id"); }
+      catch (_) { /* no-op */ }
+      this._updateSessionBadge();
+    }
+
     /* ---------- CSS injection ---------- */
 
     _inject() {
@@ -294,7 +242,7 @@
         link.rel = "stylesheet";
         link.href =
           this.config.cssUrl ||
-          new URL("hedge-expert-widget.css?v=" + Date.now(), _scriptSrc || window.location.href).href;
+          new URL("hedge-expert-widget.css?v=3.0.0", _scriptSrc || window.location.href).href;
         document.head.appendChild(link);
       }
       this._createDOM();
@@ -319,6 +267,10 @@
       // Panel
       var panel = document.createElement("div");
       panel.className = "he-panel";
+      panel.setAttribute("role", "dialog");
+      panel.setAttribute("aria-modal", "true");
+      panel.setAttribute("aria-labelledby", "he-dialog-title");
+      panel.setAttribute("aria-hidden", "true");
 
       var sessionLabel = this.sessionId
         ? "Session: " + this.sessionId.slice(0, 8) + "…"
@@ -328,20 +280,24 @@
         '<div class="he-panel-main">' +
           '<div class="he-header">' +
             '<div class="he-header-left">' +
-              '<div class="he-header-title">' + escapeHtml(this.config.title) + '</div>' +
+              '<div class="he-header-title" id="he-dialog-title">' + escapeHtml(this.config.title) + '</div>' +
               (this.config.subtitle
                 ? '<div class="he-header-subtitle">' + escapeHtml(this.config.subtitle) + '</div>'
                 : '') +
               '<div class="he-header-session">' + sessionLabel + '</div>' +
             '</div>' +
             '<div class="he-header-actions">' +
+              '<label class="he-locale-label"><span class="he-sr-only">Language</span>' +
+                '<select class="he-locale" aria-label="Language"></select>' +
+              '</label>' +
               '<button class="he-header-btn he-clear-btn" aria-label="Clear conversation" title="Clear conversation">' + ICON_CLEAR + '</button>' +
               '<button class="he-header-btn he-close-btn" aria-label="Close">&times;</button>' +
             '</div>' +
           '</div>' +
-          '<div class="he-messages"></div>' +
+          '<div class="he-messages" role="log" aria-live="polite" aria-relevant="additions text"></div>' +
           '<div class="he-input-area">' +
-            '<textarea class="he-input" placeholder="Ask about IoT apps…" rows="1" maxlength="500"></textarea>' +
+            '<label class="he-sr-only" for="he-chat-input">Ask about IoT applications</label>' +
+            '<textarea id="he-chat-input" class="he-input" placeholder="Ask about IoT apps…" rows="1" maxlength="2000"></textarea>' +
             '<button class="he-send-btn" aria-label="Send message">' +
               '<span class="he-send-icon">' + ICON_SEND + '</span>' +
               '<span class="he-send-text">Send</span>' +
@@ -361,6 +317,7 @@
       document.body.appendChild(c);
 
       this.container = c;
+      this.container.setAttribute("lang", this.config.locale);
       this.bubble = bubble;
       this.bubbleBadge = bubble.querySelector(".he-bubble-badge");
       this.panel = panel;
@@ -373,6 +330,14 @@
       this.sessionBadge = panel.querySelector(".he-header-session");
       this.sideContent = panel.querySelector(".he-side-content");
       this.sideCloseBtn = panel.querySelector(".he-side-close");
+      this.localeSelect = panel.querySelector(".he-locale");
+      SUPPORTED_LOCALES.forEach(function (locale) {
+        var option = document.createElement("option");
+        option.value = locale;
+        option.textContent = locale.toUpperCase();
+        if (locale === this.config.locale) option.selected = true;
+        this.localeSelect.appendChild(option);
+      }, this);
 
       this._applyThemeConfig();
     }
@@ -406,6 +371,10 @@
       this.sideCloseBtn.addEventListener("click", function () {
         self.panel.classList.remove("he-panel--expanded");
       });
+      this.localeSelect.addEventListener("change", function () {
+        self.config.locale = this.value;
+        self.container.setAttribute("lang", this.value);
+      });
 
       this.textarea.addEventListener("keydown", function (e) {
         if (e.key === "Enter" && !e.shiftKey) {
@@ -423,6 +392,11 @@
           e.preventDefault();
           self.toggle();
         }
+        if (e.key === "Escape" && self.isOpen) {
+          e.preventDefault();
+          self.close();
+        }
+        if (e.key === "Tab" && self.isOpen) self._trapFocus(e);
       });
     }
 
@@ -434,7 +408,9 @@
 
     open() {
       this.isOpen = true;
+      this.previouslyFocused = document.activeElement;
       this.panel.classList.add("he-panel--open");
+      this.panel.setAttribute("aria-hidden", "false");
       this.bubble.classList.add("he-bubble--hidden");
       this.pendingNotification = false;
       this.bubbleBadge.classList.remove("he-bubble-badge--visible");
@@ -448,7 +424,27 @@
     close() {
       this.isOpen = false;
       this.panel.classList.remove("he-panel--open");
+      this.panel.setAttribute("aria-hidden", "true");
       this.bubble.classList.remove("he-bubble--hidden");
+      if (this.previouslyFocused && typeof this.previouslyFocused.focus === "function") {
+        this.previouslyFocused.focus();
+      }
+    }
+
+    _trapFocus(event) {
+      var focusable = this.panel.querySelectorAll(
+        'button:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href]'
+      );
+      if (!focusable.length) return;
+      var first = focusable[0];
+      var last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     }
 
     /* ---------- welcome + suggestions ---------- */
@@ -488,10 +484,37 @@
     /* ---------- clear chat ---------- */
 
     _clearChat() {
-      if (this.isStreaming) return;
+      this._cancelActive();
+      var sessionId = this.sessionId;
+      if (sessionId) {
+        var self = this;
+        this._authHeaders().then(function (headers) {
+          return fetch(
+            self.config.apiUrl + "/api/v2/sessions/" + encodeURIComponent(sessionId),
+            { method: "DELETE", headers: headers }
+          );
+        }).catch(function () { /* session TTL remains the fallback */ });
+      }
+      this._forgetSession();
       this.messagesDiv.innerHTML = "";
       this._clearSidePane();
       this._showWelcome();
+    }
+
+    _cancelActive() {
+      if (this.activeController) this.activeController.abort();
+      this.activeController = null;
+      this._clearTimer();
+      this._setStreamState("idle");
+    }
+
+    _authHeaders() {
+      var provider = this.config.getAccessToken;
+      return Promise.resolve(typeof provider === "function" ? provider() : null).then(function (token) {
+        var headers = { "Content-Type": "application/json" };
+        if (token) headers.Authorization = "Bearer " + token;
+        return headers;
+      });
     }
 
     _clearSidePane() {
@@ -505,9 +528,13 @@
 
     _send() {
       var text = this.textarea.value.trim();
-      if (!text || this.isStreaming) return;
-      this._clearThinking();
+      if (this.isStreaming) {
+        this._cancelActive();
+        return;
+      }
+      if (!text) return;
       this._clearTimer();
+      this.lastMessage = text;
 
       // Remove suggestions
       var sugEl = this.messagesDiv.querySelector(".he-suggestions");
@@ -520,12 +547,9 @@
       this._addUserMessage(text);
       this._setStreamState("thinking");
 
-      var intent = inferIntent(text);
-      var steps = buildThinkingSteps(text, intent);
-      var stepIdx = 0;
-
       // Start response timer
       this.responseStartMs = Date.now();
+      this.activeController = new AbortController();
 
       // Create the final message container immediately
       var msgWrap = document.createElement("div");
@@ -536,16 +560,13 @@
           '<div class="he-msg-top">' +
             '<span class="he-timer">0.0s</span>' +
           '</div>' +
-          '<div class="he-cot">' +
-            '<div class="he-cot-live" aria-live="polite" aria-atomic="true"></div>' +
-          '</div>' +
+          '<div class="he-stage" role="status" aria-live="polite">Connecting to the catalogue…</div>' +
           '<div class="he-msg-content he-streaming-cursor" style="display: none;"></div>' +
         '</div>';
       this.messagesDiv.appendChild(msgWrap);
       this._scrollBottom();
 
-      var cotEl = msgWrap.querySelector(".he-cot");
-      var cotLive = msgWrap.querySelector(".he-cot-live");
+      var stageEl = msgWrap.querySelector(".he-stage");
       var contentEl = msgWrap.querySelector(".he-msg-content");
       var timerEl = msgWrap.querySelector(".he-timer");
       var self = this;
@@ -555,47 +576,18 @@
         if (timerEl) timerEl.textContent = formatDuration(Date.now() - self.responseStartMs);
       }, 100);
 
-      function showThought(nextText) {
-        var activeThoughts = cotLive.querySelectorAll(".he-cot-live-text");
-        for (var idx = 0; idx < activeThoughts.length; idx++) {
-          activeThoughts[idx].classList.remove("he-cot-live-text--current");
-          activeThoughts[idx].classList.add("he-cot-live-text--exit");
-          (function (node) {
-            setTimeout(function () {
-              if (node.parentNode) node.parentNode.removeChild(node);
-            }, 280);
-          })(activeThoughts[idx]);
-        }
-
-        var nextThought = document.createElement("span");
-        nextThought.className = "he-cot-live-text";
-        nextThought.textContent = nextText;
-        nextThought.setAttribute("data-text", nextText);
-        cotLive.appendChild(nextThought);
-
-        window.requestAnimationFrame(function () {
-          nextThought.classList.add("he-cot-live-text--current");
+      this._authHeaders().then(function (headers) {
+        return fetch(self.config.apiUrl + "/api/v2/chat/stream", {
+          method: "POST",
+          headers: headers,
+          signal: self.activeController.signal,
+          body: JSON.stringify({
+            session_id: self.sessionId,
+            message: text,
+            locale: self.config.locale,
+            filters: {},
+          }),
         });
-
-        self._scrollBottom();
-      }
-
-      // Function to swap the live thought line
-      var processStep = function () {
-        if (steps.length) {
-          showThought(steps[stepIdx % steps.length]);
-          stepIdx++;
-        }
-      };
-
-      // Start sequential thinking animation.
-      processStep();
-      this.thinkingInterval = setInterval(processStep, THINKING_STEP_MS);
-
-      fetch(this.config.apiUrl + "/api/v1/chat/stream", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: this.sessionId, message: text }),
       })
         .then(function (resp) {
           if (!resp.ok || !resp.body) throw new Error("HTTP " + resp.status);
@@ -609,84 +601,43 @@
           var decoder = new TextDecoder();
           var buffer = "";
           var accumulated = "";
-          var appsData = null;
-          var renderQueue = [];
-          var renderInterval = null;
-          var streamComplete = false;
+          var appsData = [];
           var finalSessionId = null;
+          var impressionId = null;
           var finalized = false;
-          var thoughtCycleStopped = false;
-
-          function stopThinkingCycle() {
-            if (thoughtCycleStopped) return;
-            thoughtCycleStopped = true;
-            self._clearThinking();
-          }
-
-          function stopRenderPump() {
-            clearInterval(renderInterval);
-            renderInterval = null;
-          }
 
           function finalizeStream() {
             if (finalized) return;
             finalized = true;
-            stopRenderPump();
-            self._clearThinking();
-            cotEl.classList.add("he-cot--complete");
             self._clearTimer();
             var finalMs = Date.now() - self.responseStartMs;
             if (timerEl) timerEl.textContent = formatDuration(finalMs);
+            stageEl.textContent = "Complete";
+            stageEl.classList.add("he-stage--complete");
             contentEl.classList.remove("he-streaming-cursor");
 
             if (accumulated) {
               contentEl.innerHTML = renderMarkdown(accumulated);
               self._addCopyButton(msgWrap, accumulated);
             }
-            if (appsData && appsData.length > 0 && !self.sideContent.querySelector(".he-cards")) {
+            if (appsData.length > 0 && !self.sideContent.querySelector(".he-cards")) {
               self.panel.classList.add("he-panel--expanded");
-              self._addAppCards(self.sideContent, appsData);
+              self._addAppCards(self.sideContent, appsData, impressionId);
             }
-            // Add feedback buttons when apps were recommended
-            if (appsData && appsData.length > 0) {
-              var feedbackAppIds = appsData.map(function (r) {
-                var a = r.app || r;
-                return a.id || "";
-              }).filter(Boolean);
-              if (feedbackAppIds.length > 0) {
-                self._addFeedbackButtons(msgWrap, feedbackAppIds);
-              }
+            if (appsData.length > 0 && impressionId) {
+              self._addFeedbackButtons(msgWrap, impressionId);
             }
             if (finalSessionId) self._saveSession(finalSessionId);
             if (!self.isOpen) self._notify();
             self._setStreamState("idle");
+            self.activeController = null;
             self._scrollBottom();
-          }
-
-          function startRenderPump() {
-            if (renderInterval) return;
-            renderInterval = setInterval(function () {
-              if (!renderQueue.length) {
-                if (streamComplete) finalizeStream();
-                return;
-              }
-
-              stopThinkingCycle();
-              accumulated += renderQueue.shift();
-              contentEl.innerHTML = renderMarkdown(accumulated);
-              self._scrollBottom();
-
-              if (!renderQueue.length && streamComplete) {
-                finalizeStream();
-              }
-            }, 36);
           }
 
           function readChunk() {
             return reader.read().then(function (result) {
               if (result.done) {
-                streamComplete = true;
-                if (!renderQueue.length) finalizeStream();
+                finalizeStream();
                 return;
               }
 
@@ -700,22 +651,27 @@
                 var evt;
                 try { evt = JSON.parse(line.slice(6)); } catch (_) { continue; }
 
-                if (evt.type === "token" || evt.type === "message") {
-                  renderQueue = renderQueue.concat(splitStreamText(evt.content || ""));
-                  startRenderPump();
-                } else if (evt.type === "apps") {
+                if (evt.type === "stage") {
+                  stageEl.textContent = STAGE_LABELS[evt.stage] || "Working…";
+                } else if (evt.type === "explanation_delta") {
+                  accumulated += evt.content || "";
+                  contentEl.style.display = "";
+                  contentEl.innerHTML = renderMarkdown(accumulated);
+                  self._setStreamState("streaming");
+                  self._scrollBottom();
+                } else if (evt.type === "recommendations") {
                   appsData = evt.apps || [];
+                  impressionId = evt.impression_id || impressionId;
                   // Render app cards immediately in the side pane
                   if (appsData.length > 0) {
                     self.panel.classList.add("he-panel--expanded");
-                    self._addAppCards(self.sideContent, appsData);
+                    self._addAppCards(self.sideContent, appsData, impressionId);
                   }
-                } else if (evt.type === "done") {
+                } else if (evt.type === "complete") {
                   if (evt.session_id) finalSessionId = evt.session_id;
-                } else if (evt.type === "error") {
-                  accumulated = evt.content || "An error occurred.";
-                  renderQueue = [];
-                  stopRenderPump();
+                  impressionId = evt.impression_id || impressionId;
+                } else if (evt.type === "problem") {
+                  accumulated = evt.detail || evt.title || "An error occurred.";
                   contentEl.innerHTML = '<span class="he-error-text">' + escapeHtml(accumulated) + '</span>';
                 }
               }
@@ -727,13 +683,15 @@
           return readChunk();
         })
         .catch(function (err) {
-          self._clearThinking();
-          cotEl.classList.add("he-cot--complete");
           self._clearTimer();
-          self._addErrorMessage("Unable to reach the assistant. Please check your connection and try again.");
+          stageEl.textContent = err && err.name === "AbortError" ? "Cancelled" : "Request failed";
+          if (!err || err.name !== "AbortError") {
+            contentEl.style.display = "";
+            contentEl.innerHTML = '<span class="he-error-text">Unable to reach the assistant. Please check your connection and try again.</span>';
+          }
           self._setStreamState("idle");
+          self.activeController = null;
           self._scrollBottom();
-          console.error("HEDGE-ExpertAI:", err);
         });
     }
 
@@ -770,7 +728,7 @@
 
     /* ---------- app cards ---------- */
 
-    _addAppCards(parentBody, apps) {
+    _addAppCards(parentBody, apps, impressionId) {
       parentBody.innerHTML = ""; // Clear previous context
       var container = document.createElement("div");
       container.className = "he-cards he-animate-in";
@@ -778,22 +736,29 @@
       for (var i = 0; i < Math.min(apps.length, 5); i++) {
         var result = apps[i];
         var app = result.app || result;
-        var score = result.score || 0;
-        var pct = (score * 100).toFixed(0);
-        var dc = domainColor(app.saref_type || app.domain || "");
+        var relevance = result.relevance || "medium";
+        var domainLabel = (app.domains && app.domains[0]) || app.saref_type || app.domain || "";
+        var dc = domainColor(domainLabel);
         var desc = (app.description || "").slice(0, 140);
-        var version = app.version ? '<span class="he-card-version">v' + escapeHtml(app.version) + '</span>' : "";
-        var publisher = app.publisher ? '<span class="he-card-publisher">' + escapeHtml(app.publisher) + '</span>' : "";
-        var domainLabel = app.saref_type || app.domain || "";
+        var appTitle = localized(app.title, this.config.locale) || "Unknown App";
+        var versionValue = (app.lifecycle && app.lifecycle.version) || app.version || "";
+        var publisherValue = (app.publisher && app.publisher.name) || app.publisher || "";
+        var version = versionValue ? '<span class="he-card-version">v' + escapeHtml(versionValue) + '</span>' : "";
+        var publisher = publisherValue ? '<span class="he-card-publisher">' + escapeHtml(publisherValue) + '</span>' : "";
 
-        var card = document.createElement("div");
+        var card = document.createElement(app.app_url ? "a" : "div");
         card.className = "he-card";
+        if (app.app_url) {
+          card.href = app.app_url;
+          card.target = "_blank";
+          card.rel = "noopener noreferrer";
+          card.setAttribute("aria-label", "Open " + appTitle);
+        }
         card.innerHTML =
           '<div class="he-card-top">' +
-            '<div class="he-card-title">' + escapeHtml(app.title || "Unknown App") + '</div>' +
-            '<span class="he-card-score">' + pct + '%</span>' +
+            '<div class="he-card-title">' + escapeHtml(appTitle) + '</div>' +
+            '<span class="he-card-score">' + escapeHtml(relevance) + '</span>' +
           '</div>' +
-          '<div class="he-card-score-bar"><div class="he-card-score-fill" style="width:' + pct + '%;background:' + dc.bar + '"></div></div>' +
           '<div class="he-card-desc">' + escapeHtml(desc) + (desc.length >= 140 ? "…" : "") + '</div>' +
           '<div class="he-card-footer">' +
             (domainLabel ? '<span class="he-card-domain" style="background:' + dc.bg + ';color:' + dc.fg + '">' + escapeHtml(domainLabel) + '</span>' : "") +
@@ -801,6 +766,14 @@
             version +
             '<span class="he-card-id">' + escapeHtml(app.id || "") + '</span>' +
           '</div>';
+        if (app.app_url && impressionId) {
+          var self = this;
+          (function (appId) {
+            card.addEventListener("click", function () {
+              self._sendRecommendationEvent(impressionId, "app_opened", appId);
+            });
+          })(app.id);
+        }
         container.appendChild(card);
       }
 
@@ -827,7 +800,7 @@
 
     /* ---------- feedback buttons ---------- */
 
-    _addFeedbackButtons(msgWrap, appIds) {
+    _addFeedbackButtons(msgWrap, impressionId) {
       var self = this;
       var bar = document.createElement("div");
       bar.className = "he-feedback-bar";
@@ -857,7 +830,10 @@
           dismissBtn.classList.add("he-feedback-btn--active-dismiss");
           dismissBtn.innerHTML = '&#10003; Noted';
         }
-        self._sendFeedback(appIds, action);
+        self._sendRecommendationEvent(
+          impressionId,
+          action === "accept" ? "recommendation_accepted" : "recommendation_dismissed"
+        );
       }
 
       acceptBtn.addEventListener("click", function () { handleFeedback("accept"); });
@@ -867,29 +843,23 @@
       if (bodyEl) bodyEl.appendChild(bar);
     }
 
-    _sendFeedback(appIds, action) {
+    _sendRecommendationEvent(impressionId, eventType, appId) {
       var self = this;
-      for (var i = 0; i < Math.min(appIds.length, 5); i++) {
-        (function (appId) {
-          fetch(self.config.apiUrl + "/api/v1/feedback", {
+      this._authHeaders().then(function (headers) {
+          return fetch(self.config.apiUrl + "/api/v2/recommendation-events", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: headers,
             body: JSON.stringify({
-              session_id: self.sessionId || "",
-              app_id: appId,
-              action: action,
+              impression_id: impressionId,
+              idempotency_key: eventKey(),
+              event_type: eventType,
+              app_id: appId || undefined,
             }),
-          }).catch(function () { /* best-effort */ });
-        })(appIds[i]);
-      }
+          });
+      }).catch(function () { /* best-effort telemetry */ });
     }
 
     /* ---------- thinking / timer helpers ---------- */
-
-    _clearThinking() {
-      clearInterval(this.thinkingInterval);
-      this.thinkingInterval = null;
-    }
 
     _clearTimer() {
       clearInterval(this.timerInterval);
@@ -902,12 +872,12 @@
       // state: "idle" | "thinking" | "streaming"
       this.isStreaming = state !== "idle";
       this.textarea.disabled = this.isStreaming;
-      this.sendBtn.disabled = this.isStreaming;
+      this.sendBtn.disabled = false;
 
       if (state === "thinking") {
-        this.sendText.textContent = "Thinking…";
+        this.sendText.textContent = "Stop";
       } else if (state === "streaming") {
-        this.sendText.textContent = "Typing…";
+        this.sendText.textContent = "Stop";
       } else {
         this.sendText.textContent = "Send";
       }
@@ -923,8 +893,10 @@
     /* ---------- session badge ---------- */
 
     _updateSessionBadge() {
-      if (this.sessionBadge && this.sessionId) {
-        this.sessionBadge.textContent = "Session: " + this.sessionId.slice(0, 8) + "…";
+      if (this.sessionBadge) {
+        this.sessionBadge.textContent = this.sessionId
+          ? "Session: " + this.sessionId.slice(0, 8) + "…"
+          : "Session: new";
       }
     }
 
@@ -962,6 +934,7 @@
       if (script.dataset.width) config.width = script.dataset.width;
       if (script.dataset.height) config.height = script.dataset.height;
       if (script.dataset.cssUrl) config.cssUrl = script.dataset.cssUrl;
+      if (script.dataset.locale) config.locale = script.dataset.locale;
       new HedgeExpertWidget(config);
     }
   });

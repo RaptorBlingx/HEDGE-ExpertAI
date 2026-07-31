@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "HEDGE-ExpertAI Chat & Intent",
-    "version": "0.1.0"
+    "version": "2.0.0"
   },
   "paths": {
     "/api/v1/chat": {
@@ -10,6 +10,43 @@
         "summary": "Chat",
         "description": "Main chat endpoint \u2014 classify intent, route, respond.",
         "operationId": "chat_api_v1_chat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chat/stream": {
+      "post": {
+        "summary": "Chat Stream",
+        "description": "Streaming chat endpoint \u2014 SSE with apps + LLM tokens.",
+        "operationId": "chat_stream_api_v1_chat_stream_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -208,11 +245,300 @@
         }
       }
     },
+    "/api/v1/sessions/recorded": {
+      "get": {
+        "summary": "List Sessions",
+        "description": "List all recorded sessions with summary stats.",
+        "operationId": "list_sessions_api_v1_sessions_recorded_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/recorded/{session_id}": {
+      "get": {
+        "summary": "Get Recorded Session",
+        "description": "Get full event log for a recorded session.",
+        "operationId": "get_recorded_session_api_v1_sessions_recorded__session_id__get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/chat": {
+      "post": {
+        "summary": "Chat V2",
+        "description": "Deterministic application-owned dialogue with durable impressions.",
+        "operationId": "chat_v2_api_v2_chat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequestV2"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Chat V2 Api V2 Chat Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/chat/stream": {
+      "post": {
+        "summary": "Chat Stream V2",
+        "description": "Versioned SSE with early ranked results and validated explanation text.",
+        "operationId": "chat_stream_v2_api_v2_chat_stream_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequestV2"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/event-stream": {}
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/recommendation-events": {
+      "post": {
+        "summary": "Submit Recommendation Event",
+        "description": "Record a verified, idempotent recommendation event.",
+        "operationId": "submit_recommendation_event_api_v2_recommendation_events_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecommendationEventRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Submit Recommendation Event Api V2 Recommendation Events Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/analytics/recommendations": {
+      "get": {
+        "summary": "Recommendation Analytics",
+        "description": "Durable session-level recommendation KPIs.",
+        "operationId": "recommendation_analytics_api_v2_analytics_recommendations_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Recommendation Analytics Api V2 Analytics Recommendations Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/sessions/{session_id}": {
+      "delete": {
+        "summary": "Delete Session V2",
+        "description": "End and erase operational session state.",
+        "operationId": "delete_session_v2_api_v2_sessions__session_id__delete",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Delete Session V2 Api V2 Sessions  Session Id  Delete"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health",
-        "description": "Health check \u2014 verifies Redis connectivity.",
+        "description": "Health check \u2014 verifies operational sessions and durable events.",
         "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/live": {
+      "get": {
+        "summary": "Live",
+        "operationId": "live_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "summary": "Ready",
+        "operationId": "ready_ready_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -243,8 +569,15 @@
           },
           "message": {
             "type": "string",
+            "maxLength": 2000,
             "minLength": 1,
             "title": "Message"
+          },
+          "locale": {
+            "type": "string",
+            "pattern": "^(en|de|fr|es|it|nl|pt|tr)$",
+            "title": "Locale",
+            "default": "en"
           }
         },
         "type": "object",
@@ -252,6 +585,53 @@
           "message"
         ],
         "title": "ChatRequest"
+      },
+      "ChatRequestV2": {
+        "properties": {
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Message"
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "en",
+              "de",
+              "fr",
+              "es",
+              "it",
+              "nl",
+              "pt",
+              "tr"
+            ],
+            "title": "Locale",
+            "default": "en"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/SearchFilters"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "ChatRequestV2",
+        "description": "Versioned conversational search request."
       },
       "FeedbackRequest": {
         "properties": {
@@ -302,6 +682,201 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "LifecycleStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "active",
+          "deprecated",
+          "retired"
+        ],
+        "title": "LifecycleStatus",
+        "description": "Supported application lifecycle states."
+      },
+      "RecommendationEventRequest": {
+        "properties": {
+          "impression_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 3,
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "title": "Impression Id"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 3,
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "title": "Idempotency Key"
+          },
+          "event_type": {
+            "$ref": "#/components/schemas/RecommendationEventType"
+          },
+          "app_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 3,
+                "pattern": "^[a-z0-9][a-z0-9._-]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Id"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "impression_id",
+          "idempotency_key",
+          "event_type"
+        ],
+        "title": "RecommendationEventRequest",
+        "description": "Verified and replay-safe recommendation event."
+      },
+      "RecommendationEventType": {
+        "type": "string",
+        "enum": [
+          "recommendation_accepted",
+          "recommendation_dismissed",
+          "app_opened"
+        ],
+        "title": "RecommendationEventType",
+        "description": "Allowed recommendation telemetry events."
+      },
+      "SearchFilters": {
+        "properties": {
+          "semantic_uri": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semantic Uri"
+          },
+          "extension_uri": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extension Uri"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Capabilities"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Tags"
+          },
+          "protocols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Protocols"
+          },
+          "deployment_modes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Deployment Modes"
+          },
+          "license_spdx": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Spdx"
+          },
+          "lifecycle_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LifecycleStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supported_languages": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "en",
+                "de",
+                "fr",
+                "es",
+                "it",
+                "nl",
+                "pt",
+                "tr"
+              ]
+            },
+            "type": "array",
+            "title": "Supported Languages"
+          },
+          "data_classifications": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Data Classifications"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SearchFilters",
+        "description": "Typed public catalogue filters."
       },
       "ValidationError": {
         "properties": {

@@ -1,6 +1,5 @@
 """Tests for SAREF ontology class inference."""
 
-import pytest
 
 from hedge_shared.saref import get_saref_class_for_query, infer_saref_class
 

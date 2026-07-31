@@ -10,9 +10,7 @@ import importlib
 import importlib.util
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-
-import pytest
+from unittest.mock import MagicMock, patch
 
 # Load expert-recommend modules via importlib to avoid `app` namespace clash.
 # The recommender module uses relative imports (from .llm_client, from .prompts),
@@ -21,6 +19,7 @@ _er_app = Path(__file__).resolve().parent.parent.parent / "services" / "expert-r
 
 # Create a virtual package for expert-recommend
 import types as _types
+
 _er_pkg = _types.ModuleType("er_app")
 _er_pkg.__path__ = [str(_er_app)]
 sys.modules["er_app"] = _er_pkg

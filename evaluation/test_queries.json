@@ -1,71 +1,2202 @@
 [
-  {"query": "I need an app for monitoring energy consumption", "expected_apps": ["app-001", "app-038"], "saref_class": "Energy"},
-  {"query": "Find me a smart building HVAC solution", "expected_apps": ["app-002", "app-039"], "saref_class": "Building"},
-  {"query": "Air quality monitoring for cities", "expected_apps": ["app-003", "app-018"], "saref_class": "Environment"},
-  {"query": "Precision irrigation for farming", "expected_apps": ["app-004", "app-034"], "saref_class": "Agriculture"},
-  {"query": "Detect water leaks in buildings", "expected_apps": ["app-005", "app-042"], "saref_class": "Water"},
-  {"query": "Optimize traffic in smart cities", "expected_apps": ["app-006", "app-043"], "saref_class": "City"},
-  {"query": "Patient health monitoring with wearables", "expected_apps": ["app-007", "app-014"], "saref_class": "Health"},
-  {"query": "Predictive maintenance for factory equipment", "expected_apps": ["app-008", "app-023"], "saref_class": "Manufacturing"},
-  {"query": "Solar panel energy optimization", "expected_apps": ["app-009", "app-046"], "saref_class": "Energy"},
-  {"query": "Smart lighting for buildings", "expected_apps": ["app-010", "app-029"], "saref_class": "Building"},
-  {"query": "Flood warning and monitoring", "expected_apps": ["app-011", "app-028"], "saref_class": "Environment"},
-  {"query": "Crop health analysis and disease detection", "expected_apps": ["app-012", "app-034"], "saref_class": "Agriculture"},
-  {"query": "Smart parking solutions", "expected_apps": ["app-013", "app-006"], "saref_class": "City"},
-  {"query": "Elderly care fall detection", "expected_apps": ["app-014", "app-044"], "saref_class": "Health"},
-  {"query": "Quality inspection in manufacturing", "expected_apps": ["app-015", "app-031"], "saref_class": "Manufacturing"},
-  {"query": "Grid load balancing and demand response", "expected_apps": ["app-016", "app-024"], "saref_class": "Energy"},
-  {"query": "Elevator optimization for buildings", "expected_apps": ["app-017"], "saref_class": "Building"},
-  {"query": "Noise pollution monitoring in urban areas", "expected_apps": ["app-018", "app-003"], "saref_class": "Environment"},
-  {"query": "GPS tracking for livestock", "expected_apps": ["app-019", "app-041"], "saref_class": "Agriculture"},
-  {"query": "Drinking water quality monitoring", "expected_apps": ["app-020", "app-035"], "saref_class": "Water"},
-  {"query": "Waste collection route optimization", "expected_apps": ["app-021", "app-050"], "saref_class": "City"},
-  {"query": "Rehabilitation exercise tracking", "expected_apps": ["app-022"], "saref_class": "Health"},
-  {"query": "CNC tool wear prediction", "expected_apps": ["app-023", "app-008"], "saref_class": "Manufacturing"},
-  {"query": "Electric vehicle charging management", "expected_apps": ["app-024", "app-016"], "saref_class": "Energy"},
-  {"query": "Fire safety monitoring for buildings", "expected_apps": ["app-025"], "saref_class": "Building"},
-  {"query": "Local weather station network", "expected_apps": ["app-026"], "saref_class": "Environment"},
-  {"query": "Greenhouse climate automation", "expected_apps": ["app-027", "app-004"], "saref_class": "Agriculture"},
-  {"query": "Stormwater drainage management", "expected_apps": ["app-028", "app-011"], "saref_class": "Water"},
-  {"query": "Smart street lighting with dimming", "expected_apps": ["app-029", "app-010"], "saref_class": "City"},
-  {"query": "Sleep quality analysis", "expected_apps": ["app-030"], "saref_class": "Health"},
-  {"query": "Assembly line tracking and bottleneck detection", "expected_apps": ["app-031", "app-045"], "saref_class": "Manufacturing"},
-  {"query": "Heat pump efficiency optimization", "expected_apps": ["app-032", "app-001"], "saref_class": "Energy"},
-  {"query": "Building access control with RFID", "expected_apps": ["app-033", "app-025"], "saref_class": "Building"},
-  {"query": "Soil moisture monitoring for drought", "expected_apps": ["app-034", "app-004"], "saref_class": "Agriculture"},
-  {"query": "Wastewater treatment plant monitoring", "expected_apps": ["app-035", "app-020"], "saref_class": "Water"},
-  {"query": "Bike sharing fleet management", "expected_apps": ["app-036"], "saref_class": "City"},
-  {"query": "Diabetes glucose monitoring", "expected_apps": ["app-037", "app-007"], "saref_class": "Health"},
-  {"query": "Building energy audit tool", "expected_apps": ["app-038", "app-001"], "saref_class": "Energy"},
-  {"query": "Indoor air quality and CO2 monitoring", "expected_apps": ["app-039", "app-002"], "saref_class": "Building"},
-  {"query": "Wildfire detection in forests", "expected_apps": ["app-040"], "saref_class": "Environment"},
-  {"query": "Automated livestock feeding", "expected_apps": ["app-041", "app-019"], "saref_class": "Agriculture"},
-  {"query": "Pipeline corrosion detection", "expected_apps": ["app-042", "app-005"], "saref_class": "Water"},
-  {"query": "Public transit real-time tracking", "expected_apps": ["app-043", "app-036"], "saref_class": "City"},
-  {"query": "Medication dispensing and adherence", "expected_apps": ["app-044", "app-014"], "saref_class": "Health"},
-  {"query": "Warehouse robot fleet management", "expected_apps": ["app-045", "app-031"], "saref_class": "Manufacturing"},
-  {"query": "Wind turbine performance monitoring", "expected_apps": ["app-046", "app-009"], "saref_class": "Energy"},
-  {"query": "Building occupancy analytics", "expected_apps": ["app-047", "app-010"], "saref_class": "Building"},
-  {"query": "Beehive monitoring for apiculture", "expected_apps": ["app-048"], "saref_class": "Agriculture"},
-  {"query": "Swimming pool water quality", "expected_apps": ["app-049", "app-020"], "saref_class": "Water"},
-  {"query": "Smart waste compactor with fill level", "expected_apps": ["app-050", "app-021"], "saref_class": "City"},
-  {"query": "Renewable energy management", "expected_apps": ["app-009", "app-046", "app-016"], "saref_class": "Energy"},
-  {"query": "IoT apps for smart home", "expected_apps": ["app-010", "app-001", "app-002"], "saref_class": "Building"},
-  {"query": "Environmental sensing and monitoring", "expected_apps": ["app-003", "app-026", "app-040"], "saref_class": "Environment"},
-
-  {"query": "something for my house", "expected_apps": ["app-001", "app-010", "app-002"]},
-  {"query": "help me save money on electricity bills", "expected_apps": ["app-001", "app-032", "app-075"]},
-  {"query": "I want to monitor things", "expected_apps": ["app-001", "app-003", "app-007"]},
-  {"query": "enregy monitoring", "expected_apps": ["app-001", "app-038", "app-075"], "saref_class": "Energy"},
-  {"query": "watr leek detection", "expected_apps": ["app-005", "app-060"], "saref_class": "Water"},
-  {"query": "temperture sensors for buildigns", "expected_apps": ["app-002", "app-052"], "saref_class": "Building"},
-  {"query": "air quality combined with traffic data", "expected_apps": ["app-073", "app-003"], "saref_class": "Environment"},
-  {"query": "cold chain temperature logistics pharma", "expected_apps": ["app-069"], "saref_class": "Health"},
-  {"query": "earthquake early warning structural health", "expected_apps": ["app-070"], "saref_class": "Environment"},
-  {"query": "digital twin for factory simulation", "expected_apps": ["app-058", "app-031"], "saref_class": "Manufacturing"},
-  {"query": "microgrid islanding renewable battery", "expected_apps": ["app-059", "app-016"], "saref_class": "Energy"},
-  {"query": "vertical farming indoor crops LED", "expected_apps": ["app-063", "app-027"], "saref_class": "Agriculture"},
-  {"query": "crowd safety monitoring events", "expected_apps": ["app-056"], "saref_class": "City"},
-  {"query": "dam safety seepage monitoring", "expected_apps": ["app-072", "app-055"], "saref_class": "Water"},
-  {"query": "minimal test app empty fields", "expected_apps": ["app-067"]}
+  {
+    "query_id": "primary-en-001",
+    "query": "Find an IoT application that can forecast and schedule flexible electrical loads",
+    "locale": "en",
+    "expected_apps": [
+      "app-001"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-002",
+    "query": "I need software to monitor photovoltaic yield and inverter performance",
+    "locale": "en",
+    "expected_apps": [
+      "app-002"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-003",
+    "query": "Which catalogue app can optimize battery charge and discharge windows",
+    "locale": "en",
+    "expected_apps": [
+      "app-003"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-004",
+    "query": "Recommend a solution to coordinate heat-pump demand with price signals",
+    "locale": "en",
+    "expected_apps": [
+      "app-004"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-005",
+    "query": "Search for tools that build appliance-level power profiles",
+    "locale": "en",
+    "expected_apps": [
+      "app-005"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-006",
+    "query": "Find an IoT application that can translate demand-response events into local actions",
+    "locale": "en",
+    "expected_apps": [
+      "app-006"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-007",
+    "query": "I need software to schedule electric-vehicle charging under site limits",
+    "locale": "en",
+    "expected_apps": [
+      "app-007"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-008",
+    "query": "Which catalogue app can balance local generation, storage, and consumption",
+    "locale": "en",
+    "expected_apps": [
+      "app-008"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-009",
+    "query": "Recommend a solution to compare tariff windows against forecast demand",
+    "locale": "en",
+    "expected_apps": [
+      "app-009"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-010",
+    "query": "Search for tools that shift controllable loads toward lower-carbon periods",
+    "locale": "en",
+    "expected_apps": [
+      "app-010"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-011",
+    "query": "Find an IoT application that can detect particulate and gas concentration anomalies",
+    "locale": "en",
+    "expected_apps": [
+      "app-011"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-012",
+    "query": "I need software to aggregate calibrated sound-level observations",
+    "locale": "en",
+    "expected_apps": [
+      "app-012"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-013",
+    "query": "Which catalogue app can combine rainfall and water-level signals for alerts",
+    "locale": "en",
+    "expected_apps": [
+      "app-013"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-014",
+    "query": "Recommend a solution to estimate local fire risk from weather and vegetation sensors",
+    "locale": "en",
+    "expected_apps": [
+      "app-014"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-015",
+    "query": "Search for tools that track temperature, humidity, pressure, and wind",
+    "locale": "en",
+    "expected_apps": [
+      "app-015"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-016",
+    "query": "Find an IoT application that can correlate stationary-source emission measurements",
+    "locale": "en",
+    "expected_apps": [
+      "app-016"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-017",
+    "query": "I need software to flag changes in soil quality indicators",
+    "locale": "en",
+    "expected_apps": [
+      "app-017"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-018",
+    "query": "Which catalogue app can monitor tide, salinity, and coastal weather conditions",
+    "locale": "en",
+    "expected_apps": [
+      "app-018"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-019",
+    "query": "Recommend a solution to detect threshold breaches in radiation observations",
+    "locale": "en",
+    "expected_apps": [
+      "app-019"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-020",
+    "query": "Search for tools that classify privacy-filtered environmental audio events",
+    "locale": "en",
+    "expected_apps": [
+      "app-020"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-021",
+    "query": "Find an IoT application that can optimize zones using occupancy and comfort constraints",
+    "locale": "en",
+    "expected_apps": [
+      "app-021"
+    ],
+    "category": "Building",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-022",
+    "query": "I need software to coordinate ventilation from air-quality observations",
+    "locale": "en",
+    "expected_apps": [
+      "app-022"
+    ],
+    "category": "Building",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-023",
+    "query": "Which catalogue app can control lighting scenes using daylight and occupancy",
+    "locale": "en",
+    "expected_apps": [
+      "app-023"
+    ],
+    "category": "Building",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-024",
+    "query": "Recommend a solution to produce privacy-preserving space utilization trends",
+    "locale": "en",
+    "expected_apps": [
+      "app-024"
+    ],
+    "category": "Building",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-025",
+    "query": "Search for tools that detect equipment faults from BMS telemetry",
+    "locale": "en",
+    "expected_apps": [
+      "app-025"
+    ],
+    "category": "Building",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-026",
+    "query": "Find an IoT application that can identify heat-loss and insulation performance patterns",
+    "locale": "en",
+    "expected_apps": [
+      "app-026"
+    ],
+    "category": "Building",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-027",
+    "query": "I need software to coordinate access schedules with building operations",
+    "locale": "en",
+    "expected_apps": [
+      "app-027"
+    ],
+    "category": "Building",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-028",
+    "query": "Which catalogue app can precondition booked rooms only when needed",
+    "locale": "en",
+    "expected_apps": [
+      "app-028"
+    ],
+    "category": "Building",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-029",
+    "query": "Recommend a solution to track cooling plant efficiency and alarms",
+    "locale": "en",
+    "expected_apps": [
+      "app-029"
+    ],
+    "category": "Building",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-030",
+    "query": "Search for tools that keep aggregate facility demand below configured limits",
+    "locale": "en",
+    "expected_apps": [
+      "app-030"
+    ],
+    "category": "Building",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-031",
+    "query": "Find an IoT application that can optimize signal timing from aggregated traffic flow",
+    "locale": "en",
+    "expected_apps": [
+      "app-031"
+    ],
+    "category": "Smart City",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-032",
+    "query": "I need software to publish available spaces and occupancy trends",
+    "locale": "en",
+    "expected_apps": [
+      "app-032"
+    ],
+    "category": "Smart City",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-033",
+    "query": "Which catalogue app can prioritize collection routes from bin fill levels",
+    "locale": "en",
+    "expected_apps": [
+      "app-033"
+    ],
+    "category": "Smart City",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-034",
+    "query": "Recommend a solution to schedule and diagnose connected street lighting",
+    "locale": "en",
+    "expected_apps": [
+      "app-034"
+    ],
+    "category": "Smart City",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-035",
+    "query": "Search for tools that detect delay patterns in public transport telemetry",
+    "locale": "en",
+    "expected_apps": [
+      "app-035"
+    ],
+    "category": "Smart City",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-036",
+    "query": "Find an IoT application that can identify high-risk cycling corridors from sensor data",
+    "locale": "en",
+    "expected_apps": [
+      "app-036"
+    ],
+    "category": "Smart City",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-037",
+    "query": "I need software to map neighborhood heat exposure and cooling resources",
+    "locale": "en",
+    "expected_apps": [
+      "app-037"
+    ],
+    "category": "Smart City",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-038",
+    "query": "Which catalogue app can analyze privacy-preserving pedestrian counts",
+    "locale": "en",
+    "expected_apps": [
+      "app-038"
+    ],
+    "category": "Smart City",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-039",
+    "query": "Recommend a solution to detect road-condition anomalies from fleet observations",
+    "locale": "en",
+    "expected_apps": [
+      "app-039"
+    ],
+    "category": "Smart City",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-040",
+    "query": "Search for tools that prioritize maintenance for connected municipal assets",
+    "locale": "en",
+    "expected_apps": [
+      "app-040"
+    ],
+    "category": "Smart City",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-041",
+    "query": "Find an IoT application that can detect developing motor faults from vibration and current",
+    "locale": "en",
+    "expected_apps": [
+      "app-041"
+    ],
+    "category": "Manufacturing",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-042",
+    "query": "I need software to coordinate in-line quality observations and traceability",
+    "locale": "en",
+    "expected_apps": [
+      "app-042"
+    ],
+    "category": "Manufacturing",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-043",
+    "query": "Which catalogue app can trace material batches through production stages",
+    "locale": "en",
+    "expected_apps": [
+      "app-043"
+    ],
+    "category": "Manufacturing",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-044",
+    "query": "Recommend a solution to calculate equipment availability, performance, and quality",
+    "locale": "en",
+    "expected_apps": [
+      "app-044"
+    ],
+    "category": "Manufacturing",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-045",
+    "query": "Search for tools that detect leaks and inefficient compressor operation",
+    "locale": "en",
+    "expected_apps": [
+      "app-045"
+    ],
+    "category": "Manufacturing",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-046",
+    "query": "Find an IoT application that can monitor robot-cell health and safety-related events",
+    "locale": "en",
+    "expected_apps": [
+      "app-046"
+    ],
+    "category": "Manufacturing",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-047",
+    "query": "I need software to estimate remaining tool life from machine telemetry",
+    "locale": "en",
+    "expected_apps": [
+      "app-047"
+    ],
+    "category": "Manufacturing",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-048",
+    "query": "Which catalogue app can verify temperature control across production handoffs",
+    "locale": "en",
+    "expected_apps": [
+      "app-048"
+    ],
+    "category": "Manufacturing",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-049",
+    "query": "Recommend a solution to attribute energy use to production orders",
+    "locale": "en",
+    "expected_apps": [
+      "app-049"
+    ],
+    "category": "Manufacturing",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-050",
+    "query": "Search for tools that identify congestion and replenishment bottlenecks",
+    "locale": "en",
+    "expected_apps": [
+      "app-050"
+    ],
+    "category": "Manufacturing",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-051",
+    "query": "Find an IoT application that can schedule irrigation from soil and weather conditions",
+    "locale": "en",
+    "expected_apps": [
+      "app-051"
+    ],
+    "category": "Agriculture",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-052",
+    "query": "I need software to coordinate ventilation, heating, and shading",
+    "locale": "en",
+    "expected_apps": [
+      "app-052"
+    ],
+    "category": "Agriculture",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-053",
+    "query": "Which catalogue app can identify crop stress from field and imagery indicators",
+    "locale": "en",
+    "expected_apps": [
+      "app-053"
+    ],
+    "category": "Agriculture",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-054",
+    "query": "Recommend a solution to monitor herd activity and environmental comfort",
+    "locale": "en",
+    "expected_apps": [
+      "app-054"
+    ],
+    "category": "Agriculture",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-055",
+    "query": "Search for tools that issue field-specific frost-risk warnings",
+    "locale": "en",
+    "expected_apps": [
+      "app-055"
+    ],
+    "category": "Agriculture",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-056",
+    "query": "Find an IoT application that can support traceable variable-rate nutrient plans",
+    "locale": "en",
+    "expected_apps": [
+      "app-056"
+    ],
+    "category": "Agriculture",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-057",
+    "query": "I need software to detect unusual hive temperature and activity patterns",
+    "locale": "en",
+    "expected_apps": [
+      "app-057"
+    ],
+    "category": "Agriculture",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-058",
+    "query": "Which catalogue app can account for irrigation abstraction and field delivery",
+    "locale": "en",
+    "expected_apps": [
+      "app-058"
+    ],
+    "category": "Agriculture",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-059",
+    "query": "Recommend a solution to combine crop maturity and weather observations",
+    "locale": "en",
+    "expected_apps": [
+      "app-059"
+    ],
+    "category": "Agriculture",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "primary-en-060",
+    "query": "Search for tools that monitor storage climate and spoilage risk",
+    "locale": "en",
+    "expected_apps": [
+      "app-060"
+    ],
+    "category": "Agriculture",
+    "label_status": "provisional_internal",
+    "label_source": "deterministic catalogue capability; independent review required"
+  },
+  {
+    "query_id": "provisional-de-001",
+    "query": "Finde eine IoT-Anwendung, die forecast and schedule flexible electrical loads kann",
+    "locale": "de",
+    "expected_apps": [
+      "app-001"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-002",
+    "query": "Ich brauche Software für monitor photovoltaic yield and inverter performance",
+    "locale": "de",
+    "expected_apps": [
+      "app-002"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-003",
+    "query": "Welche Katalog-App kann optimize battery charge and discharge windows",
+    "locale": "de",
+    "expected_apps": [
+      "app-003"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-004",
+    "query": "Empfiehl eine Lösung für coordinate heat-pump demand with price signals",
+    "locale": "de",
+    "expected_apps": [
+      "app-004"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-005",
+    "query": "Suche Werkzeuge für build appliance-level power profiles",
+    "locale": "de",
+    "expected_apps": [
+      "app-005"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-006",
+    "query": "Finde eine IoT-Anwendung, die translate demand-response events into local actions kann",
+    "locale": "de",
+    "expected_apps": [
+      "app-006"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-007",
+    "query": "Ich brauche Software für schedule electric-vehicle charging under site limits",
+    "locale": "de",
+    "expected_apps": [
+      "app-007"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-008",
+    "query": "Welche Katalog-App kann balance local generation, storage, and consumption",
+    "locale": "de",
+    "expected_apps": [
+      "app-008"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-009",
+    "query": "Empfiehl eine Lösung für compare tariff windows against forecast demand",
+    "locale": "de",
+    "expected_apps": [
+      "app-009"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-010",
+    "query": "Suche Werkzeuge für shift controllable loads toward lower-carbon periods",
+    "locale": "de",
+    "expected_apps": [
+      "app-010"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-011",
+    "query": "Finde eine IoT-Anwendung, die detect particulate and gas concentration anomalies kann",
+    "locale": "de",
+    "expected_apps": [
+      "app-011"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-012",
+    "query": "Ich brauche Software für aggregate calibrated sound-level observations",
+    "locale": "de",
+    "expected_apps": [
+      "app-012"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-013",
+    "query": "Welche Katalog-App kann combine rainfall and water-level signals for alerts",
+    "locale": "de",
+    "expected_apps": [
+      "app-013"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-014",
+    "query": "Empfiehl eine Lösung für estimate local fire risk from weather and vegetation sensors",
+    "locale": "de",
+    "expected_apps": [
+      "app-014"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-015",
+    "query": "Suche Werkzeuge für track temperature, humidity, pressure, and wind",
+    "locale": "de",
+    "expected_apps": [
+      "app-015"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-016",
+    "query": "Finde eine IoT-Anwendung, die correlate stationary-source emission measurements kann",
+    "locale": "de",
+    "expected_apps": [
+      "app-016"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-017",
+    "query": "Ich brauche Software für flag changes in soil quality indicators",
+    "locale": "de",
+    "expected_apps": [
+      "app-017"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-018",
+    "query": "Welche Katalog-App kann monitor tide, salinity, and coastal weather conditions",
+    "locale": "de",
+    "expected_apps": [
+      "app-018"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-019",
+    "query": "Empfiehl eine Lösung für detect threshold breaches in radiation observations",
+    "locale": "de",
+    "expected_apps": [
+      "app-019"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-de-020",
+    "query": "Suche Werkzeuge für classify privacy-filtered environmental audio events",
+    "locale": "de",
+    "expected_apps": [
+      "app-020"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-001",
+    "query": "Trouve une application IoT pour forecast and schedule flexible electrical loads",
+    "locale": "fr",
+    "expected_apps": [
+      "app-001"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-002",
+    "query": "J'ai besoin d'un logiciel pour monitor photovoltaic yield and inverter performance",
+    "locale": "fr",
+    "expected_apps": [
+      "app-002"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-003",
+    "query": "Quelle application du catalogue peut optimize battery charge and discharge windows",
+    "locale": "fr",
+    "expected_apps": [
+      "app-003"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-004",
+    "query": "Recommande une solution pour coordinate heat-pump demand with price signals",
+    "locale": "fr",
+    "expected_apps": [
+      "app-004"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-005",
+    "query": "Cherche des outils pour build appliance-level power profiles",
+    "locale": "fr",
+    "expected_apps": [
+      "app-005"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-006",
+    "query": "Trouve une application IoT pour translate demand-response events into local actions",
+    "locale": "fr",
+    "expected_apps": [
+      "app-006"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-007",
+    "query": "J'ai besoin d'un logiciel pour schedule electric-vehicle charging under site limits",
+    "locale": "fr",
+    "expected_apps": [
+      "app-007"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-008",
+    "query": "Quelle application du catalogue peut balance local generation, storage, and consumption",
+    "locale": "fr",
+    "expected_apps": [
+      "app-008"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-009",
+    "query": "Recommande une solution pour compare tariff windows against forecast demand",
+    "locale": "fr",
+    "expected_apps": [
+      "app-009"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-010",
+    "query": "Cherche des outils pour shift controllable loads toward lower-carbon periods",
+    "locale": "fr",
+    "expected_apps": [
+      "app-010"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-011",
+    "query": "Trouve une application IoT pour detect particulate and gas concentration anomalies",
+    "locale": "fr",
+    "expected_apps": [
+      "app-011"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-012",
+    "query": "J'ai besoin d'un logiciel pour aggregate calibrated sound-level observations",
+    "locale": "fr",
+    "expected_apps": [
+      "app-012"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-013",
+    "query": "Quelle application du catalogue peut combine rainfall and water-level signals for alerts",
+    "locale": "fr",
+    "expected_apps": [
+      "app-013"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-014",
+    "query": "Recommande une solution pour estimate local fire risk from weather and vegetation sensors",
+    "locale": "fr",
+    "expected_apps": [
+      "app-014"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-015",
+    "query": "Cherche des outils pour track temperature, humidity, pressure, and wind",
+    "locale": "fr",
+    "expected_apps": [
+      "app-015"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-016",
+    "query": "Trouve une application IoT pour correlate stationary-source emission measurements",
+    "locale": "fr",
+    "expected_apps": [
+      "app-016"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-017",
+    "query": "J'ai besoin d'un logiciel pour flag changes in soil quality indicators",
+    "locale": "fr",
+    "expected_apps": [
+      "app-017"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-018",
+    "query": "Quelle application du catalogue peut monitor tide, salinity, and coastal weather conditions",
+    "locale": "fr",
+    "expected_apps": [
+      "app-018"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-019",
+    "query": "Recommande une solution pour detect threshold breaches in radiation observations",
+    "locale": "fr",
+    "expected_apps": [
+      "app-019"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-fr-020",
+    "query": "Cherche des outils pour classify privacy-filtered environmental audio events",
+    "locale": "fr",
+    "expected_apps": [
+      "app-020"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-001",
+    "query": "Busca una aplicación IoT para forecast and schedule flexible electrical loads",
+    "locale": "es",
+    "expected_apps": [
+      "app-001"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-002",
+    "query": "Necesito software para monitor photovoltaic yield and inverter performance",
+    "locale": "es",
+    "expected_apps": [
+      "app-002"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-003",
+    "query": "Qué aplicación del catálogo puede optimize battery charge and discharge windows",
+    "locale": "es",
+    "expected_apps": [
+      "app-003"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-004",
+    "query": "Recomienda una solución para coordinate heat-pump demand with price signals",
+    "locale": "es",
+    "expected_apps": [
+      "app-004"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-005",
+    "query": "Busca herramientas para build appliance-level power profiles",
+    "locale": "es",
+    "expected_apps": [
+      "app-005"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-006",
+    "query": "Busca una aplicación IoT para translate demand-response events into local actions",
+    "locale": "es",
+    "expected_apps": [
+      "app-006"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-007",
+    "query": "Necesito software para schedule electric-vehicle charging under site limits",
+    "locale": "es",
+    "expected_apps": [
+      "app-007"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-008",
+    "query": "Qué aplicación del catálogo puede balance local generation, storage, and consumption",
+    "locale": "es",
+    "expected_apps": [
+      "app-008"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-009",
+    "query": "Recomienda una solución para compare tariff windows against forecast demand",
+    "locale": "es",
+    "expected_apps": [
+      "app-009"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-010",
+    "query": "Busca herramientas para shift controllable loads toward lower-carbon periods",
+    "locale": "es",
+    "expected_apps": [
+      "app-010"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-011",
+    "query": "Busca una aplicación IoT para detect particulate and gas concentration anomalies",
+    "locale": "es",
+    "expected_apps": [
+      "app-011"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-012",
+    "query": "Necesito software para aggregate calibrated sound-level observations",
+    "locale": "es",
+    "expected_apps": [
+      "app-012"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-013",
+    "query": "Qué aplicación del catálogo puede combine rainfall and water-level signals for alerts",
+    "locale": "es",
+    "expected_apps": [
+      "app-013"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-014",
+    "query": "Recomienda una solución para estimate local fire risk from weather and vegetation sensors",
+    "locale": "es",
+    "expected_apps": [
+      "app-014"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-015",
+    "query": "Busca herramientas para track temperature, humidity, pressure, and wind",
+    "locale": "es",
+    "expected_apps": [
+      "app-015"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-016",
+    "query": "Busca una aplicación IoT para correlate stationary-source emission measurements",
+    "locale": "es",
+    "expected_apps": [
+      "app-016"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-017",
+    "query": "Necesito software para flag changes in soil quality indicators",
+    "locale": "es",
+    "expected_apps": [
+      "app-017"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-018",
+    "query": "Qué aplicación del catálogo puede monitor tide, salinity, and coastal weather conditions",
+    "locale": "es",
+    "expected_apps": [
+      "app-018"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-019",
+    "query": "Recomienda una solución para detect threshold breaches in radiation observations",
+    "locale": "es",
+    "expected_apps": [
+      "app-019"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-es-020",
+    "query": "Busca herramientas para classify privacy-filtered environmental audio events",
+    "locale": "es",
+    "expected_apps": [
+      "app-020"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-001",
+    "query": "Trova un'applicazione IoT per forecast and schedule flexible electrical loads",
+    "locale": "it",
+    "expected_apps": [
+      "app-001"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-002",
+    "query": "Mi serve un software per monitor photovoltaic yield and inverter performance",
+    "locale": "it",
+    "expected_apps": [
+      "app-002"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-003",
+    "query": "Quale applicazione del catalogo può optimize battery charge and discharge windows",
+    "locale": "it",
+    "expected_apps": [
+      "app-003"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-004",
+    "query": "Consiglia una soluzione per coordinate heat-pump demand with price signals",
+    "locale": "it",
+    "expected_apps": [
+      "app-004"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-005",
+    "query": "Cerca strumenti per build appliance-level power profiles",
+    "locale": "it",
+    "expected_apps": [
+      "app-005"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-006",
+    "query": "Trova un'applicazione IoT per translate demand-response events into local actions",
+    "locale": "it",
+    "expected_apps": [
+      "app-006"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-007",
+    "query": "Mi serve un software per schedule electric-vehicle charging under site limits",
+    "locale": "it",
+    "expected_apps": [
+      "app-007"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-008",
+    "query": "Quale applicazione del catalogo può balance local generation, storage, and consumption",
+    "locale": "it",
+    "expected_apps": [
+      "app-008"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-009",
+    "query": "Consiglia una soluzione per compare tariff windows against forecast demand",
+    "locale": "it",
+    "expected_apps": [
+      "app-009"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-010",
+    "query": "Cerca strumenti per shift controllable loads toward lower-carbon periods",
+    "locale": "it",
+    "expected_apps": [
+      "app-010"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-011",
+    "query": "Trova un'applicazione IoT per detect particulate and gas concentration anomalies",
+    "locale": "it",
+    "expected_apps": [
+      "app-011"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-012",
+    "query": "Mi serve un software per aggregate calibrated sound-level observations",
+    "locale": "it",
+    "expected_apps": [
+      "app-012"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-013",
+    "query": "Quale applicazione del catalogo può combine rainfall and water-level signals for alerts",
+    "locale": "it",
+    "expected_apps": [
+      "app-013"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-014",
+    "query": "Consiglia una soluzione per estimate local fire risk from weather and vegetation sensors",
+    "locale": "it",
+    "expected_apps": [
+      "app-014"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-015",
+    "query": "Cerca strumenti per track temperature, humidity, pressure, and wind",
+    "locale": "it",
+    "expected_apps": [
+      "app-015"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-016",
+    "query": "Trova un'applicazione IoT per correlate stationary-source emission measurements",
+    "locale": "it",
+    "expected_apps": [
+      "app-016"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-017",
+    "query": "Mi serve un software per flag changes in soil quality indicators",
+    "locale": "it",
+    "expected_apps": [
+      "app-017"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-018",
+    "query": "Quale applicazione del catalogo può monitor tide, salinity, and coastal weather conditions",
+    "locale": "it",
+    "expected_apps": [
+      "app-018"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-019",
+    "query": "Consiglia una soluzione per detect threshold breaches in radiation observations",
+    "locale": "it",
+    "expected_apps": [
+      "app-019"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-it-020",
+    "query": "Cerca strumenti per classify privacy-filtered environmental audio events",
+    "locale": "it",
+    "expected_apps": [
+      "app-020"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-001",
+    "query": "Vind een IoT-app om forecast and schedule flexible electrical loads",
+    "locale": "nl",
+    "expected_apps": [
+      "app-001"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-002",
+    "query": "Ik heb software nodig om monitor photovoltaic yield and inverter performance",
+    "locale": "nl",
+    "expected_apps": [
+      "app-002"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-003",
+    "query": "Welke catalogus-app kan optimize battery charge and discharge windows",
+    "locale": "nl",
+    "expected_apps": [
+      "app-003"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-004",
+    "query": "Raad een oplossing aan om coordinate heat-pump demand with price signals",
+    "locale": "nl",
+    "expected_apps": [
+      "app-004"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-005",
+    "query": "Zoek hulpmiddelen om build appliance-level power profiles",
+    "locale": "nl",
+    "expected_apps": [
+      "app-005"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-006",
+    "query": "Vind een IoT-app om translate demand-response events into local actions",
+    "locale": "nl",
+    "expected_apps": [
+      "app-006"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-007",
+    "query": "Ik heb software nodig om schedule electric-vehicle charging under site limits",
+    "locale": "nl",
+    "expected_apps": [
+      "app-007"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-008",
+    "query": "Welke catalogus-app kan balance local generation, storage, and consumption",
+    "locale": "nl",
+    "expected_apps": [
+      "app-008"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-009",
+    "query": "Raad een oplossing aan om compare tariff windows against forecast demand",
+    "locale": "nl",
+    "expected_apps": [
+      "app-009"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-010",
+    "query": "Zoek hulpmiddelen om shift controllable loads toward lower-carbon periods",
+    "locale": "nl",
+    "expected_apps": [
+      "app-010"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-011",
+    "query": "Vind een IoT-app om detect particulate and gas concentration anomalies",
+    "locale": "nl",
+    "expected_apps": [
+      "app-011"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-012",
+    "query": "Ik heb software nodig om aggregate calibrated sound-level observations",
+    "locale": "nl",
+    "expected_apps": [
+      "app-012"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-013",
+    "query": "Welke catalogus-app kan combine rainfall and water-level signals for alerts",
+    "locale": "nl",
+    "expected_apps": [
+      "app-013"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-014",
+    "query": "Raad een oplossing aan om estimate local fire risk from weather and vegetation sensors",
+    "locale": "nl",
+    "expected_apps": [
+      "app-014"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-015",
+    "query": "Zoek hulpmiddelen om track temperature, humidity, pressure, and wind",
+    "locale": "nl",
+    "expected_apps": [
+      "app-015"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-016",
+    "query": "Vind een IoT-app om correlate stationary-source emission measurements",
+    "locale": "nl",
+    "expected_apps": [
+      "app-016"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-017",
+    "query": "Ik heb software nodig om flag changes in soil quality indicators",
+    "locale": "nl",
+    "expected_apps": [
+      "app-017"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-018",
+    "query": "Welke catalogus-app kan monitor tide, salinity, and coastal weather conditions",
+    "locale": "nl",
+    "expected_apps": [
+      "app-018"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-019",
+    "query": "Raad een oplossing aan om detect threshold breaches in radiation observations",
+    "locale": "nl",
+    "expected_apps": [
+      "app-019"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-nl-020",
+    "query": "Zoek hulpmiddelen om classify privacy-filtered environmental audio events",
+    "locale": "nl",
+    "expected_apps": [
+      "app-020"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-001",
+    "query": "Encontra uma aplicação IoT para forecast and schedule flexible electrical loads",
+    "locale": "pt",
+    "expected_apps": [
+      "app-001"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-002",
+    "query": "Preciso de software para monitor photovoltaic yield and inverter performance",
+    "locale": "pt",
+    "expected_apps": [
+      "app-002"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-003",
+    "query": "Que aplicação do catálogo pode optimize battery charge and discharge windows",
+    "locale": "pt",
+    "expected_apps": [
+      "app-003"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-004",
+    "query": "Recomenda uma solução para coordinate heat-pump demand with price signals",
+    "locale": "pt",
+    "expected_apps": [
+      "app-004"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-005",
+    "query": "Pesquisa ferramentas para build appliance-level power profiles",
+    "locale": "pt",
+    "expected_apps": [
+      "app-005"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-006",
+    "query": "Encontra uma aplicação IoT para translate demand-response events into local actions",
+    "locale": "pt",
+    "expected_apps": [
+      "app-006"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-007",
+    "query": "Preciso de software para schedule electric-vehicle charging under site limits",
+    "locale": "pt",
+    "expected_apps": [
+      "app-007"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-008",
+    "query": "Que aplicação do catálogo pode balance local generation, storage, and consumption",
+    "locale": "pt",
+    "expected_apps": [
+      "app-008"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-009",
+    "query": "Recomenda uma solução para compare tariff windows against forecast demand",
+    "locale": "pt",
+    "expected_apps": [
+      "app-009"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-010",
+    "query": "Pesquisa ferramentas para shift controllable loads toward lower-carbon periods",
+    "locale": "pt",
+    "expected_apps": [
+      "app-010"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-011",
+    "query": "Encontra uma aplicação IoT para detect particulate and gas concentration anomalies",
+    "locale": "pt",
+    "expected_apps": [
+      "app-011"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-012",
+    "query": "Preciso de software para aggregate calibrated sound-level observations",
+    "locale": "pt",
+    "expected_apps": [
+      "app-012"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-013",
+    "query": "Que aplicação do catálogo pode combine rainfall and water-level signals for alerts",
+    "locale": "pt",
+    "expected_apps": [
+      "app-013"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-014",
+    "query": "Recomenda uma solução para estimate local fire risk from weather and vegetation sensors",
+    "locale": "pt",
+    "expected_apps": [
+      "app-014"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-015",
+    "query": "Pesquisa ferramentas para track temperature, humidity, pressure, and wind",
+    "locale": "pt",
+    "expected_apps": [
+      "app-015"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-016",
+    "query": "Encontra uma aplicação IoT para correlate stationary-source emission measurements",
+    "locale": "pt",
+    "expected_apps": [
+      "app-016"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-017",
+    "query": "Preciso de software para flag changes in soil quality indicators",
+    "locale": "pt",
+    "expected_apps": [
+      "app-017"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-018",
+    "query": "Que aplicação do catálogo pode monitor tide, salinity, and coastal weather conditions",
+    "locale": "pt",
+    "expected_apps": [
+      "app-018"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-019",
+    "query": "Recomenda uma solução para detect threshold breaches in radiation observations",
+    "locale": "pt",
+    "expected_apps": [
+      "app-019"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-pt-020",
+    "query": "Pesquisa ferramentas para classify privacy-filtered environmental audio events",
+    "locale": "pt",
+    "expected_apps": [
+      "app-020"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-001",
+    "query": "forecast and schedule flexible electrical loads için bir IoT uygulaması bul",
+    "locale": "tr",
+    "expected_apps": [
+      "app-001"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-002",
+    "query": "monitor photovoltaic yield and inverter performance için yazılıma ihtiyacım var",
+    "locale": "tr",
+    "expected_apps": [
+      "app-002"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-003",
+    "query": "Hangi katalog uygulaması optimize battery charge and discharge windows yapabilir",
+    "locale": "tr",
+    "expected_apps": [
+      "app-003"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-004",
+    "query": "coordinate heat-pump demand with price signals için bir çözüm öner",
+    "locale": "tr",
+    "expected_apps": [
+      "app-004"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-005",
+    "query": "build appliance-level power profiles araçlarını ara",
+    "locale": "tr",
+    "expected_apps": [
+      "app-005"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-006",
+    "query": "translate demand-response events into local actions için bir IoT uygulaması bul",
+    "locale": "tr",
+    "expected_apps": [
+      "app-006"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-007",
+    "query": "schedule electric-vehicle charging under site limits için yazılıma ihtiyacım var",
+    "locale": "tr",
+    "expected_apps": [
+      "app-007"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-008",
+    "query": "Hangi katalog uygulaması balance local generation, storage, and consumption yapabilir",
+    "locale": "tr",
+    "expected_apps": [
+      "app-008"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-009",
+    "query": "compare tariff windows against forecast demand için bir çözüm öner",
+    "locale": "tr",
+    "expected_apps": [
+      "app-009"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-010",
+    "query": "shift controllable loads toward lower-carbon periods araçlarını ara",
+    "locale": "tr",
+    "expected_apps": [
+      "app-010"
+    ],
+    "category": "Energy",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-011",
+    "query": "detect particulate and gas concentration anomalies için bir IoT uygulaması bul",
+    "locale": "tr",
+    "expected_apps": [
+      "app-011"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-012",
+    "query": "aggregate calibrated sound-level observations için yazılıma ihtiyacım var",
+    "locale": "tr",
+    "expected_apps": [
+      "app-012"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-013",
+    "query": "Hangi katalog uygulaması combine rainfall and water-level signals for alerts yapabilir",
+    "locale": "tr",
+    "expected_apps": [
+      "app-013"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-014",
+    "query": "estimate local fire risk from weather and vegetation sensors için bir çözüm öner",
+    "locale": "tr",
+    "expected_apps": [
+      "app-014"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-015",
+    "query": "track temperature, humidity, pressure, and wind araçlarını ara",
+    "locale": "tr",
+    "expected_apps": [
+      "app-015"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-016",
+    "query": "correlate stationary-source emission measurements için bir IoT uygulaması bul",
+    "locale": "tr",
+    "expected_apps": [
+      "app-016"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-017",
+    "query": "flag changes in soil quality indicators için yazılıma ihtiyacım var",
+    "locale": "tr",
+    "expected_apps": [
+      "app-017"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-018",
+    "query": "Hangi katalog uygulaması monitor tide, salinity, and coastal weather conditions yapabilir",
+    "locale": "tr",
+    "expected_apps": [
+      "app-018"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-019",
+    "query": "detect threshold breaches in radiation observations için bir çözüm öner",
+    "locale": "tr",
+    "expected_apps": [
+      "app-019"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  },
+  {
+    "query_id": "provisional-tr-020",
+    "query": "classify privacy-filtered environmental audio events araçlarını ara",
+    "locale": "tr",
+    "expected_apps": [
+      "app-020"
+    ],
+    "category": "Environment",
+    "label_status": "provisional_internal_machine_authored",
+    "label_source": "not a native-speaker held-out label; review required"
+  }
 ]

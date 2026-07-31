@@ -12,7 +12,10 @@ import redis
 
 logger = logging.getLogger(__name__)
 
-REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+REDIS_URL = os.getenv(
+    "VALKEY_SESSION_URL",
+    os.getenv("REDIS_URL", "redis://valkey-cache:6379/0"),
+)
 SESSION_TTL = 1800  # 30 minutes
 SESSION_PREFIX = "hedge:session:"
 SESSION_LOG_PREFIX = "hedge:session_log:"
@@ -47,9 +50,10 @@ def get_or_create_session(session_id: str | None) -> tuple[str, list[dict]]:
 def update_session(session_id: str, messages: list[dict], context: dict | None = None):
     """Update session with new messages and optional context."""
     r = _get_redis()
-    data = {"messages": messages}
-    if context:
-        data["context"] = context
+    previous = get_session(session_id) or {}
+    previous_context = previous.get("context") or {}
+    merged_context = {**previous_context, **(context or {})}
+    data = {"messages": messages, "context": merged_context}
     r.setex(
         f"{SESSION_PREFIX}{session_id}",
         SESSION_TTL,
@@ -67,9 +71,15 @@ def get_session(session_id: str) -> dict | None:
 
 
 def delete_session(session_id: str) -> bool:
-    """Delete a session."""
+    """Delete all operational state associated with a session."""
     r = _get_redis()
-    return bool(r.delete(f"{SESSION_PREFIX}{session_id}"))
+    removed = r.delete(
+        f"{SESSION_PREFIX}{session_id}",
+        f"{FEEDBACK_PREFIX}{session_id}",
+        f"{SESSION_LOG_PREFIX}{session_id}",
+    )
+    r.zrem(SESSION_INDEX_KEY, session_id)
+    return bool(removed)
 
 
 def _save_session(session_id: str, messages: list[dict]):
@@ -143,7 +153,7 @@ def get_session_feedback(session_id: str) -> list[dict]:
 # ---------------------------------------------------------------------------
 # Session event recording (Obj 5: ≥ 10 complete user-interaction sessions)
 # ---------------------------------------------------------------------------
-SESSION_LOG_TTL = 604800  # 7 days
+SESSION_LOG_TTL = SESSION_TTL
 SESSION_INDEX_KEY = "hedge:session_index"
 
 
@@ -163,6 +173,7 @@ def log_session_event(session_id: str, event_type: str, data: dict | None = None
     r.expire(key, SESSION_LOG_TTL)
     # Track session ID in a sorted set keyed by creation time
     r.zadd(SESSION_INDEX_KEY, {session_id: time.time()}, nx=True)
+    r.expire(SESSION_INDEX_KEY, SESSION_LOG_TTL)
 
 
 def get_session_log(session_id: str) -> list[dict]:
@@ -180,6 +191,9 @@ def list_recorded_sessions(limit: int = 100) -> list[dict]:
     summaries = []
     for sid, created_ts in session_ids:
         events = r.lrange(f"{SESSION_LOG_PREFIX}{sid}", 0, -1)
+        if not events:
+            r.zrem(SESSION_INDEX_KEY, sid)
+            continue
         n_events = len(events)
         n_messages = sum(1 for e in events if '"message"' in e)
         has_feedback = any('"feedback"' in e for e in events)

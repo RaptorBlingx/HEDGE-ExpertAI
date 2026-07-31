@@ -2,13 +2,10 @@
 
 import importlib
 import importlib.util
+import sys as _sys
 import types
 from pathlib import Path
-from unittest.mock import MagicMock, patch
-
-import pytest
-
-import sys as _sys
+from unittest.mock import MagicMock
 
 # Set up the package structure so relative imports work
 _app_dir = Path(__file__).parent.parent.parent / "services" / "discovery-ranking" / "app"
@@ -203,7 +200,6 @@ class TestHybridSearch:
         client = self._make_mock_client(points)
         results = hybrid_search(client, "energy", top_k=5)
         # Low-vector-score app should be filtered out if below threshold
-        ids = [r["app"]["id"] for r in results]
         # app-002 has vector=0.1 → final ~0.06+keyword, likely below 0.30
         for r in results:
             assert r["score"] >= SCORE_THRESHOLD

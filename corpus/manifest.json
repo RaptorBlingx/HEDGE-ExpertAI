@@ -1,0 +1,28 @@
+{
+  "schema_version": "1.0",
+  "chunking_version": "catalogue-fields-v1",
+  "index_version": "e5-v2",
+  "sources": [
+    {
+      "id": "synthetic-catalogue-v2",
+      "title": "HEDGE-ExpertAI deterministic synthetic catalogue",
+      "source_url": "repo:services/mock-api/app/data/apps-v2.json",
+      "license_spdx": "Apache-2.0",
+      "source_revision": "2.0.0",
+      "content_sha256": "12b70567b49a2a794e44f82724435133a8911e6716fa44bca2ce9fece7756765",
+      "retrieved_at": "2026-07-31T00:00:00Z",
+      "approved": false,
+      "review_note": "Synthetic and unreviewed; safe for engineering validation, not expert-corpus KPI evidence."
+    }
+  ],
+  "excluded_sources": [
+    {
+      "category": "confidential proposal or delivery documents",
+      "reason": "Never eligible for retrieval grounding."
+    },
+    {
+      "category": "public HEDGE web material without confirmed reuse licence",
+      "reason": "Await explicit licence and content-owner approval before retrieval ingestion."
+    }
+  ]
+}

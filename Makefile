@@ -1,4 +1,4 @@
-.PHONY: build up down logs test test-ci lint seed pull-model health clean openapi evaluate evaluate-search evaluate-chat evaluate-stream test-integration
+.PHONY: build up down logs test test-ci lint frontend-test seed pull-model health clean openapi evaluate evaluate-search evaluate-chat evaluate-stream test-integration migrate e2e backup restore-drill
 
 # Build all Docker images
 build:
@@ -18,15 +18,37 @@ logs:
 
 # Run unit tests with coverage
 test:
-	python3 -m pytest tests/unit/ -v --cov=hedge_shared --cov-report=term-missing
+	python3 -m pytest tests/unit/ -v --cov=shared/hedge_shared --cov-branch --cov-report=term-missing
 
 # Run unit tests with coverage enforcement (CI mode)
 test-ci:
-	python3 -m pytest tests/unit/ -v --cov=hedge_shared --cov-report=term-missing --cov-fail-under=80
+	python3 -m pytest tests/unit/ -v --cov=shared/hedge_shared --cov-branch --cov-report=term-missing --cov-fail-under=80
 
 # Lint with ruff
 lint:
-	ruff check shared/ services/ tests/
+	ruff check shared/ services/ tests/ scripts/ evaluation/
+
+# Run pinned frontend component tests
+frontend-test:
+	cd frontend && npm ci && npm test
+
+# Apply ordered PostgreSQL migrations under an advisory lock
+migrate:
+	docker compose run --rm migrations
+
+# Run the deterministic live-stack acceptance profile
+e2e:
+	docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build
+	./scripts/e2e_smoke.sh
+
+# Create an encrypted PostgreSQL/Qdrant/Valkey backup
+backup:
+	./scripts/backup.sh
+
+# Restore a backup into disposable isolated containers (BACKUP_SET=/absolute/path)
+restore-drill:
+	test -n "$(BACKUP_SET)"
+	./scripts/restore_drill.sh "$(BACKUP_SET)"
 
 # Pull LLM model into Ollama
 pull-model:
@@ -34,7 +56,7 @@ pull-model:
 
 # Seed mock data by triggering ingestion
 seed:
-	curl -s -X POST http://localhost:8004/api/v1/ingest/trigger | python3 -m json.tool
+	curl -s -X POST http://localhost:8004/api/v2/ingestion/runs | python3 -m json.tool
 
 # Check health of all services
 health:
@@ -55,11 +77,11 @@ openapi:
 
 # Run evaluation suite — all modes
 evaluate:
-	python3 evaluation/evaluate.py --mode all --total-apps 75
+	python3 evaluation/evaluate.py --mode all --total-apps 120
 
 # Run evaluation — search mode only
 evaluate-search:
-	python3 evaluation/evaluate.py --mode search --total-apps 75
+	python3 evaluation/evaluate.py --mode search --total-apps 120
 
 # Run evaluation — chat mode only
 evaluate-chat:

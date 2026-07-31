@@ -2,13 +2,10 @@
 
 import importlib
 import importlib.util
+import sys as _sys
 import types
 from pathlib import Path
 from unittest.mock import MagicMock, patch
-
-import pytest
-
-import sys as _sys
 
 # Set up the package structure so relative imports work
 _app_dir = Path(__file__).parent.parent.parent / "services" / "expert-recommend" / "app"
@@ -46,6 +43,7 @@ _build_ranked_fallback = _mod._build_ranked_fallback
 _ensure_ranking_consistency = _mod._ensure_ranking_consistency
 _first_sentence = _mod._first_sentence
 recommend_stream = _mod.recommend_stream
+recommend_v2_stream = _mod.recommend_v2_stream
 
 
 SAMPLE_RESULTS = [
@@ -157,3 +155,32 @@ class TestRecommendStream:
         assert '"type": "token"' in events[0]
         assert "couldn't find any apps" in events[0]
         assert '"type": "done"' in events[1]
+
+
+class TestRecommendV2Stream:
+    def test_results_are_emitted_before_generation(self):
+        llm = MagicMock()
+        llm.chat.return_value = "invalid model output"
+        with (
+            patch.object(_mod, "_search_apps_v2", return_value=SAMPLE_RESULTS),
+            patch.object(_mod, "OllamaClient", return_value=llm),
+        ):
+            events = list(
+                recommend_v2_stream(query="energy", locale="en", filters={}, limit=2)
+            )
+
+        assert events[0]["type"] == "recommendations"
+        assert events[1] == {"type": "stage", "stage": "explanation"}
+        assert events[-1]["type"] == "complete"
+        explanation = "".join(
+            event["content"] for event in events if event["type"] == "explanation_delta"
+        )
+        assert explanation.startswith("Start with **SmartEnergy Monitor**")
+
+    def test_empty_results_still_complete(self):
+        with patch.object(_mod, "_search_apps_v2", return_value=[]):
+            events = list(
+                recommend_v2_stream(query="none", locale="en", filters={}, limit=2)
+            )
+        assert events[0]["apps"] == []
+        assert any("No supported" in event.get("content", "") for event in events)

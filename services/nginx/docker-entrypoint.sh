@@ -19,6 +19,10 @@ if [ -n "${TLS_CERT_PATH:-}" ] && [ -n "${TLS_KEY_PATH:-}" ] && [ -f "$CERT_FILE
         cp "$KEY_FILE" "$TARGET_KEY"
     fi
 elif [ ! -f "$TARGET_CERT" ] || [ ! -f "$TARGET_KEY" ]; then
+    if [ "${REQUIRE_EXTERNAL_TLS:-false}" = "true" ]; then
+        echo "Production requires externally managed TLS_CERT_PATH and TLS_KEY_PATH" >&2
+        exit 1
+    fi
     openssl req -x509 -nodes -newkey rsa:2048 \
         -keyout "$TARGET_KEY" \
         -out "$TARGET_CERT" \

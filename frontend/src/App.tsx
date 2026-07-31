@@ -8,6 +8,7 @@ import {
   Search,
   SendHorizontal,
   Sparkles,
+  Square,
   ThumbsUp,
   ThumbsDown,
 } from "lucide-react";
@@ -15,7 +16,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "re
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-import type { CatalogApp, CatalogResponse, RecommendedApp } from "./types";
+import type { CatalogApp, CatalogResponse, Locale, RecommendedApp } from "./types";
 
 type ChatMessage = {
   id: string;
@@ -25,62 +26,33 @@ type ChatMessage = {
   responseTimeMs?: number;
   isStreaming?: boolean;
   feedback?: "accept" | "dismiss";
+  impressionId?: string;
 };
 
-type IntentHint = "search" | "detail" | "help" | "greeting" | "unknown";
+type StreamEvent = {
+  type?: "stage" | "recommendations" | "explanation_delta" | "complete" | "problem";
+  stage?: string;
+  content?: string;
+  apps?: RecommendedApp[];
+  session_id?: string;
+  impression_id?: string;
+  title?: string;
+};
 
 const DEFAULT_ASSISTANT_MESSAGE =
   "Welcome to the HEDGE-ExpertAI validation console. Browse the catalog on the left, ask the chatbot on the right, and cross-check recommendations instantly.";
 
-const THINKING_STEPS: Record<IntentHint, string[]> = {
-  search: [
-    "Interpreting your request and extracting domain intent.",
-    "Scanning indexed applications across semantic and keyword signals.",
-    "Prioritizing strongest matches based on metadata relevance.",
-    "Drafting a concise, evidence-based recommendation response.",
-  ],
-  detail: [
-    "Resolving the referenced app and loading full metadata.",
-    "Cross-checking domain, tags, and dataset signals.",
-    "Building a focused explanation around your specific request.",
-  ],
-  help: [
-    "Detecting assistance intent and preparing guidance.",
-    "Selecting the most useful interaction examples.",
-    "Formatting quick-start instructions for the test bench.",
-  ],
-  greeting: [
-    "Detecting conversational greeting intent.",
-    "Preparing a compact onboarding response.",
-    "Finalizing a friendly welcome message.",
-  ],
-  unknown: [
-    "Clarifying ambiguous intent from your prompt.",
-    "Applying fallback retrieval strategy on catalog metadata.",
-    "Preparing the most likely helpful response.",
-  ],
+const STAGE_LABELS: Record<string, string> = {
+  intent: "Understanding the request…",
+  retrieval: "Searching the authoritative catalogue…",
+  ranking: "Ranking evidence-backed matches…",
+  explanation: "Preparing a grounded explanation…",
 };
 
-function inferIntentHint(message: string): IntentHint {
-  const text = message.trim().toLowerCase();
-  if (!text) {
-    return "unknown";
-  }
+const LOCALES: Locale[] = ["en", "de", "fr", "es", "it", "nl", "pt", "tr"];
 
-  if (/^(hi|hello|hey|greetings|good\s*(morning|afternoon|evening))[\s!.,?]*$/i.test(text)) {
-    return "greeting";
-  }
-  if (/\b(help|how\s+do\s+i|what\s+can\s+you\s+do|usage|guide|instructions)\b/i.test(text)) {
-    return "help";
-  }
-  if (/\b(tell\s+me\s+(more\s+)?about|details?\s+(of|about|for)|explain|describe|app[-\s]?\d{3})\b/i.test(text)) {
-    return "detail";
-  }
-  if (/\b(find|search|looking\s+for|show\s+me|recommend|suggest|discover|monitor|manage|detect|optimi[sz]e)\b/i.test(text)) {
-    return "search";
-  }
-
-  return "unknown";
+function localized(value: CatalogApp["title"], locale: Locale): string {
+  return value[locale] ?? value.en;
 }
 
 function formatDuration(ms: number): string {
@@ -123,7 +95,8 @@ function normalizeRecommendedApps(items: unknown): RecommendedApp[] {
   });
 }
 
-function formatDate(iso: string): string {
+function formatDate(iso?: string): string {
+  if (!iso) return "Not specified";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) {
     return iso;
@@ -132,12 +105,17 @@ function formatDate(iso: string): string {
 }
 
 async function fetchCatalog(): Promise<CatalogApp[]> {
-  const response = await fetch("/api/v1/catalog/apps?page=1&page_size=100");
-  if (!response.ok) {
-    throw new Error("Failed to load app catalog");
+  const apps: CatalogApp[] = [];
+  for (let page = 1; page <= 2; page += 1) {
+    const response = await fetch(`/api/v2/catalog/apps?page=${page}&page_size=100`);
+    if (!response.ok) {
+      throw new Error("Failed to load app catalog");
+    }
+    const payload = (await response.json()) as CatalogResponse;
+    apps.push(...(payload.apps ?? []));
+    if (apps.length >= payload.total) break;
   }
-  const payload = (await response.json()) as CatalogResponse;
-  return payload.apps ?? [];
+  return apps;
 }
 
 export default function App() {
@@ -160,13 +138,12 @@ export default function App() {
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
-  const [activeIntentHint, setActiveIntentHint] = useState<IntentHint>("search");
-  const [thinkingStepIndex, setThinkingStepIndex] = useState(0);
+  const [locale, setLocale] = useState<Locale>("en");
+  const [activeStage, setActiveStage] = useState("Connecting to the catalogue…");
   const [activeResponseStartedAt, setActiveResponseStartedAt] = useState<number | null>(null);
   const [activeResponseElapsedMs, setActiveResponseElapsedMs] = useState(0);
   const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
-
-  const streamIntervalRef = useRef<number | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const loadCatalog = useCallback(async () => {
     setCatalogLoading(true);
@@ -193,7 +170,7 @@ export default function App() {
   }, [apps]);
 
   const sarefOptions = useMemo(() => {
-    const types = Array.from(new Set(apps.map((app) => app.saref_type))).sort();
+    const types = Array.from(new Set(apps.flatMap((app) => app.domains))).sort();
     return ["all", ...types];
   }, [apps]);
 
@@ -201,7 +178,7 @@ export default function App() {
     const lower = searchTerm.trim().toLowerCase();
 
     return apps.filter((app) => {
-      const sarefMatch = sarefFilter === "all" || app.saref_type === sarefFilter;
+      const sarefMatch = sarefFilter === "all" || app.domains.includes(sarefFilter);
       if (!sarefMatch) {
         return false;
       }
@@ -212,10 +189,10 @@ export default function App() {
 
       const haystack = [
         app.id,
-        app.title,
+        localized(app.title, locale),
         app.description,
-        app.saref_type,
-        app.publisher,
+        ...app.domains,
+        app.publisher.name,
         ...app.tags,
       ]
         .join(" ")
@@ -223,7 +200,7 @@ export default function App() {
 
       return haystack.includes(lower);
     });
-  }, [apps, searchTerm, sarefFilter]);
+  }, [apps, locale, searchTerm, sarefFilter]);
 
   const selectedApp = useMemo(() => {
     if (!selectedAppId) {
@@ -242,42 +219,37 @@ export default function App() {
     return [] as RecommendedApp[];
   }, [messages]);
 
-  const currentThinkingSteps = THINKING_STEPS[activeIntentHint];
-  const currentThinkingStep = currentThinkingSteps[thinkingStepIndex % currentThinkingSteps.length];
-
   const submitFeedback = useCallback(
-    async (messageId: string, action: "accept" | "dismiss", appIds: string[]) => {
+    async (messageId: string, action: "accept" | "dismiss", impressionId?: string) => {
+      if (!impressionId) return;
       setMessages((prev) =>
         prev.map((m) => (m.id === messageId ? { ...m, feedback: action } : m))
       );
       try {
-        for (const appId of appIds.slice(0, 5)) {
-          await fetch("/api/v1/feedback", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              session_id: sessionId ?? "",
-              app_id: appId,
-              action,
-            }),
-          });
-        }
+        await fetch("/api/v2/recommendation-events", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            impression_id: impressionId,
+            idempotency_key: `evt-${generateMessageId()}`,
+            event_type:
+              action === "accept" ? "recommendation_accepted" : "recommendation_dismissed",
+          }),
+        });
       } catch {
         // Feedback is best-effort; don't block the user.
       }
     },
-    [sessionId]
+    []
   );
 
   const stopActiveResponse = useCallback(() => {
-    if (streamIntervalRef.current !== null) {
-      window.clearInterval(streamIntervalRef.current);
-      streamIntervalRef.current = null;
-    }
+    abortControllerRef.current = null;
     setStreamingMessageId(null);
+    setChatLoading(false);
     setActiveResponseStartedAt(null);
     setActiveResponseElapsedMs(0);
-    setThinkingStepIndex(0);
+    setActiveStage("Connecting to the catalogue…");
   }, []);
 
   useEffect(() => {
@@ -298,26 +270,28 @@ export default function App() {
     };
   }, [activeResponseStartedAt]);
 
-  useEffect(() => {
-    if (!chatLoading) {
-      return;
+  useEffect(() => () => abortControllerRef.current?.abort(), []);
+
+  const cancelActiveResponse = useCallback(() => {
+    abortControllerRef.current?.abort();
+  }, []);
+
+  const recordAppOpened = useCallback(async (impressionId: string | undefined, appId: string) => {
+    if (!impressionId) return;
+    try {
+      await fetch("/api/v2/recommendation-events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          impression_id: impressionId,
+          idempotency_key: `evt-${generateMessageId()}`,
+          event_type: "app_opened",
+          app_id: appId,
+        }),
+      });
+    } catch {
+      // Telemetry must never block navigation.
     }
-
-      const interval = window.setInterval(() => {
-      setThinkingStepIndex((prev) => prev + 1);
-      }, 1800);
-
-    return () => {
-      window.clearInterval(interval);
-    };
-  }, [chatLoading]);
-
-  useEffect(() => {
-    return () => {
-      if (streamIntervalRef.current !== null) {
-        window.clearInterval(streamIntervalRef.current);
-      }
-    };
   }, []);
 
   const handleChatSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -331,15 +305,16 @@ export default function App() {
     setMessages((prev) => [...prev, { id: generateMessageId(), role: "user", text, apps: [] }]);
     setChatInput("");
     setChatLoading(true);
-    setActiveIntentHint(inferIntentHint(text));
-    setThinkingStepIndex(0);
+    setActiveStage(STAGE_LABELS.intent);
     setActiveResponseStartedAt(startMs);
     setActiveResponseElapsedMs(0);
 
     const assistantId = generateMessageId();
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     try {
-      const response = await fetch("/api/v1/chat/stream", {
+      const response = await fetch("/api/v2/chat/stream", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -347,7 +322,10 @@ export default function App() {
         body: JSON.stringify({
           session_id: sessionId ?? undefined,
           message: text,
+          locale,
+          filters: {},
         }),
+        signal: controller.signal,
       });
 
       if (!response.ok || !response.body) {
@@ -379,49 +357,66 @@ export default function App() {
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
+        const lines = buffer.split(/\r?\n/);
         buffer = lines.pop() ?? "";
 
         for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          let evt: { type?: string; content?: string; apps?: RecommendedApp[]; session_id?: string };
+          if (!line.startsWith("data:")) continue;
+          let evt: StreamEvent;
           try {
-            evt = JSON.parse(line.slice(6));
+            evt = JSON.parse(line.slice(5).trimStart()) as StreamEvent;
           } catch {
             continue;
           }
 
-          if (evt.type === "apps") {
+          if (evt.type === "stage") {
+            setActiveStage(STAGE_LABELS[evt.stage ?? ""] ?? "Processing the request…");
+          } else if (evt.type === "recommendations") {
             const recommendedApps = normalizeRecommendedApps(evt.apps ?? []);
             setMessages((prev) =>
-              prev.map((m) => (m.id === assistantId ? { ...m, apps: recommendedApps } : m))
+              prev.map((m) =>
+                m.id === assistantId
+                  ? { ...m, apps: recommendedApps, impressionId: evt.impression_id }
+                  : m
+              )
             );
             if (recommendedApps[0]?.app?.id) {
               setSelectedAppId(recommendedApps[0].app.id);
             }
-          } else if (evt.type === "token") {
+          } else if (evt.type === "explanation_delta") {
             accumulatedText += evt.content ?? "";
             const snapshot = accumulatedText;
             setMessages((prev) =>
               prev.map((m) => (m.id === assistantId ? { ...m, text: snapshot } : m))
             );
-          } else if (evt.type === "done") {
+          } else if (evt.type === "complete") {
             if (evt.session_id) {
               setSessionId(evt.session_id);
             }
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
-                  ? { ...m, text: accumulatedText, isStreaming: false, responseTimeMs: Date.now() - startMs }
+                  ? {
+                      ...m,
+                      text: accumulatedText,
+                      impressionId: evt.impression_id ?? m.impressionId,
+                      isStreaming: false,
+                      responseTimeMs: Date.now() - startMs,
+                    }
                   : m
               )
             );
             stopActiveResponse();
-          } else if (evt.type === "error") {
+          } else if (evt.type === "problem") {
             setMessages((prev) =>
               prev.map((m) =>
                 m.id === assistantId
-                  ? { ...m, text: evt.content ?? "An error occurred.", isStreaming: false, responseTimeMs: Date.now() - startMs }
+                  ? {
+                      ...m,
+                      text: evt.title ?? "The recommendation service could not complete the request.",
+                      isStreaming: false,
+                      responseTimeMs: Date.now() - startMs,
+                    }
                   : m
               )
             );
@@ -439,7 +434,8 @@ export default function App() {
         )
       );
       stopActiveResponse();
-    } catch {
+    } catch (error) {
+      const cancelled = error instanceof DOMException && error.name === "AbortError";
       // If we already added the assistant message, update it with error
       setMessages((prev) => {
         const hasAssistant = prev.some((m) => m.id === assistantId);
@@ -448,7 +444,9 @@ export default function App() {
             m.id === assistantId
               ? {
                   ...m,
-                  text: "Chat service is currently unavailable. Please verify containers are healthy and retry.",
+                  text: cancelled
+                    ? "Request cancelled. You can edit the prompt and try again."
+                    : "Chat service is currently unavailable. Please verify containers are healthy and retry.",
                   isStreaming: false,
                   responseTimeMs: Date.now() - startMs,
                 }
@@ -460,7 +458,9 @@ export default function App() {
           {
             id: assistantId,
             role: "assistant" as const,
-            text: "Chat service is currently unavailable. Please verify containers are healthy and retry.",
+            text: cancelled
+              ? "Request cancelled. You can edit the prompt and try again."
+              : "Chat service is currently unavailable. Please verify containers are healthy and retry.",
             apps: [],
             responseTimeMs: Date.now() - startMs,
           },
@@ -573,7 +573,7 @@ export default function App() {
                       }`}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <p className="break-words font-display text-sm font-semibold text-white [overflow-wrap:anywhere]">{app.title}</p>
+                        <p className="break-words font-display text-sm font-semibold text-white [overflow-wrap:anywhere]">{localized(app.title, locale)}</p>
                         {recommended ? (
                           <span className="rounded-full border border-emerald-300/40 bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-200">
                             Recommended
@@ -581,10 +581,10 @@ export default function App() {
                         ) : null}
                       </div>
                       <p className="mt-1 text-xs uppercase tracking-wider text-cyan-200/90">{app.id}</p>
-                      <p className="mt-2 max-h-12 overflow-hidden text-sm text-slate-300">{app.description}</p>
+                      <p className="mt-2 max-h-12 overflow-hidden text-sm text-slate-300">{localized(app.summary, locale)}</p>
                       <div className="mt-3 flex flex-wrap gap-2">
-                        <span className="rounded-full bg-slate-800 px-2.5 py-1 text-xs text-slate-200">{app.saref_type}</span>
-                        <span className="rounded-full bg-slate-800 px-2.5 py-1 text-xs text-slate-300">v{app.version}</span>
+                        <span className="rounded-full bg-slate-800 px-2.5 py-1 text-xs text-slate-200">{app.domains[0] ?? "Unclassified"}</span>
+                        <span className="rounded-full bg-slate-800 px-2.5 py-1 text-xs text-slate-300">v{app.lifecycle.version}</span>
                       </div>
                     </button>
                   );
@@ -600,26 +600,26 @@ export default function App() {
               <div className="custom-scroll min-h-0 overflow-y-auto rounded-2xl border border-slate-700/80 bg-slate-900/60 p-4">
                 {selectedApp ? (
                   <>
-                    <h3 className="break-words font-display text-lg font-semibold text-white [overflow-wrap:anywhere]">{selectedApp.title}</h3>
+                    <h3 className="break-words font-display text-lg font-semibold text-white [overflow-wrap:anywhere]">{localized(selectedApp.title, locale)}</h3>
                     <p className="mt-1 text-sm text-cyan-200">{selectedApp.id}</p>
                     <p className="mt-4 break-words text-sm leading-6 text-slate-200 [overflow-wrap:anywhere]">{selectedApp.description}</p>
 
                     <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
                       <div className="rounded-xl border border-slate-700/70 bg-slate-950/60 p-3">
                         <p className="text-slate-400">Domain</p>
-                        <p className="mt-1 text-slate-100">{selectedApp.saref_type}</p>
+                        <p className="mt-1 text-slate-100">{selectedApp.domains.join(", ")}</p>
                       </div>
                       <div className="rounded-xl border border-slate-700/70 bg-slate-950/60 p-3">
                         <p className="text-slate-400">Publisher</p>
-                        <p className="mt-1 break-words text-slate-100 [overflow-wrap:anywhere]">{selectedApp.publisher}</p>
+                        <p className="mt-1 break-words text-slate-100 [overflow-wrap:anywhere]">{selectedApp.publisher.name}</p>
                       </div>
                       <div className="rounded-xl border border-slate-700/70 bg-slate-950/60 p-3">
                         <p className="text-slate-400">Created</p>
-                        <p className="mt-1 text-slate-100">{formatDate(selectedApp.created_at)}</p>
+                        <p className="mt-1 text-slate-100">{formatDate(selectedApp.lifecycle.released_at)}</p>
                       </div>
                       <div className="rounded-xl border border-slate-700/70 bg-slate-950/60 p-3">
                         <p className="text-slate-400">Updated</p>
-                        <p className="mt-1 text-slate-100">{formatDate(selectedApp.updated_at)}</p>
+                        <p className="mt-1 text-slate-100">{formatDate(selectedApp.lifecycle.updated_at)}</p>
                       </div>
                     </div>
 
@@ -641,9 +641,9 @@ export default function App() {
                       <div className="rounded-xl border border-slate-700/70 bg-slate-950/60 p-3">
                         <p className="mb-2 text-xs uppercase tracking-wider text-slate-400">Input datasets</p>
                         <ul className="space-y-1 text-sm text-slate-200">
-                          {selectedApp.input_datasets.map((dataset) => (
-                            <li key={dataset} className="break-words [overflow-wrap:anywhere]">
-                              • {dataset}
+                          {selectedApp.inputs.map((dataset) => (
+                            <li key={dataset.name} className="break-words [overflow-wrap:anywhere]">
+                              • {dataset.name} ({dataset.data_classification})
                             </li>
                           ))}
                         </ul>
@@ -651,9 +651,9 @@ export default function App() {
                       <div className="rounded-xl border border-slate-700/70 bg-slate-950/60 p-3">
                         <p className="mb-2 text-xs uppercase tracking-wider text-slate-400">Output datasets</p>
                         <ul className="space-y-1 text-sm text-slate-200">
-                          {selectedApp.output_datasets.map((dataset) => (
-                            <li key={dataset} className="break-words [overflow-wrap:anywhere]">
-                              • {dataset}
+                          {selectedApp.outputs.map((dataset) => (
+                            <li key={dataset.name} className="break-words [overflow-wrap:anywhere]">
+                              • {dataset.name} ({dataset.data_classification})
                             </li>
                           ))}
                         </ul>
@@ -669,13 +669,25 @@ export default function App() {
         </section>
 
         <section className="rounded-3xl border border-white/10 bg-slate-900/70 p-5 shadow-aurora backdrop-blur-xl">
-          <div className="mb-4 flex items-center justify-between gap-3">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="font-display text-xl font-semibold text-white">Chatbot Test Bench</h2>
               <p className="text-sm text-slate-400">Run prompts and verify recommendation IDs against the live catalog.</p>
             </div>
-            <div className="rounded-lg border border-slate-700/80 bg-slate-950/60 px-3 py-1 text-xs text-slate-300">
-              Session: {sessionId ?? "new"}
+            <div className="flex items-center gap-2">
+              <label htmlFor="chat-locale" className="sr-only">Response language</label>
+              <select
+                id="chat-locale"
+                value={locale}
+                onChange={(event) => setLocale(event.target.value as Locale)}
+                className="rounded-lg border border-slate-700/80 bg-slate-950/60 px-2 py-1 text-xs text-slate-200 focus:border-cyan-300 focus:outline-none"
+                aria-label="Response language"
+              >
+                {LOCALES.map((item) => <option key={item} value={item}>{item.toUpperCase()}</option>)}
+              </select>
+              <div className="max-w-40 truncate rounded-lg border border-slate-700/80 bg-slate-950/60 px-3 py-1 text-xs text-slate-300">
+                Session: {sessionId ?? "new"}
+              </div>
             </div>
           </div>
 
@@ -719,30 +731,47 @@ export default function App() {
                     {message.apps.map((item) => {
                       const catalogHit = catalogById.has(item.app.id);
                       return (
-                        <button
+                        <div
                           key={item.app.id}
-                          type="button"
-                          onClick={() => setSelectedAppId(item.app.id)}
-                          className="w-full rounded-xl border border-slate-700 bg-slate-950/70 p-3 text-left transition hover:border-cyan-300/60"
+                          className="rounded-xl border border-slate-700 bg-slate-950/70 p-3 transition hover:border-cyan-300/60"
                         >
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="font-display text-sm text-white">{item.app.title}</span>
-                            <span className="text-xs text-cyan-200">score {item.score.toFixed(4)}</span>
-                          </div>
-                          <div className="mt-2 inline-flex items-center gap-1.5 text-xs">
-                            {catalogHit ? (
-                              <>
-                                <CheckCircle2 size={14} className="text-emerald-300" />
-                                <span className="text-emerald-200">Verified in catalog ({item.app.id})</span>
-                              </>
-                            ) : (
-                              <>
-                                <AlertCircle size={14} className="text-amber-300" />
-                                <span className="text-amber-200">Not found in loaded catalog</span>
-                              </>
-                            )}
-                          </div>
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => setSelectedAppId(item.app.id)}
+                            className="block w-full text-left"
+                            aria-label={`Inspect ${localized(item.app.title, locale)} in the catalogue`}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-display text-sm text-white">{localized(item.app.title, locale)}</span>
+                              <span className="text-xs capitalize text-cyan-200">{item.relevance} relevance</span>
+                            </div>
+                            <div className="mt-2 inline-flex items-center gap-1.5 text-xs">
+                              {catalogHit ? (
+                                <>
+                                  <CheckCircle2 size={14} className="text-emerald-300" />
+                                  <span className="text-emerald-200">Verified in catalog ({item.app.id})</span>
+                                </>
+                              ) : (
+                                <>
+                                  <AlertCircle size={14} className="text-amber-300" />
+                                  <span className="text-amber-200">Not found in loaded catalog</span>
+                                </>
+                              )}
+                            </div>
+                          </button>
+                          <a
+                            href={item.app.app_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              void recordAppOpened(message.impressionId, item.app.id);
+                            }}
+                            className="mt-2 inline-block text-xs text-cyan-200 underline decoration-cyan-500/50 underline-offset-2 hover:text-cyan-100"
+                          >
+                            Open application details
+                          </a>
+                        </div>
                       );
                     })}
                   </div>
@@ -758,7 +787,7 @@ export default function App() {
                         submitFeedback(
                           message.id,
                           "accept",
-                          message.apps.map((a) => a.app.id)
+                          message.impressionId
                         )
                       }
                       className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition ${
@@ -777,7 +806,7 @@ export default function App() {
                         submitFeedback(
                           message.id,
                           "dismiss",
-                          message.apps.map((a) => a.app.id)
+                          message.impressionId
                         )
                       }
                       className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs transition ${
@@ -819,7 +848,7 @@ export default function App() {
                   </div>
                   <span>Assistant is working...</span>
                 </div>
-                <p className="mt-2 text-sm text-slate-300">{currentThinkingStep}</p>
+                <p className="mt-2 text-sm text-slate-300">{activeStage}</p>
               </motion.div>
             ) : null}
           </div>
@@ -831,18 +860,24 @@ export default function App() {
               placeholder="Try: Find apps for flood warning and water quality monitoring"
               className="h-28 w-full resize-none rounded-2xl border border-slate-700 bg-slate-950/70 p-3 text-sm text-slate-100 placeholder:text-slate-500 focus:border-cyan-300 focus:outline-none"
             />
-            <button
-              type="submit"
-              disabled={chatLoading || streamingMessageId !== null}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-300/50 bg-cyan-500/20 px-4 py-2.5 text-sm font-semibold text-cyan-50 transition hover:bg-cyan-500/30 disabled:cursor-not-allowed disabled:opacity-70"
-            >
-              <SendHorizontal size={16} />
-              {chatLoading
-                ? "Assistant is thinking..."
-                : streamingMessageId
-                  ? "Assistant is typing..."
-                  : "Send to HEDGE-ExpertAI"}
-            </button>
+            {chatLoading || streamingMessageId ? (
+              <button
+                type="button"
+                onClick={cancelActiveResponse}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-rose-300/50 bg-rose-500/15 px-4 py-2.5 text-sm font-semibold text-rose-50 transition hover:bg-rose-500/25"
+              >
+                <Square size={14} />
+                Cancel request
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-300/50 bg-cyan-500/20 px-4 py-2.5 text-sm font-semibold text-cyan-50 transition hover:bg-cyan-500/30"
+              >
+                <SendHorizontal size={16} />
+                Send to HEDGE-ExpertAI
+              </button>
+            )}
           </form>
         </section>
       </main>

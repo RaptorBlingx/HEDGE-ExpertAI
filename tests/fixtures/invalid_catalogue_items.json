@@ -1,0 +1,26 @@
+[
+  {
+    "fixture_id": "missing-required-fields",
+    "schema_version": "2.0",
+    "id": "invalid-001",
+    "title": {"en": "Deliberately incomplete record"},
+    "expected_error": "required fields are missing"
+  },
+  {
+    "fixture_id": "unreviewed-ontology-uri",
+    "schema_version": "2.0",
+    "id": "invalid-002",
+    "semantic_annotations": [
+      {
+        "term_uri": "https://example.invalid/ontology#Device",
+        "ontology_uri": "https://example.invalid/ontology#",
+        "ontology_version": "0",
+        "relation": "device",
+        "provenance": "inferred",
+        "review_status": "unreviewed",
+        "confidence": 0.1
+      }
+    ],
+    "expected_error": "ontology URI is not in the reviewed registry"
+  }
+]

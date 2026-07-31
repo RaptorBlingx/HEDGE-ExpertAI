@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hedge-expert.example/contracts/hedge-store-v2.schema.json",
+  "title": "Provisional HEDGE Store adapter boundary",
+  "description": "Fixture contract only. Replace after the real HEDGE Store API contract is supplied.",
+  "type": "object",
+  "required": ["schema_version", "total", "page", "page_size", "apps"],
+  "properties": {
+    "schema_version": {"const": "2.0"},
+    "total": {"type": "integer", "minimum": 0},
+    "page": {"type": "integer", "minimum": 1},
+    "page_size": {"type": "integer", "minimum": 1, "maximum": 100},
+    "apps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["schema_version", "id", "title", "semantic_annotations", "provenance"],
+        "properties": {
+          "schema_version": {"const": "2.0"},
+          "id": {"type": "string"},
+          "title": {"type": "object"},
+          "semantic_annotations": {"type": "array"},
+          "provenance": {"type": "object"}
+        }
+      }
+    }
+  }
+}

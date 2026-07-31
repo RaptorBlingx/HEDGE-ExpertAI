@@ -1,0 +1,13 @@
+.git
+.github
+.env
+.coverage*
+.pytest_cache
+**/__pycache__
+**/*.pyc
+backups
+docs
+evaluation
+frontend/dist
+frontend/node_modules
+tests

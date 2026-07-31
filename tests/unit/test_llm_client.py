@@ -2,12 +2,11 @@
 
 import importlib.util
 import json
+import sys as _sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-import sys as _sys
 
 _llm_path = Path(__file__).parent.parent.parent / "services" / "expert-recommend" / "app" / "llm_client.py"
 _spec = importlib.util.spec_from_file_location("expert_recommend_llm_client", _llm_path)

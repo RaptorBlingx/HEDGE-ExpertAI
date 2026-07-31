@@ -31,6 +31,57 @@ _MAX_CONTINUATIONS = 1
 _CONTINUATION_SUFFIX_CHARS = 160
 
 
+class _ThinkStreamFilter:
+    """Stateful filter that suppresses split or complete think blocks."""
+
+    _OPEN = "<think>"
+    _CLOSE = "</think>"
+
+    def __init__(self) -> None:
+        self.buffer = ""
+        self.in_think = False
+
+    @staticmethod
+    def _partial_suffix_length(value: str, marker: str) -> int:
+        for length in range(min(len(value), len(marker) - 1), 0, -1):
+            if marker.startswith(value[-length:]):
+                return length
+        return 0
+
+    def feed(self, chunk: str) -> str:
+        """Return only safe visible content from one stream chunk."""
+        self.buffer += chunk
+        visible: list[str] = []
+        while self.buffer:
+            marker = self._CLOSE if self.in_think else self._OPEN
+            index = self.buffer.find(marker)
+            if index >= 0:
+                if not self.in_think:
+                    visible.append(self.buffer[:index])
+                self.buffer = self.buffer[index + len(marker) :]
+                self.in_think = not self.in_think
+                continue
+
+            suffix_length = self._partial_suffix_length(self.buffer, marker)
+            safe_length = len(self.buffer) - suffix_length
+            if self.in_think:
+                self.buffer = self.buffer[safe_length:]
+            else:
+                visible.append(self.buffer[:safe_length])
+                self.buffer = self.buffer[safe_length:]
+            break
+        return "".join(visible)
+
+    def finish(self) -> str:
+        """Flush trailing visible text; incomplete think content is discarded."""
+        if self.in_think:
+            self.buffer = ""
+            return ""
+        visible = self.buffer
+        self.buffer = ""
+        return visible
+
+
 def _clean_content(text: str) -> str:
     """Strip any leaked think tags without disturbing other whitespace."""
     return _THINK_TAG_RE.sub("", text)
@@ -184,6 +235,7 @@ class OllamaClient:
         """Stream a chat response from Ollama, yielding content chunks."""
         prompt_messages = messages
         accumulated = ""
+        think_filter = _ThinkStreamFilter()
 
         for continuation_idx in range(_MAX_CONTINUATIONS + 1):
             payload = self._build_payload(prompt_messages, temperature, max_tokens, stream=True)
@@ -208,17 +260,25 @@ class OllamaClient:
                     chunk = data.get("message", {}).get("content", "")
                     if chunk:
                         segment += chunk
-                        yield chunk
+                        visible = think_filter.feed(chunk)
+                        if visible:
+                            yield visible
 
                     if data.get("done"):
                         final_data = data
 
             accumulated = _merge_content(accumulated, _clean_content(segment))
             if not _hit_output_limit(final_data, max_tokens):
+                trailing = think_filter.finish()
+                if trailing:
+                    yield trailing
                 return
 
             if continuation_idx == _MAX_CONTINUATIONS:
                 logger.warning("Ollama stream hit output limit after %d continuation(s)", _MAX_CONTINUATIONS)
+                trailing = think_filter.finish()
+                if trailing:
+                    yield trailing
                 return
 
             logger.warning("Ollama stream hit output limit (%d tokens); requesting continuation", max_tokens)

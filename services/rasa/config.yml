@@ -1,3 +1,7 @@
+# The model intentionally uses language-independent word/character features.
+# Dialogue policy remains in chat-intent; this service is NLU-only.
+recipe: default.v1
+assistant_id: hedge-expertai-nlu-v2
 language: en
 
 pipeline:
@@ -10,8 +14,9 @@ pipeline:
     min_ngram: 3
     max_ngram: 5
   - name: DIETClassifier
-    epochs: 60
+    epochs: 50
     constrain_similarities: true
+    random_seed: 42
   - name: EntitySynonymMapper
 
 policies: []

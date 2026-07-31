@@ -1,5 +1,12 @@
 # Services Guide
 
+> Implementation update (31 July 2026): `/api/v2`, `docs/architecture.md`, the
+> generated OpenAPI files, and `docs/traceability-matrix.md` are authoritative.
+> Detailed v1 sections below describe the one-release compatibility adapter and
+> must not be used to infer current ranking, persistence, KPI, or security
+> behavior. PostgreSQL is authoritative; Qdrant is derived; Valkey replaces the
+> former Redis server roles; retrieval is PostgreSQL FTS + Qdrant dense RRF.
+
 Detailed documentation for each HEDGE-ExpertAI microservice — architecture, internals, configuration, and data flow.
 
 ---
@@ -23,10 +30,10 @@ Detailed documentation for each HEDGE-ExpertAI microservice — architecture, in
 | Service | Port | Purpose | Dependencies |
 |---|---|---|---|
 | **Gateway** | 8080→8000 | API proxy, rate limiting, security headers, static files | Chat-Intent |
-| **Chat-Intent** | 8001 | Intent classification, session management, routing | Redis, Expert-Recommend |
+| **Chat-Intent** | 8001 | Multilingual NLU, deterministic dialogue, session routing | Valkey, PostgreSQL, Expert-Recommend |
 | **Expert-Recommend** | 8002 | LLM-powered recommendations & explanations | Ollama, Discovery-Ranking |
-| **Discovery-Ranking** | 8003 | Hybrid search engine, vector indexing | Qdrant |
-| **Metadata-Ingest** | 8004 | Periodic App Store metadata sync | Redis, Discovery-Ranking, Mock-API |
+| **Discovery-Ranking** | 8003 | PostgreSQL FTS + dense RRF, catalogue, derived index | PostgreSQL, Qdrant, Valkey |
+| **Metadata-Ingest** | 8004 | Transactional catalogue and replay-safe outbox | PostgreSQL, Valkey queue, Discovery-Ranking, fixture API |
 | **Mock-API** | 9000 | Development mock of HEDGE-IoT App Store | None |
 
 ### Startup Order
@@ -34,7 +41,7 @@ Detailed documentation for each HEDGE-ExpertAI microservice — architecture, in
 Docker Compose enforces health-check-based startup ordering:
 
 ```
-Ollama, Qdrant, Redis (infrastructure — parallel)
+Ollama, PostgreSQL, Qdrant, Valkey cache/queue (infrastructure — parallel)
        ↓
 Mock-API (no dependencies)
        ↓

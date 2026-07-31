@@ -9,16 +9,19 @@ from __future__ import annotations
 import sys
 import time
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
-import pytest
 import jwt
+import pytest
+
+TEST_OAUTH_SECRET = "test-only-secret-with-at-least-32-bytes"
 
 # Load gateway app module via sys.path manipulation (avoids `app` namespace collisions)
 _gw_dir = Path(__file__).resolve().parent.parent.parent / "services" / "gateway"
 sys.path.insert(0, str(_gw_dir))
 import app.main as _gw_main  # noqa: E402
 import app.routes as _gw_routes  # noqa: E402
+
 sys.path.pop(0)
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -52,7 +55,7 @@ def _make_token(roles: list[str] | None = None) -> str:
         "iat": now,
         "realm_access": {"roles": roles or []},
     }
-    return jwt.encode(claims, "test-secret", algorithm="HS256")
+    return jwt.encode(claims, TEST_OAUTH_SECRET, algorithm="HS256")
 
 
 @pytest.fixture()
@@ -71,9 +74,10 @@ class TestGatewayHealth:
         with patch.object(_gw_routes, "httpx") as mock_httpx:
             mock_httpx.get.side_effect = Exception("Connection refused")
             resp = client.get("/health")
-            assert resp.status_code == 200
+            assert resp.status_code == 503
             data = resp.json()
             assert data["service"] == "gateway"
+            assert data["status"] == "degraded"
             assert "services" in data
 
     def test_health_reports_degraded_when_service_down(self, client):
@@ -165,7 +169,7 @@ class TestGatewayRBAC:
     def test_public_route_stays_open_when_rbac_enabled(self, client, monkeypatch):
         monkeypatch.setenv("OAUTH_ENABLED", "true")
         monkeypatch.setenv("ENABLE_RBAC", "true")
-        monkeypatch.setenv("OAUTH_SHARED_SECRET", "test-secret")
+        monkeypatch.setenv("OAUTH_SHARED_SECRET", TEST_OAUTH_SECRET)
         monkeypatch.setenv("OAUTH_JWT_ALGORITHMS", "HS256")
         monkeypatch.setenv("OAUTH_AUDIENCE", "hedge-expert-api")
 
@@ -187,7 +191,7 @@ class TestGatewayRBAC:
     def test_admin_route_requires_token_when_rbac_enabled(self, client, monkeypatch):
         monkeypatch.setenv("OAUTH_ENABLED", "true")
         monkeypatch.setenv("ENABLE_RBAC", "true")
-        monkeypatch.setenv("OAUTH_SHARED_SECRET", "test-secret")
+        monkeypatch.setenv("OAUTH_SHARED_SECRET", TEST_OAUTH_SECRET)
         monkeypatch.setenv("OAUTH_JWT_ALGORITHMS", "HS256")
         monkeypatch.setenv("OAUTH_AUDIENCE", "hedge-expert-api")
 
@@ -197,7 +201,7 @@ class TestGatewayRBAC:
     def test_admin_route_rejects_wrong_role(self, client, monkeypatch):
         monkeypatch.setenv("OAUTH_ENABLED", "true")
         monkeypatch.setenv("ENABLE_RBAC", "true")
-        monkeypatch.setenv("OAUTH_SHARED_SECRET", "test-secret")
+        monkeypatch.setenv("OAUTH_SHARED_SECRET", TEST_OAUTH_SECRET)
         monkeypatch.setenv("OAUTH_JWT_ALGORITHMS", "HS256")
         monkeypatch.setenv("OAUTH_AUDIENCE", "hedge-expert-api")
 
@@ -208,7 +212,7 @@ class TestGatewayRBAC:
     def test_admin_route_accepts_admin_role(self, client, monkeypatch):
         monkeypatch.setenv("OAUTH_ENABLED", "true")
         monkeypatch.setenv("ENABLE_RBAC", "true")
-        monkeypatch.setenv("OAUTH_SHARED_SECRET", "test-secret")
+        monkeypatch.setenv("OAUTH_SHARED_SECRET", TEST_OAUTH_SECRET)
         monkeypatch.setenv("OAUTH_JWT_ALGORITHMS", "HS256")
         monkeypatch.setenv("OAUTH_AUDIENCE", "hedge-expert-api")
 
@@ -226,7 +230,7 @@ class TestGatewayRBAC:
     def test_analyst_route_accepts_analyst_role(self, client, monkeypatch):
         monkeypatch.setenv("OAUTH_ENABLED", "true")
         monkeypatch.setenv("ENABLE_RBAC", "true")
-        monkeypatch.setenv("OAUTH_SHARED_SECRET", "test-secret")
+        monkeypatch.setenv("OAUTH_SHARED_SECRET", TEST_OAUTH_SECRET)
         monkeypatch.setenv("OAUTH_JWT_ALGORITHMS", "HS256")
         monkeypatch.setenv("OAUTH_AUDIENCE", "hedge-expert-api")
 
@@ -243,7 +247,7 @@ class TestGatewayRBAC:
     def test_invalid_bearer_token_rejected(self, client, monkeypatch):
         monkeypatch.setenv("OAUTH_ENABLED", "true")
         monkeypatch.setenv("ENABLE_RBAC", "true")
-        monkeypatch.setenv("OAUTH_SHARED_SECRET", "test-secret")
+        monkeypatch.setenv("OAUTH_SHARED_SECRET", TEST_OAUTH_SECRET)
         monkeypatch.setenv("OAUTH_JWT_ALGORITHMS", "HS256")
         monkeypatch.setenv("OAUTH_AUDIENCE", "hedge-expert-api")
 

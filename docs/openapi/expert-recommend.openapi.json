@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "HEDGE-ExpertAI Expert Recommend",
-    "version": "0.1.0"
+    "version": "2.0.0"
   },
   "paths": {
     "/api/v1/recommend": {
@@ -10,6 +10,43 @@
         "summary": "Get Recommendations",
         "description": "Full recommendation pipeline: search + LLM explanation.",
         "operationId": "get_recommendations_api_v1_recommend_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecommendRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/recommend/stream": {
+      "post": {
+        "summary": "Stream Recommendations",
+        "description": "Streaming recommendation: search results + LLM explanation via SSE.",
+        "operationId": "stream_recommendations_api_v1_recommend_stream_post",
         "requestBody": {
           "content": {
             "application/json": {
@@ -79,11 +116,115 @@
         }
       }
     },
+    "/api/v2/recommend": {
+      "post": {
+        "summary": "Get Recommendations V2",
+        "description": "Validated multilingual recommendation response.",
+        "operationId": "get_recommendations_v2_api_v2_recommend_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecommendRequestV2"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/recommend/stream": {
+      "post": {
+        "summary": "Stream Recommendations V2",
+        "description": "SSE contract that only streams explanations after validation.",
+        "operationId": "stream_recommendations_v2_api_v2_recommend_stream_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecommendRequestV2"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/event-stream": {}
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health",
-        "description": "Health check \u2014 verifies Ollama connectivity.",
+        "description": "Health check \u2014 verifies generation and retrieval dependencies.",
         "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/live": {
+      "get": {
+        "summary": "Live",
+        "operationId": "live_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "summary": "Ready",
+        "operationId": "ready_ready_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -132,6 +273,17 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "LifecycleStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "active",
+          "deprecated",
+          "retired"
+        ],
+        "title": "LifecycleStatus",
+        "description": "Supported application lifecycle states."
+      },
       "RecommendRequest": {
         "properties": {
           "query": {
@@ -163,6 +315,171 @@
           "query"
         ],
         "title": "RecommendRequest"
+      },
+      "RecommendRequestV2": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Query"
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "en",
+              "de",
+              "fr",
+              "es",
+              "it",
+              "nl",
+              "pt",
+              "tr"
+            ],
+            "title": "Locale",
+            "default": "en"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/SearchFilters"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 5
+          }
+        },
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "title": "RecommendRequestV2"
+      },
+      "SearchFilters": {
+        "properties": {
+          "semantic_uri": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semantic Uri"
+          },
+          "extension_uri": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extension Uri"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Capabilities"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Tags"
+          },
+          "protocols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Protocols"
+          },
+          "deployment_modes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Deployment Modes"
+          },
+          "license_spdx": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Spdx"
+          },
+          "lifecycle_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LifecycleStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supported_languages": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "en",
+                "de",
+                "fr",
+                "es",
+                "it",
+                "nl",
+                "pt",
+                "tr"
+              ]
+            },
+            "type": "array",
+            "title": "Supported Languages"
+          },
+          "data_classifications": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Data Classifications"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SearchFilters",
+        "description": "Typed public catalogue filters."
       },
       "ValidationError": {
         "properties": {

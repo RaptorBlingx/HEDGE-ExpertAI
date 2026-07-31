@@ -10,9 +10,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-
-
 _app_dir = Path(__file__).parent.parent.parent / "services" / "chat-intent" / "app"
 
 _pkg = types.ModuleType("ci_app")

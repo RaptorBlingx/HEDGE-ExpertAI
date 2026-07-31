@@ -17,11 +17,19 @@ class Settings(BaseSettings):
     QDRANT_HOST: str = "qdrant"
     QDRANT_PORT: int = 6333
 
-    # --- Redis ---
-    REDIS_URL: str = "redis://redis:6379/0"
+    # --- Durable and operational data ---
+    DATABASE_URL: str = "postgresql://hedge:hedge-dev-only@postgres:5432/hedge"
+    VALKEY_SESSION_URL: str = "redis://valkey-cache:6379/0"
+    VALKEY_CACHE_URL: str = "redis://valkey-cache:6379/1"
+    VALKEY_RATE_LIMIT_URL: str = "redis://valkey-cache:6379/2"
+    VALKEY_QUEUE_URL: str = "redis://valkey-queue:6379/0"
+    # One-release compatibility alias for older deployments.
+    REDIS_URL: str = "redis://valkey-cache:6379/0"
 
     # --- Embedding ---
-    EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
+    EMBEDDING_MODEL: str = "intfloat/multilingual-e5-small"
+    EMBEDDING_MODEL_REVISION: str = "614241f622f53c4eeff9890bdc4f31cfecc418b3"
+    QDRANT_COLLECTION_VERSION: str = "v2"
 
     # --- Feature flags ---
     RASA_ENABLED: bool = False

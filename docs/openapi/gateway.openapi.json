@@ -3,14 +3,595 @@
   "info": {
     "title": "HEDGE-ExpertAI Gateway",
     "description": "API Gateway for HEDGE-ExpertAI services",
-    "version": "0.1.0"
+    "version": "2.0.0"
   },
   "paths": {
+    "/api/v2/chat": {
+      "post": {
+        "summary": "Proxy Chat V2",
+        "description": "Proxy strict v2 chat requests.",
+        "operationId": "proxy_chat_v2_api_v2_chat_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequestV2"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/chat/stream": {
+      "post": {
+        "summary": "Proxy Chat Stream V2",
+        "description": "Proxy v2 SSE without altering event boundaries or upstream status.",
+        "operationId": "proxy_chat_stream_v2_api_v2_chat_stream_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChatRequestV2"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "text/event-stream": {}
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/apps/search": {
+      "post": {
+        "summary": "Proxy Search V2",
+        "description": "Proxy typed multilingual search.",
+        "operationId": "proxy_search_v2_api_v2_apps_search_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequestV2"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/catalog/apps": {
+      "get": {
+        "summary": "Proxy Catalog V2",
+        "description": "List authoritative v2 catalogue records.",
+        "operationId": "proxy_catalog_v2_api_v2_catalog_apps_get",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/catalog/apps/{app_id}.jsonld": {
+      "get": {
+        "summary": "Proxy Catalog Jsonld V2",
+        "description": "Return authoritative JSON-LD through the public gateway.",
+        "operationId": "proxy_catalog_jsonld_v2_api_v2_catalog_apps__app_id__jsonld_get",
+        "parameters": [
+          {
+            "name": "app_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "App Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/catalog/apps/{app_id}": {
+      "get": {
+        "summary": "Proxy Catalog App V2",
+        "description": "Return authoritative v2 catalogue detail.",
+        "operationId": "proxy_catalog_app_v2_api_v2_catalog_apps__app_id__get",
+        "parameters": [
+          {
+            "name": "app_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "App Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/recommendation-events": {
+      "post": {
+        "summary": "Proxy Recommendation Event",
+        "description": "Record verified response-level or app-open telemetry.",
+        "operationId": "proxy_recommendation_event_api_v2_recommendation_events_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RecommendationEventRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/sessions/{session_id}": {
+      "delete": {
+        "summary": "Proxy Session Delete V2",
+        "description": "Delete operational session state.",
+        "operationId": "proxy_session_delete_v2_api_v2_sessions__session_id__delete",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/analytics/recommendations": {
+      "get": {
+        "summary": "Proxy Recommendation Analytics",
+        "description": "Analyst-only durable KPI summary.",
+        "operationId": "proxy_recommendation_analytics_api_v2_analytics_recommendations_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/ingestion/runs": {
+      "post": {
+        "summary": "Proxy Ingestion Run V2",
+        "description": "Admin-only ingestion trigger.",
+        "operationId": "proxy_ingestion_run_v2_api_v2_ingestion_runs_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/ingestion/runs/latest": {
+      "get": {
+        "summary": "Proxy Latest Ingestion V2",
+        "description": "Analyst-only ingestion status.",
+        "operationId": "proxy_latest_ingestion_v2_api_v2_ingestion_runs_latest_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/ingestion/runs/{run_id}": {
+      "get": {
+        "summary": "Proxy Ingestion Run Detail V2",
+        "description": "Analyst-only durable ingestion-run detail.",
+        "operationId": "proxy_ingestion_run_detail_v2_api_v2_ingestion_runs__run_id__get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 36,
+              "maxLength": 36,
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/ingestion/quarantine": {
+      "get": {
+        "summary": "Proxy Ingestion Quarantine V2",
+        "description": "Analyst-only validation failures without quarantined source payloads.",
+        "operationId": "proxy_ingestion_quarantine_v2_api_v2_ingestion_quarantine_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 36,
+                  "maxLength": 36
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Run Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 50,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/ingestion/outbox/replay": {
+      "post": {
+        "summary": "Proxy Ingestion Outbox Replay V2",
+        "description": "Admin-only replay of pending and failed index operations.",
+        "operationId": "proxy_ingestion_outbox_replay_v2_api_v2_ingestion_outbox_replay_post",
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/index/rebuild": {
+      "post": {
+        "summary": "Proxy Reindex V2",
+        "description": "Admin-only full rebuild followed by atomic collection alias promotion.",
+        "operationId": "proxy_reindex_v2_api_v2_index_rebuild_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReindexRequestV2"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/index/promote": {
+      "post": {
+        "summary": "Proxy Index Promotion V2",
+        "description": "Admin-only atomic roll forward or rollback to a validated collection.",
+        "operationId": "proxy_index_promotion_v2_api_v2_index_promote_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReindexRequestV2"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/chat": {
       "post": {
         "summary": "Proxy Chat",
         "description": "Proxy chat requests to chat-intent service.",
         "operationId": "proxy_chat_api_v1_chat_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chat/stream": {
+      "post": {
+        "summary": "Proxy Chat Stream",
+        "description": "Proxy streaming chat requests to chat-intent service via SSE.",
+        "operationId": "proxy_chat_stream_api_v1_chat_stream_post",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -275,6 +856,85 @@
         }
       }
     },
+    "/api/v1/sessions/recorded": {
+      "get": {
+        "summary": "Proxy Sessions List",
+        "description": "List recorded sessions.",
+        "operationId": "proxy_sessions_list_api_v1_sessions_recorded_get",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/sessions/recorded/{session_id}": {
+      "get": {
+        "summary": "Proxy Session Log",
+        "description": "Get full event log for a recorded session.",
+        "operationId": "proxy_session_log_api_v1_sessions_recorded__session_id__get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health",
@@ -291,10 +951,89 @@
           }
         }
       }
+    },
+    "/live": {
+      "get": {
+        "summary": "Live",
+        "operationId": "live_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "summary": "Ready",
+        "operationId": "ready_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "ChatRequestV2": {
+        "properties": {
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "message": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Message"
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "en",
+              "de",
+              "fr",
+              "es",
+              "it",
+              "nl",
+              "pt",
+              "tr"
+            ],
+            "title": "Locale",
+            "default": "en"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/SearchFilters"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "ChatRequestV2",
+        "description": "Versioned conversational search request."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -307,6 +1046,271 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "LifecycleStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "active",
+          "deprecated",
+          "retired"
+        ],
+        "title": "LifecycleStatus",
+        "description": "Supported application lifecycle states."
+      },
+      "RecommendationEventRequest": {
+        "properties": {
+          "impression_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 3,
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "title": "Impression Id"
+          },
+          "idempotency_key": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 3,
+            "pattern": "^[a-z0-9][a-z0-9._-]*$",
+            "title": "Idempotency Key"
+          },
+          "event_type": {
+            "$ref": "#/components/schemas/RecommendationEventType"
+          },
+          "app_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 3,
+                "pattern": "^[a-z0-9][a-z0-9._-]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App Id"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "impression_id",
+          "idempotency_key",
+          "event_type"
+        ],
+        "title": "RecommendationEventRequest",
+        "description": "Verified and replay-safe recommendation event."
+      },
+      "RecommendationEventType": {
+        "type": "string",
+        "enum": [
+          "recommendation_accepted",
+          "recommendation_dismissed",
+          "app_opened"
+        ],
+        "title": "RecommendationEventType",
+        "description": "Allowed recommendation telemetry events."
+      },
+      "ReindexRequestV2": {
+        "properties": {
+          "collection_name": {
+            "type": "string",
+            "pattern": "^hedge_apps_v2_[a-z0-9_-]{3,40}$",
+            "title": "Collection Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "collection_name"
+        ],
+        "title": "ReindexRequestV2",
+        "description": "Administrative request for a versioned, atomically promoted index."
+      },
+      "SearchFilters": {
+        "properties": {
+          "semantic_uri": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semantic Uri"
+          },
+          "extension_uri": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extension Uri"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Capabilities"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Tags"
+          },
+          "protocols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Protocols"
+          },
+          "deployment_modes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Deployment Modes"
+          },
+          "license_spdx": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Spdx"
+          },
+          "lifecycle_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LifecycleStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supported_languages": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "en",
+                "de",
+                "fr",
+                "es",
+                "it",
+                "nl",
+                "pt",
+                "tr"
+              ]
+            },
+            "type": "array",
+            "title": "Supported Languages"
+          },
+          "data_classifications": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Data Classifications"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SearchFilters",
+        "description": "Typed public catalogue filters."
+      },
+      "SearchRequestV2": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Query"
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "en",
+              "de",
+              "fr",
+              "es",
+              "it",
+              "nl",
+              "pt",
+              "tr"
+            ],
+            "title": "Locale",
+            "default": "en"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/SearchFilters"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 5
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "title": "SearchRequestV2",
+        "description": "Versioned search request."
       },
       "ValidationError": {
         "properties": {

@@ -10,8 +10,6 @@ import importlib.util
 import sys
 from pathlib import Path
 
-import pytest
-
 # Load metadata-ingest client module via importlib to avoid `app` namespace clash
 _mi_app = Path(__file__).resolve().parent.parent.parent / "services" / "metadata-ingest" / "app"
 
@@ -27,7 +25,6 @@ compute_checksum = _client_mod.compute_checksum
 
 # Also import shared models directly (installed via pip install -e shared/)
 from hedge_shared.models import AppMetadata  # noqa: E402
-
 
 SAMPLE_APPS = [
     {

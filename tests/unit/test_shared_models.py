@@ -1,11 +1,9 @@
 """Tests for shared Pydantic models."""
 
-import pytest
 
 from hedge_shared.models import (
     AppMetadata,
     ChatRequest,
-    ChatResponse,
     HealthResponse,
     SearchQuery,
     SearchResult,

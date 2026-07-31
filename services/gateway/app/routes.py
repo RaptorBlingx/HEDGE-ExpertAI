@@ -6,8 +6,14 @@ import logging
 import os
 
 import httpx
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Path, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from hedge_shared.models_v2 import (
+    ChatRequestV2,
+    RecommendationEventRequest,
+    ReindexRequestV2,
+    SearchRequestV2,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +67,314 @@ def _require_admin(request: Request) -> None:
 
 def _require_analyst(request: Request) -> None:
     _require_roles(request, _env_roles("RBAC_ANALYST_ROLES", "analyst,admin"))
+
+
+def _problem(status_code: int, title: str, detail: str | None = None) -> JSONResponse:
+    content = {"type": "about:blank", "title": title, "status": status_code}
+    if detail:
+        content["detail"] = detail
+    return JSONResponse(
+        status_code=status_code,
+        content=content,
+        media_type="application/problem+json",
+    )
+
+
+def _json_upstream(response: httpx.Response, service: str) -> JSONResponse:
+    """Preserve status and safe JSON errors without assuming every body is JSON."""
+    try:
+        content = response.json()
+    except ValueError:
+        content = {
+            "type": "about:blank",
+            "title": f"{service} returned an invalid response",
+            "status": response.status_code,
+        }
+    media_type = (
+        "application/problem+json"
+        if response.status_code >= 400
+        else "application/json"
+    )
+    return JSONResponse(
+        status_code=response.status_code,
+        content=content,
+        media_type=media_type,
+    )
+
+
+async def _post_json(url: str, payload: dict, service: str, timeout: float) -> JSONResponse:
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, json=payload, timeout=timeout)
+        return _json_upstream(response, service)
+    except Exception:
+        logger.exception("%s request failed", service)
+        return _problem(502, f"{service} unavailable")
+
+
+async def _get_json(
+    url: str,
+    service: str,
+    *,
+    params: dict | None = None,
+    timeout: float = 20.0,
+) -> JSONResponse:
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, params=params, timeout=timeout)
+        return _json_upstream(response, service)
+    except Exception:
+        logger.exception("%s request failed", service)
+        return _problem(502, f"{service} unavailable")
+
+
+# ---------------------------------------------------------------------------
+# Version 2 public contracts
+# ---------------------------------------------------------------------------
+
+
+@router.post("/api/v2/chat")
+async def proxy_chat_v2(body: ChatRequestV2):
+    """Proxy strict v2 chat requests."""
+    return await _post_json(
+        f"{CHAT_INTENT_URL}/api/v2/chat",
+        body.model_dump(mode="json"),
+        "Chat service",
+        300.0,
+    )
+
+
+@router.post(
+    "/api/v2/chat/stream",
+    response_class=StreamingResponse,
+    responses={200: {"content": {"text/event-stream": {}}}},
+)
+async def proxy_chat_stream_v2(body: ChatRequestV2):
+    """Proxy v2 SSE without altering event boundaries or upstream status."""
+
+    async def stream():
+        try:
+            async with httpx.AsyncClient() as client:
+                async with client.stream(
+                    "POST",
+                    f"{CHAT_INTENT_URL}/api/v2/chat/stream",
+                    json=body.model_dump(mode="json"),
+                    timeout=300.0,
+                ) as response:
+                    if response.status_code >= 400:
+                        payload = {
+                            "type": "problem",
+                            "title": "Chat service rejected the request",
+                            "status": response.status_code,
+                        }
+                        import json
+
+                        yield f"event: problem\ndata: {json.dumps(payload)}\n\n".encode()
+                        return
+                    async for chunk in response.aiter_bytes():
+                        yield chunk
+        except Exception:
+            logger.exception("V2 chat stream proxy failed")
+            import json
+
+            payload = {
+                "type": "problem",
+                "title": "Chat service unavailable",
+                "status": 502,
+            }
+            yield f"event: problem\ndata: {json.dumps(payload)}\n\n".encode()
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/api/v2/apps/search")
+async def proxy_search_v2(body: SearchRequestV2):
+    """Proxy typed multilingual search."""
+    return await _post_json(
+        f"{DISCOVERY_RANKING_URL}/api/v2/apps/search",
+        body.model_dump(mode="json"),
+        "Discovery service",
+        30.0,
+    )
+
+
+@router.get("/api/v2/catalog/apps")
+async def proxy_catalog_v2(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+):
+    """List authoritative v2 catalogue records."""
+    return await _get_json(
+        f"{DISCOVERY_RANKING_URL}/api/v2/catalog/apps",
+        "Catalogue service",
+        params={"page": page, "page_size": page_size},
+    )
+
+
+@router.get("/api/v2/catalog/apps/{app_id}.jsonld")
+async def proxy_catalog_jsonld_v2(app_id: str):
+    """Return authoritative JSON-LD through the public gateway."""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{DISCOVERY_RANKING_URL}/api/v2/catalog/apps/{app_id}.jsonld",
+                timeout=20.0,
+            )
+        return JSONResponse(
+            status_code=response.status_code,
+            content=response.json(),
+            media_type=(
+                "application/ld+json"
+                if response.status_code < 400
+                else "application/problem+json"
+            ),
+        )
+    except Exception:
+        logger.exception("JSON-LD catalogue request failed")
+        return _problem(502, "Catalogue service unavailable")
+
+
+@router.get("/api/v2/catalog/apps/{app_id}")
+async def proxy_catalog_app_v2(app_id: str):
+    """Return authoritative v2 catalogue detail."""
+    return await _get_json(
+        f"{DISCOVERY_RANKING_URL}/api/v2/catalog/apps/{app_id}",
+        "Catalogue service",
+    )
+
+
+@router.post("/api/v2/recommendation-events", status_code=201)
+async def proxy_recommendation_event(body: RecommendationEventRequest):
+    """Record verified response-level or app-open telemetry."""
+    return await _post_json(
+        f"{CHAT_INTENT_URL}/api/v2/recommendation-events",
+        body.model_dump(mode="json"),
+        "Recommendation event service",
+        10.0,
+    )
+
+
+@router.delete("/api/v2/sessions/{session_id}")
+async def proxy_session_delete_v2(session_id: str):
+    """Delete operational session state."""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.delete(
+                f"{CHAT_INTENT_URL}/api/v2/sessions/{session_id}",
+                timeout=10.0,
+            )
+        return _json_upstream(response, "Session service")
+    except Exception:
+        logger.exception("Session deletion failed")
+        return _problem(502, "Session service unavailable")
+
+
+@router.get("/api/v2/analytics/recommendations")
+async def proxy_recommendation_analytics(request: Request):
+    """Analyst-only durable KPI summary."""
+    _require_analyst(request)
+    return await _get_json(
+        f"{CHAT_INTENT_URL}/api/v2/analytics/recommendations",
+        "Analytics service",
+        timeout=10.0,
+    )
+
+
+@router.post("/api/v2/ingestion/runs", status_code=202)
+async def proxy_ingestion_run_v2(request: Request):
+    """Admin-only ingestion trigger."""
+    _require_admin(request)
+    return await _post_json(
+        f"{METADATA_INGEST_URL}/api/v2/ingestion/runs",
+        {},
+        "Ingestion service",
+        30.0,
+    )
+
+
+@router.get("/api/v2/ingestion/runs/latest")
+async def proxy_latest_ingestion_v2(request: Request):
+    """Analyst-only ingestion status."""
+    _require_analyst(request)
+    return await _get_json(
+        f"{METADATA_INGEST_URL}/api/v2/ingestion/runs/latest",
+        "Ingestion service",
+        timeout=10.0,
+    )
+
+
+@router.get("/api/v2/ingestion/runs/{run_id}")
+async def proxy_ingestion_run_detail_v2(
+    request: Request,
+    run_id: str = Path(min_length=36, max_length=36),
+):
+    """Analyst-only durable ingestion-run detail."""
+    _require_analyst(request)
+    return await _get_json(
+        f"{METADATA_INGEST_URL}/api/v2/ingestion/runs/{run_id}",
+        "Ingestion service",
+        timeout=10.0,
+    )
+
+
+@router.get("/api/v2/ingestion/quarantine")
+async def proxy_ingestion_quarantine_v2(
+    request: Request,
+    run_id: str | None = Query(default=None, min_length=36, max_length=36),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=100),
+):
+    """Analyst-only validation failures without quarantined source payloads."""
+    _require_analyst(request)
+    params = {"page": page, "page_size": page_size}
+    if run_id is not None:
+        params["run_id"] = run_id
+    return await _get_json(
+        f"{METADATA_INGEST_URL}/api/v2/ingestion/quarantine",
+        "Ingestion service",
+        params=params,
+        timeout=10.0,
+    )
+
+
+@router.post("/api/v2/ingestion/outbox/replay", status_code=202)
+async def proxy_ingestion_outbox_replay_v2(request: Request):
+    """Admin-only replay of pending and failed index operations."""
+    _require_admin(request)
+    return await _post_json(
+        f"{METADATA_INGEST_URL}/api/v2/ingestion/outbox/replay",
+        {},
+        "Ingestion service",
+        30.0,
+    )
+
+
+@router.post("/api/v2/index/rebuild")
+async def proxy_reindex_v2(request: Request, body: ReindexRequestV2):
+    """Admin-only full rebuild followed by atomic collection alias promotion."""
+    _require_admin(request)
+    return await _post_json(
+        f"{DISCOVERY_RANKING_URL}/api/v2/index/rebuild",
+        body.model_dump(mode="json"),
+        "Discovery service",
+        600.0,
+    )
+
+
+@router.post("/api/v2/index/promote")
+async def proxy_index_promotion_v2(request: Request, body: ReindexRequestV2):
+    """Admin-only atomic roll forward or rollback to a validated collection."""
+    _require_admin(request)
+    return await _post_json(
+        f"{DISCOVERY_RANKING_URL}/api/v2/index/promote",
+        body.model_dump(mode="json"),
+        "Discovery service",
+        60.0,
+    )
 
 
 @router.post("/api/v1/chat")

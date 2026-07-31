@@ -2,6 +2,25 @@
 
 Complete REST API specification for all HEDGE-ExpertAI services.
 
+> `/api/v2` is the authoritative strict contract. The hand-written v1 material below is retained only as a one-release compatibility guide. Generated service contracts in `docs/openapi/*.openapi.json` are canonical and CI rejects drift.
+
+## Version 2 public surface
+
+| Method and path | Purpose |
+|---|---|
+| `POST /api/v2/chat` | Typed multilingual dialogue request with session context and filters |
+| `POST /api/v2/chat/stream` | Versioned SSE: `stage`, `recommendations`, `explanation_delta`, `complete`, `problem` |
+| `POST /api/v2/apps/search` | Independent FTS/dense retrieval and RRF ranking |
+| `GET /api/v2/catalog/apps` | Page authoritative PostgreSQL catalogue |
+| `GET /api/v2/catalog/apps/{id}` | Catalogue detail as JSON |
+| `GET /api/v2/catalog/apps/{id}.jsonld` | URI-level semantic detail as JSON-LD |
+| `POST /api/v2/recommendation-events` | Verified idempotent acceptance/dismissal/app-open event |
+| `DELETE /api/v2/sessions/{id}` | Delete complete operational session state |
+| `/api/v2/ingestion/*` | OIDC role-protected run, quarantine and replay administration |
+| `/api/v2/analytics/*` | OIDC role-protected durable aggregate KPIs |
+
+Errors use `application/problem+json`. Public ranking exposes qualitative relevance, never a probability. Browsers must not place API keys in URLs; use same-origin OIDC or the widget access-token callback.
+
 ---
 
 ## Table of Contents
@@ -227,7 +246,7 @@ End and delete a session.
 
 ### `GET /health`
 
-Health check — verifies Redis connectivity.
+Health check — verifies the Valkey session store and authoritative PostgreSQL event store.
 
 ---
 
@@ -426,13 +445,13 @@ Get the status and statistics of the last ingestion run.
 
 ### `GET /health`
 
-Health check — verifies Redis connectivity.
+Health check — verifies PostgreSQL plus the most recent durable ingestion state.
 
 ---
 
 ## Mock App Store API
 
-Development-only mock of the HEDGE-IoT App Store API with 50 seed applications.
+Development-only fixture API with 120 explicitly synthetic AppMetadataV2 records.
 
 **Base URL:** `http://mock-api:9000`
 

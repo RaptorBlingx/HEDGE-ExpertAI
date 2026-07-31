@@ -37,7 +37,7 @@ class MockApiClient(AppStoreClient):
         page = 1
         page_size = 50
         while True:
-            url = f"{self.base_url}/api/apps?page={page}&page_size={page_size}"
+            url = f"{self.base_url}/api/v2/apps?page={page}&page_size={page_size}"
             resp = httpx.get(url, timeout=self.timeout)
             resp.raise_for_status()
             data = resp.json()
@@ -50,7 +50,7 @@ class MockApiClient(AppStoreClient):
         return all_apps
 
     def fetch_app(self, app_id: str) -> dict[str, Any] | None:
-        url = f"{self.base_url}/api/apps/{app_id}"
+        url = f"{self.base_url}/api/v2/apps/{app_id}"
         resp = httpx.get(url, timeout=self.timeout)
         if resp.status_code == 404:
             return None
@@ -72,24 +72,15 @@ class HedgeApiClient(AppStoreClient):
 
     @staticmethod
     def _normalise(raw: dict[str, Any]) -> dict[str, Any]:
-        """Map HEDGE API field names to the internal schema.
+        """Accept the versioned fixture contract until the real API is supplied.
 
-        If the remote payload already uses the expected names the mapping is a
-        no-op; otherwise it falls back to common alternatives.
+        Guessing a field mapping would silently admit incorrect metadata. The
+        integration boundary therefore fails explicitly for any unversioned
+        shape and can be updated once HEDGE publishes its actual contract.
         """
-        return {
-            "id": raw.get("id") or raw.get("appId", ""),
-            "title": raw.get("title") or raw.get("name", ""),
-            "description": raw.get("description", ""),
-            "tags": raw.get("tags") or raw.get("keywords", []),
-            "saref_type": raw.get("saref_type") or raw.get("sarefType", ""),
-            "input_datasets": raw.get("input_datasets") or raw.get("inputDatasets", []),
-            "output_datasets": raw.get("output_datasets") or raw.get("outputDatasets", []),
-            "version": raw.get("version", "1.0.0"),
-            "publisher": raw.get("publisher") or raw.get("author", ""),
-            "created_at": raw.get("created_at") or raw.get("createdAt"),
-            "updated_at": raw.get("updated_at") or raw.get("updatedAt"),
-        }
+        if raw.get("schema_version") != "2.0":
+            raise ValueError("unsupported HEDGE Store contract; expected schema_version 2.0")
+        return raw
 
     def fetch_all_apps(self) -> list[dict[str, Any]]:
         all_apps: list[dict[str, Any]] = []

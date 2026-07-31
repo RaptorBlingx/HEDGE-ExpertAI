@@ -1,0 +1,11 @@
+DROP TABLE IF EXISTS consented_transcripts;
+DROP TABLE IF EXISTS recommendation_events;
+DROP TABLE IF EXISTS recommendation_impressions;
+DROP TABLE IF EXISTS corpus_sources;
+DROP TABLE IF EXISTS indexing_outbox;
+DROP TABLE IF EXISTS catalog_app_revisions;
+DROP TABLE IF EXISTS catalog_apps;
+DROP TABLE IF EXISTS ingestion_items;
+DROP TABLE IF EXISTS ingestion_runs;
+DELETE FROM schema_migrations WHERE version = '0001_initial';
+DROP TABLE IF EXISTS schema_migrations;

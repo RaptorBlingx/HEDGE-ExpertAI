@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "HEDGE-ExpertAI Discovery & Ranking",
-    "version": "0.1.0"
+    "version": "2.0.0"
   },
   "paths": {
     "/api/v1/apps/search": {
@@ -117,11 +117,345 @@
         }
       }
     },
+    "/api/v2/apps/search": {
+      "post": {
+        "summary": "Search Apps V2 Route",
+        "description": "Search independent lexical and dense rankings and fuse with RRF.",
+        "operationId": "search_apps_v2_route_api_v2_apps_search_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SearchRequestV2"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Search Apps V2 Route Api V2 Apps Search Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/catalog/apps": {
+      "get": {
+        "summary": "Catalogue Apps",
+        "description": "List authoritative active catalogue records.",
+        "operationId": "catalogue_apps_api_v2_catalog_apps_get",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Catalogue Apps Api V2 Catalog Apps Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/index/operations": {
+      "post": {
+        "summary": "Index Operations",
+        "description": "Apply internal, revisioned vector-index operations.",
+        "operationId": "index_operations_api_v2_index_operations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IndexOperationsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "integer"
+                  },
+                  "type": "object",
+                  "title": "Response Index Operations Api V2 Index Operations Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/index/rebuild": {
+      "post": {
+        "summary": "Reindex",
+        "description": "Rebuild from PostgreSQL and atomically promote the validated alias.",
+        "operationId": "reindex_api_v2_index_rebuild_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReindexRequestV2"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Reindex Api V2 Index Rebuild Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/index/promote": {
+      "post": {
+        "summary": "Promote Index",
+        "description": "Atomically roll forward or back to a validated versioned collection.",
+        "operationId": "promote_index_api_v2_index_promote_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReindexRequestV2"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Promote Index Api V2 Index Promote Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/catalog/apps/{app_id}.jsonld": {
+      "get": {
+        "summary": "Catalogue App Jsonld",
+        "description": "Return the URI-level catalogue representation as JSON-LD.",
+        "operationId": "catalogue_app_jsonld_api_v2_catalog_apps__app_id__jsonld_get",
+        "parameters": [
+          {
+            "name": "app_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "App Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              },
+              "application/ld+json": {}
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/catalog/apps/{app_id}": {
+      "get": {
+        "summary": "Catalogue App",
+        "description": "Return an app from the authoritative PostgreSQL catalogue.",
+        "operationId": "catalogue_app_api_v2_catalog_apps__app_id__get",
+        "parameters": [
+          {
+            "name": "app_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "App Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Catalogue App Api V2 Catalog Apps  App Id  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "summary": "Health",
-        "description": "Health check \u2014 verifies Qdrant connectivity.",
+        "description": "Health check \u2014 verifies authoritative and derived stores.",
         "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/live": {
+      "get": {
+        "summary": "Live",
+        "description": "Process liveness.",
+        "operationId": "live_live_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "summary": "Ready",
+        "description": "Dependency readiness.",
+        "operationId": "ready_ready_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -150,6 +484,66 @@
         "type": "object",
         "title": "HTTPValidationError"
       },
+      "IndexOperation": {
+        "properties": {
+          "operation": {
+            "type": "string",
+            "enum": [
+              "upsert",
+              "delete"
+            ],
+            "title": "Operation"
+          },
+          "app_id": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 3,
+            "title": "App Id"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision"
+          },
+          "app": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App"
+          }
+        },
+        "type": "object",
+        "required": [
+          "operation",
+          "app_id",
+          "revision"
+        ],
+        "title": "IndexOperation"
+      },
+      "IndexOperationsRequest": {
+        "properties": {
+          "operations": {
+            "items": {
+              "$ref": "#/components/schemas/IndexOperation"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "minItems": 1,
+            "title": "Operations"
+          }
+        },
+        "type": "object",
+        "required": [
+          "operations"
+        ],
+        "title": "IndexOperationsRequest"
+      },
       "IndexRequest": {
         "properties": {
           "apps": {
@@ -166,6 +560,158 @@
           "apps"
         ],
         "title": "IndexRequest"
+      },
+      "LifecycleStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "active",
+          "deprecated",
+          "retired"
+        ],
+        "title": "LifecycleStatus",
+        "description": "Supported application lifecycle states."
+      },
+      "ReindexRequestV2": {
+        "properties": {
+          "collection_name": {
+            "type": "string",
+            "pattern": "^hedge_apps_v2_[a-z0-9_-]{3,40}$",
+            "title": "Collection Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "collection_name"
+        ],
+        "title": "ReindexRequestV2",
+        "description": "Administrative request for a versioned, atomically promoted index."
+      },
+      "SearchFilters": {
+        "properties": {
+          "semantic_uri": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Semantic Uri"
+          },
+          "extension_uri": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Extension Uri"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publisher"
+          },
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Capabilities"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Tags"
+          },
+          "protocols": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Protocols"
+          },
+          "deployment_modes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Deployment Modes"
+          },
+          "license_spdx": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "License Spdx"
+          },
+          "lifecycle_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LifecycleStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "supported_languages": {
+            "items": {
+              "type": "string",
+              "enum": [
+                "en",
+                "de",
+                "fr",
+                "es",
+                "it",
+                "nl",
+                "pt",
+                "tr"
+              ]
+            },
+            "type": "array",
+            "title": "Supported Languages"
+          },
+          "data_classifications": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 10,
+            "title": "Data Classifications"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SearchFilters",
+        "description": "Typed public catalogue filters."
       },
       "SearchRequest": {
         "properties": {
@@ -198,6 +744,60 @@
           "query"
         ],
         "title": "SearchRequest"
+      },
+      "SearchRequestV2": {
+        "properties": {
+          "query": {
+            "type": "string",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Query"
+          },
+          "locale": {
+            "type": "string",
+            "enum": [
+              "en",
+              "de",
+              "fr",
+              "es",
+              "it",
+              "nl",
+              "pt",
+              "tr"
+            ],
+            "title": "Locale",
+            "default": "en"
+          },
+          "filters": {
+            "$ref": "#/components/schemas/SearchFilters"
+          },
+          "limit": {
+            "type": "integer",
+            "maximum": 20.0,
+            "minimum": 1.0,
+            "title": "Limit",
+            "default": 5
+          },
+          "cursor": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cursor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "query"
+        ],
+        "title": "SearchRequestV2",
+        "description": "Versioned search request."
       },
       "ValidationError": {
         "properties": {
