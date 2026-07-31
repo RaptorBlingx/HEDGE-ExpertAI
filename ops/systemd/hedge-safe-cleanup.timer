@@ -1,0 +1,12 @@
+[Unit]
+Description=Run HEDGE safe storage cleanup every Sunday
+
+[Timer]
+OnCalendar=Sun *-*-* 03:30:00 UTC
+Persistent=true
+RandomizedDelaySec=30m
+AccuracySec=1m
+Unit=hedge-safe-cleanup.service
+
+[Install]
+WantedBy=timers.target

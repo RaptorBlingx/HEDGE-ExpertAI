@@ -1,0 +1,17 @@
+[Unit]
+Description=HEDGE conservative weekly storage cleanup
+Documentation=file:/home/ubuntu/hedge/ops/safe-weekly-cleanup.sh
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hedge-safe-cleanup
+Nice=10
+IOSchedulingClass=idle
+IOSchedulingPriority=7
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectSystem=full
+ReadWritePaths=/home/ubuntu/.cache /home/ubuntu/.gradle /home/ubuntu/.vscode-server /home/ubuntu/HEDGE-Mobile /var/cache/apt /var/log/journal
+
