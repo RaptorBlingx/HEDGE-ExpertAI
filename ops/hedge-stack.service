@@ -1,0 +1,15 @@
+[Unit]
+Description=HEDGE demo Compose stack
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/hedge
+ExecStart=/home/ubuntu/hedge/scripts/ensure_stack.sh
+RemainAfterExit=yes
+TimeoutStartSec=180
+
+[Install]
+WantedBy=multi-user.target

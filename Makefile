@@ -38,7 +38,10 @@ migrate:
 
 # Run the deterministic live-stack acceptance profile
 e2e:
-	docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build
+	docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build \
+		postgres valkey-cache valkey-queue qdrant mock-api discovery-ranking \
+		metadata-ingest metadata-worker metadata-scheduler expert-recommend \
+		rasa chat-intent gateway
 	./scripts/e2e_smoke.sh
 
 # Create an encrypted PostgreSQL/Qdrant/Valkey backup

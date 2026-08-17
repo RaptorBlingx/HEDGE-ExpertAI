@@ -1,0 +1,11 @@
+[Unit]
+Description=Periodic HEDGE demo edge health repair
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+Unit=hedge-stack-watchdog.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

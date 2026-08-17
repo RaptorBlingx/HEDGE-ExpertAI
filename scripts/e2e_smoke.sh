@@ -1,7 +1,15 @@
 #!/bin/sh
 set -eu
 
-gateway_url="${GATEWAY_E2E_URL:-http://127.0.0.1:8080}"
+if [ -n "${GATEWAY_E2E_URL:-}" ]; then
+    gateway_url="$GATEWAY_E2E_URL"
+else
+    gateway_bind="${GATEWAY_BIND_ADDRESS:-}"
+    if [ -z "$gateway_bind" ] && [ -f .env ]; then
+        gateway_bind="$(awk -F= '$1 == "GATEWAY_BIND_ADDRESS" {print $2}' .env | tail -n 1)"
+    fi
+    gateway_url="http://${gateway_bind:-127.0.0.1}:8080"
+fi
 ingest_url="${INGEST_E2E_URL:-http://127.0.0.1:8004}"
 rasa_url="${RASA_E2E_URL:-http://127.0.0.1:5005}"
 deadline="${E2E_DEADLINE_SECONDS:-300}"

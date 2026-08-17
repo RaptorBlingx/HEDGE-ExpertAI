@@ -1,0 +1,9 @@
+[Unit]
+Description=Check and repair the HEDGE demo Compose edge
+Requires=hedge-stack.service
+After=hedge-stack.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/ubuntu/hedge/scripts/check_stack.sh
+TimeoutStartSec=180

@@ -7,7 +7,9 @@ services:
 
   gateway:
     ports: !override
-      - "127.0.0.1:8080:8000"
+      # Keep CI/local defaults loopback-only, but honor the deployment host's
+      # configured address when this stack is used for an internal demo node.
+      - "${GATEWAY_BIND_ADDRESS:-127.0.0.1}:8080:8000"
 
   expert-recommend:
     environment:

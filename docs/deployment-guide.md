@@ -29,6 +29,27 @@ curl -X POST http://127.0.0.1:8004/api/v2/ingestion/runs
 docker compose ps
 ```
 
+### Automatic recovery after host or Docker restart
+
+For an internal demo node, install the supplied systemd reconciliation unit so
+Docker brings the stack back with a valid network endpoint after a power loss:
+
+```bash
+sudo install -m 0644 ops/hedge-stack.service /etc/systemd/system/hedge-stack.service
+sudo install -m 0644 ops/hedge-stack-watchdog.service /etc/systemd/system/hedge-stack-watchdog.service
+sudo install -m 0644 ops/hedge-stack-watchdog.timer /etc/systemd/system/hedge-stack-watchdog.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now hedge-stack.service
+sudo systemctl enable --now hedge-stack-watchdog.timer
+sudo systemctl status hedge-stack.service
+```
+
+The unit starts the pinned Compose stack and force-recreates only the gateway
+edge, then waits for its health check. The E2E overlay keeps CI loopback-only
+by default but honors `GATEWAY_BIND_ADDRESS` from `.env` for an internal node.
+The two-minute watchdog repairs a missing published endpoint or an unhealthy
+gateway if Docker loses a network endpoint during a daemon restart.
+
 The ingestion trigger is asynchronous. A run is complete only when
 `GET /api/v2/ingestion/runs/latest` reports `completed` and all derived-index
 outbox operations have succeeded. `degraded` is not an acceptable readiness
