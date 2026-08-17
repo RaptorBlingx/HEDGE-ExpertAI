@@ -35,7 +35,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 - Added fail-closed production defaults, trusted-proxy parsing, OIDC role boundaries, privacy-minimized metrics/logging and idempotent verified events.
-- Upgraded FastAPI/Starlette and PyJWT to audited pinned versions; all seven Python runtime locks and the npm production/development graph currently report no known vulnerabilities.
+- Upgraded FastAPI/Starlette and PyJWT to audited pinned versions; the recorded
+  31 July local acceptance run reported no known vulnerabilities in the seven
+  Python runtime locks and npm production/development graph.
+- On 17 August 2026, a fresh `npm audit --audit-level=high` reported one
+  high-severity transitive `nanoid` advisory for versions below 3.3.18. The
+  available fix must be applied or formally accepted before release.
 
 ## [0.4.0] — 2026-04-15
 

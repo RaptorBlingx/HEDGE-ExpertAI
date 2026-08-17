@@ -1,123 +1,97 @@
-# Plugin Integration Guide
+# HEDGE-ExpertAI Widget Integration Guide
+
+> **Integration status:** The widget is a v2 integration artifact for testing
+> and delivery preparation. It is not yet approved or validated in the real
+> HEDGE-IoT App Store. The final embedding, authentication, hosting, CSP/CORS,
+> accessibility, localization, analytics and release process must be aligned
+> with the HEDGE team.
 
 ## Overview
 
-The HEDGE-ExpertAI widget is the production delivery artifact for the project. It is a self-contained JavaScript component with no framework dependency and can be dropped into any page that can load two static files:
+The widget is a standalone JavaScript/CSS component with no frontend framework
+dependency. It calls the HEDGE-ExpertAI gateway over HTTPS and supports the v2
+chat-streaming contract. The React console is a development/validation surface;
+the widget is the intended App Store embedding artifact.
 
-- `hedge-expert-widget.js`
-- `hedge-expert-widget.css`
+## Embed the widget
 
-Use `server-ip/demo.html` as the smoke-test host page for deployment validation. The React validation console is a development tool and is not the canonical delivery surface.
-
-## Quick Integration
-
-### Option 1: Script tag with auto-initialization
-
-Add this just before `</body>`:
+Add the stylesheet and script to an approved App Store page. Replace the example
+origin with the approved HEDGE-ExpertAI gateway origin.
 
 ```html
-<link rel="stylesheet" href="https://your-host/hedge-expert-widget.css" />
+<link rel="stylesheet" href="https://assistant.example/hedge-expert-widget.css" />
 <script
-  src="https://your-host/hedge-expert-widget.js"
+  src="https://assistant.example/hedge-expert-widget.js"
   data-hedge-expert
-  data-api-url="https://your-host"
+  data-api-url="https://assistant.example"
   data-title="HEDGE-ExpertAI"
   data-subtitle="IoT App Discovery Assistant"
   data-position="bottom-right"
-  data-primary-color="#0ea5e9"
-  data-width="400px"
-  data-height="580px"
+  data-locale="en"
 ></script>
 ```
 
-### Option 2: Manual initialization
+The auto-initialization attributes support `api-url`, `title`, `subtitle`,
+`position`, `primary-color`, `width`, `height`, `css-url`, and `locale`.
+Supported locale values currently are `en`, `de`, `fr`, `es`, `it`, `nl`, `pt`,
+and `tr`.
+
+For a host that must provide a current access token, use explicit initialization:
 
 ```html
-<link rel="stylesheet" href="https://your-host/hedge-expert-widget.css" />
-<script src="https://your-host/hedge-expert-widget.js"></script>
+<script src="https://assistant.example/hedge-expert-widget.js"></script>
 <script>
-  const widget = new HedgeExpertWidget({
-    apiUrl: "https://your-host",
-    title: "HEDGE-ExpertAI",
-    subtitle: "IoT App Discovery Assistant",
-    primaryColor: "#0ea5e9",
-    position: "bottom-right",
-    width: "400px",
-    height: "580px",
+  new HedgeExpertWidget({
+    apiUrl: "https://assistant.example",
+    locale: "en",
+    getAccessToken: () => getCurrentHedgeAccessToken(),
   });
 </script>
 ```
 
-## Configuration Options
+The access-token callback is optional. The approved App Store identity and token
+flow must be provided by HEDGE before a production configuration is chosen.
 
-| Option | Type | Default | Description |
-|---|---|---|---|
-| `apiUrl` | string | `window.location.origin` | Gateway origin used by the widget |
-| `position` | string | `bottom-right` | `bottom-right` or `bottom-left` |
-| `title` | string | `HEDGE-ExpertAI` | Header title |
-| `subtitle` | string | `IoT App Discovery Assistant` | Header subtitle |
-| `primaryColor` | string | `#0ea5e9` | Theme color used for bubble, header, chips, and CTA |
-| `width` | string | `400px` | Desktop panel width |
-| `height` | string | `580px` | Desktop panel height |
-| `cssUrl` | string | widget-relative path | Override stylesheet location if needed |
+## Required v2 gateway endpoints
 
-## Runtime Behavior
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/v2/chat/stream` | Main typed SSE conversation request. The widget sends `session_id`, `message`, `locale`, and `filters`. |
+| `POST /api/v2/recommendation-events` | Best-effort, idempotent event for recommendation acceptance, dismissal, or App opening. |
+| `DELETE /api/v2/sessions/{session_id}` | Removes the current operational session when the user clears the widget. |
 
-- SSE streaming via the gateway, including Thinking and Typing states.
-- Side pane with Recommended Context cards.
-- Feedback controls for recommended apps.
-- Copy-response action for assistant answers.
-- Session continuity via `sessionStorage`.
-- Full-screen mobile layout below tablet widths.
+The streaming response uses `text/event-stream` and contains JSON payloads with
+the event types `stage`, `recommendations`, `explanation_delta`, `complete`,
+and `problem`. Recommendation cards are displayed after the `recommendations`
+event; validated explanation text follows through `explanation_delta` events.
 
-## API Contract
+## Runtime behavior
 
-The widget requires these gateway endpoints:
+- A session identifier is kept in browser `sessionStorage`; it is not placed in
+  cookies or in a URL.
+- The widget can pass an `Authorization: Bearer` header only through the
+  `getAccessToken` callback.
+- Recommendation feedback and App-open events include an idempotency key.
+- The widget supports cancellation, clearing/deleting an operational session,
+  responsive layout, and localized interface labels.
+- The gateway applies its configured security headers, CORS policy, rate limits,
+  and authentication policy. The host page must permit the gateway origin in its
+  CSP `connect-src` directive.
 
-- `POST /api/v1/chat/stream`
-  - Request: `{"session_id": "...", "message": "..."}`
-  - Response: server-sent events with token chunks, recommended apps, and session completion metadata.
-- `POST /api/v1/feedback`
-  - Optional but recommended.
-  - Used for `accept` and `dismiss` actions on recommendations.
+## HEDGE-side decisions required before final integration
 
-The widget does not depend on the validation-console catalog endpoints.
+1. Approved embedding mechanism and asset-hosting location.
+2. Gateway origin, TLS termination, CSP/CORS and network/egress rules.
+3. OAuth/OIDC or alternative identity flow, claims/roles, and token lifecycle.
+4. App Store design system, accessibility, localization, responsive-layout, and
+   browser-support requirements.
+5. Authoritative URL/navigation behavior for recommended Apps.
+6. Consent, telemetry, privacy, retention, release and operational-support
+   requirements.
 
-## Security Notes
+## Local demo only
 
-- Serve the widget over HTTPS in production.
-- Ensure `CORS_ALLOWED_ORIGINS` allows the embedding host.
-- Session IDs are stored in `sessionStorage`, not cookies.
-- The widget assumes the gateway handles auth, rate limiting, and headers.
-
-## Styling Hooks
-
-All runtime classes use the `.he-` prefix.
-
-Useful CSS custom properties set on the widget container:
-
-- `--he-primary`
-- `--he-primary-dark`
-- `--he-primary-soft`
-- `--he-panel-width`
-- `--he-panel-height`
-
-Example override:
-
-```css
-.he-container {
-  --he-primary: #f97316;
-  --he-primary-dark: #c2410c;
-  --he-primary-soft: #fdba74;
-}
-```
-
-## Deployment Path
-
-Recommended public files:
-
-- `https://server-ip/demo.html` — smoke-test host page
-- `https://server-ip/hedge-expert-widget.js` — widget asset
-- `https://server-ip/hedge-expert-widget.css` — widget stylesheet
-
-For a step-by-step deployment flow, see [Widget Quick Start](widget-quick-start.md).
+The repository includes `demo.html` as a local smoke-test host page. It is not a
+substitute for App Store embedding or security acceptance. See
+`docs/architecture.md`, `docs/api-reference.md`, and the generated OpenAPI
+contracts for the current backend boundaries.

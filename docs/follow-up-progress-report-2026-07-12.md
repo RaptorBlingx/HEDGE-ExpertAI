@@ -1,5 +1,11 @@
 # HEDGE-ExpertAI — Follow-Up Progress Report
 
+> **Historical-report notice (17 August 2026):** This report records the
+> 12–13 July v1 baseline and must not be sent as a current technical update.
+> The v2 architecture and current integration request are documented in
+> `docs/reports/HEDGE-ExpertAI-Technical-Overview-and-Integration-Information-Request-2026-08-17.md`.
+> This historical report is retained unchanged below for audit traceability.
+
 **Project:** Context-Aware AI Discovery and Recommendation Assistant for the HEDGE-IoT App Store
 **Acronym:** HEDGE-ExpertAI
 **Beneficiary (per repository proposal file):** A Arti Mühendislik
