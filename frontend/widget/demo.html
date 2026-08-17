@@ -225,23 +225,7 @@
     </div>
   </main>
 
-  <script src="/hedge-expert-widget.js?v=9"></script>
-  <script>
-    document.addEventListener("DOMContentLoaded", function () {
-      window._hedgeWidgetInstance = new HedgeExpertWidget({
-        apiUrl: window.location.origin,
-        title: "HEDGE-ExpertAI",
-        subtitle: "IoT App Discovery Assistant",
-        position: "bottom-right",
-        primaryColor: "#0ea5e9",
-        width: "400px",
-        height: "580px"
-      });
-
-      document.getElementById("open-widget-btn").addEventListener("click", function () {
-        window._hedgeWidgetInstance.open();
-      });
-    });
-  </script>
+  <script defer src="/hedge-expert-widget.js?v=10"></script>
+  <script defer src="/demo-init.js?v=1"></script>
 </body>
 </html>

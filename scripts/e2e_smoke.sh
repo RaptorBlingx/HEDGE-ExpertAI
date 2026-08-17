@@ -23,6 +23,17 @@ while ! curl -fsS "$gateway_url/ready" >/dev/null 2>&1; do
     sleep 3
 done
 
+# The public demo is served with a strict script CSP. Its initialization must
+# remain in a same-origin asset rather than an inline script.
+curl -fsS "$gateway_url/demo.html" >/tmp/hedge-e2e-demo.html
+grep -q 'src="/demo-init.js' /tmp/hedge-e2e-demo.html
+if grep -Eq '<script[[:space:]]*>' /tmp/hedge-e2e-demo.html; then
+    echo "demo contains an inline script blocked by the gateway CSP" >&2
+    exit 1
+fi
+curl -fsS "$gateway_url/demo-init.js" >/dev/null
+curl -fsS "$gateway_url/hedge-expert-widget.js" | grep -q 'isSyntheticAppUrl'
+
 curl -fsS -X POST "$rasa_url/model/parse" \
     -H 'Content-Type: application/json' \
     -d '{"text":"Zeige mir Anwendungen zur Energieüberwachung"}' \

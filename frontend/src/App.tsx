@@ -104,6 +104,15 @@ function formatDate(iso?: string): string {
   return date.toLocaleDateString();
 }
 
+function isSyntheticAppUrl(value?: string): boolean {
+  if (!value) return false;
+  try {
+    return new URL(value).hostname === "synthetic.hedge.invalid";
+  } catch {
+    return false;
+  }
+}
+
 async function fetchCatalog(): Promise<CatalogApp[]> {
   const apps: CatalogApp[] = [];
   for (let page = 1; page <= 2; page += 1) {
@@ -730,6 +739,8 @@ export default function App() {
                   <div className="mt-3 space-y-2">
                     {message.apps.map((item) => {
                       const catalogHit = catalogById.has(item.app.id);
+                      const hasExternalAppUrl =
+                        Boolean(item.app.app_url) && !isSyntheticAppUrl(item.app.app_url);
                       return (
                         <div
                           key={item.app.id}
@@ -759,18 +770,29 @@ export default function App() {
                               )}
                             </div>
                           </button>
-                          <a
-                            href={item.app.app_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              void recordAppOpened(message.impressionId, item.app.id);
-                            }}
-                            className="mt-2 inline-block text-xs text-cyan-200 underline decoration-cyan-500/50 underline-offset-2 hover:text-cyan-100"
-                          >
-                            Open application details
-                          </a>
+                          {hasExternalAppUrl ? (
+                            <a
+                              href={item.app.app_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void recordAppOpened(message.impressionId, item.app.id);
+                              }}
+                              className="mt-2 inline-block text-xs text-cyan-200 underline decoration-cyan-500/50 underline-offset-2 hover:text-cyan-100"
+                            >
+                              Open application
+                            </a>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={!catalogHit}
+                              onClick={() => setSelectedAppId(item.app.id)}
+                              className="mt-2 text-left text-xs text-cyan-200 underline decoration-cyan-500/50 underline-offset-2 hover:text-cyan-100 disabled:cursor-not-allowed disabled:text-slate-500"
+                            >
+                              View catalogue details
+                            </button>
+                          )}
                         </div>
                       );
                     })}

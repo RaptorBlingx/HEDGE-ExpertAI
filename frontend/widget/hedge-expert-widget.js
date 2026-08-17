@@ -138,6 +138,14 @@
     return value || "";
   }
 
+  function isSyntheticAppUrl(value) {
+    try {
+      return new URL(value, window.location.href).hostname === "synthetic.hedge.invalid";
+    } catch (_) {
+      return false;
+    }
+  }
+
   function eventKey() {
     if (window.crypto && typeof window.crypto.randomUUID === "function") {
       return "evt-" + window.crypto.randomUUID();
@@ -746,13 +754,16 @@
         var version = versionValue ? '<span class="he-card-version">v' + escapeHtml(versionValue) + '</span>' : "";
         var publisher = publisherValue ? '<span class="he-card-publisher">' + escapeHtml(publisherValue) + '</span>' : "";
 
-        var card = document.createElement(app.app_url ? "a" : "div");
+        var hasExternalAppUrl = app.app_url && !isSyntheticAppUrl(app.app_url);
+        var card = document.createElement(hasExternalAppUrl ? "a" : "div");
         card.className = "he-card";
-        if (app.app_url) {
+        if (hasExternalAppUrl) {
           card.href = app.app_url;
           card.target = "_blank";
           card.rel = "noopener noreferrer";
           card.setAttribute("aria-label", "Open " + appTitle);
+        } else if (app.app_url) {
+          card.setAttribute("aria-label", appTitle + " is a synthetic catalogue entry with no external application link");
         }
         card.innerHTML =
           '<div class="he-card-top">' +
@@ -766,7 +777,7 @@
             version +
             '<span class="he-card-id">' + escapeHtml(app.id || "") + '</span>' +
           '</div>';
-        if (app.app_url && impressionId) {
+        if (hasExternalAppUrl && impressionId) {
           var self = this;
           (function (appId) {
             card.addEventListener("click", function () {
