@@ -33,6 +33,7 @@ if grep -Eq '<script[[:space:]]*>' /tmp/hedge-e2e-demo.html; then
 fi
 curl -fsS "$gateway_url/demo-init.js" >/dev/null
 curl -fsS "$gateway_url/hedge-expert-widget.js" | grep -q 'isSyntheticAppUrl'
+curl -fsS "$gateway_url/favicon.svg" >/dev/null
 
 curl -fsS -X POST "$rasa_url/model/parse" \
     -H 'Content-Type: application/json' \
