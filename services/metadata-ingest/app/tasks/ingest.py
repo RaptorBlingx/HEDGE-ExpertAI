@@ -12,6 +12,7 @@ from hedge_shared.storage import (
     complete_ingestion_run,
     complete_outbox_item,
     fail_outbox_item,
+    outbox_status,
     pending_outbox,
 )
 
@@ -30,7 +31,12 @@ def deliver_pending_outbox(limit: int = 100) -> dict[str, int]:
     """Deliver claimed outbox operations and retain failures for retry."""
     delivered = 0
     failed = 0
-    for item in pending_outbox(limit=limit):
+    # Claim just before delivery, not an entire batch whose later leases can expire.
+    for _ in range(limit):
+        items = pending_outbox(limit=1)
+        if not items:
+            break
+        item = items[0]
         operation: dict[str, Any] = {
             "operation": item["operation"],
             "app_id": item["app_id"],
@@ -45,21 +51,33 @@ def deliver_pending_outbox(limit: int = 100) -> dict[str, int]:
                 timeout=120.0,
             )
             response.raise_for_status()
-            complete_outbox_item(
+            acknowledgement = response.json()
+            if type(acknowledgement.get("applied")) is not int or acknowledgement[
+                "applied"
+            ] not in (0, 1):
+                raise ValueError("Invalid index delivery acknowledgement")
+            completed = complete_outbox_item(
                 item["id"],
                 app_id=item["app_id"],
                 revision=item["revision"],
+                claimed_at=item["updated_at"],
             )
-            delivered += 1
+            delivered += int(completed)
         except Exception as exc:
             logger.exception(
                 "Index delivery failed for app=%s revision=%s",
                 item["app_id"],
                 item["revision"],
             )
-            fail_outbox_item(item["id"], str(exc))
+            fail_outbox_item(item["id"], str(exc), claimed_at=item["updated_at"])
             failed += 1
-    return {"delivered": delivered, "failed": failed}
+    backlog = outbox_status()
+    if backlog["exhausted"]:
+        logger.error(
+            "Index outbox has %s exhausted operations; explicit recovery required",
+            backlog["exhausted"],
+        )
+    return {"delivered": delivered, "failed": failed, **backlog}
 
 
 @celery_app.task(name="app.tasks.ingest.deliver_outbox")
@@ -96,7 +114,7 @@ def ingest_all(self: Any) -> dict[str, Any]:
         raise self.retry(exc=exc, countdown=60) from exc
 
     delivery = deliver_pending_outbox(limit=max(100, result["fetched"] + result["deleted"]))
-    if delivery["failed"]:
+    if delivery["failed"] or delivery.get("exhausted", 0):
         result["status"] = "partial"
         complete_ingestion_run(
             result["run_id"],

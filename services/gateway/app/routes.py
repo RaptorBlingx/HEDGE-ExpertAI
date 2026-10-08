@@ -342,11 +342,17 @@ async def proxy_ingestion_quarantine_v2(
 
 
 @router.post("/api/v2/ingestion/outbox/replay", status_code=202)
-async def proxy_ingestion_outbox_replay_v2(request: Request):
+async def proxy_ingestion_outbox_replay_v2(
+    request: Request,
+    outbox_id: int | None = Query(default=None, ge=1),
+):
     """Admin-only replay of pending and failed index operations."""
     _require_admin(request)
+    url = f"{METADATA_INGEST_URL}/api/v2/ingestion/outbox/replay"
+    if outbox_id is not None:
+        url += f"?outbox_id={outbox_id}"
     return await _post_json(
-        f"{METADATA_INGEST_URL}/api/v2/ingestion/outbox/replay",
+        url,
         {},
         "Ingestion service",
         30.0,

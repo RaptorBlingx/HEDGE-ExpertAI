@@ -376,70 +376,145 @@ def tombstone_missing_apps(run_id: str, *, conn: Any, store_id: str | None = Non
         return len(rows)
 
 
+OUTBOX_MAX_ATTEMPTS = 10
+OUTBOX_LEASE_SECONDS = 180
+
+
 def pending_outbox(limit: int = 100) -> list[dict[str, Any]]:
-    """Claim pending/failed index operations for replay-safe delivery."""
+    """Claim due operations, including abandoned leases; retain exhausted work."""
     with connection() as conn, conn.cursor() as cursor:
+        # A crash on the final attempt must become visible terminal failure too.
+        cursor.execute(
+            """
+            UPDATE indexing_outbox SET status = 'failed', next_attempt_at = NULL,
+                last_error = 'Index delivery interrupted on final attempt', updated_at = now()
+            WHERE status = 'processing' AND attempts >= %s
+              AND updated_at < now() - make_interval(secs => %s)
+            """,
+            (OUTBOX_MAX_ATTEMPTS, OUTBOX_LEASE_SECONDS),
+        )
         cursor.execute(
             """
             WITH claimed AS (
-                SELECT id
-                FROM indexing_outbox
-                WHERE status IN ('pending', 'failed')
-                  AND attempts < 10
-                  AND (next_attempt_at IS NULL OR next_attempt_at <= now())
-                ORDER BY created_at
-                FOR UPDATE SKIP LOCKED
-                LIMIT %s
+                SELECT id FROM indexing_outbox
+                WHERE attempts < %s AND (
+                    (status IN ('pending', 'failed')
+                     AND (next_attempt_at IS NULL OR next_attempt_at <= now()))
+                    OR (status = 'processing'
+                        AND updated_at < now() - make_interval(secs => %s))
+                )
+                ORDER BY created_at, id FOR UPDATE SKIP LOCKED LIMIT %s
             )
             UPDATE indexing_outbox AS outbox
-            SET status = 'processing', attempts = attempts + 1, updated_at = now()
-            FROM claimed
-            WHERE outbox.id = claimed.id
-            RETURNING outbox.id, outbox.app_id, outbox.revision,
-                      outbox.operation, outbox.payload, outbox.attempts
+            SET status = 'processing', attempts = attempts + 1, updated_at = clock_timestamp()
+            FROM claimed WHERE outbox.id = claimed.id
+            RETURNING outbox.id, outbox.app_id, outbox.revision, outbox.operation,
+                      outbox.payload, outbox.attempts, outbox.updated_at
             """,
-            (limit,),
+            (OUTBOX_MAX_ATTEMPTS, OUTBOX_LEASE_SECONDS, limit),
         )
         return cursor.fetchall()
 
 
-def complete_outbox_item(outbox_id: int, *, app_id: str, revision: int) -> None:
-    """Mark a delivered vector revision searchable."""
+def complete_outbox_item(
+    outbox_id: int, *, app_id: str, revision: int, claimed_at: datetime
+) -> bool:
+    """Acknowledge only this claim; a late worker cannot complete a new lease."""
     with connection() as conn, conn.cursor() as cursor:
         cursor.execute(
             """
             UPDATE indexing_outbox
-            SET status = 'completed', completed_at = now(), updated_at = now(), last_error = NULL
-            WHERE id = %s
+            SET status = 'completed', completed_at = now(), updated_at = now(),
+                last_error = NULL, next_attempt_at = NULL
+            WHERE id = %s AND app_id = %s AND revision = %s
+              AND status = 'processing' AND updated_at = %s
+            RETURNING operation
             """,
-            (outbox_id,),
+            (outbox_id, app_id, revision, claimed_at),
         )
-        cursor.execute(
-            """
-            UPDATE catalog_apps
-            SET searchable_at = now()
-            WHERE id = %s AND revision = %s AND active = true
-            """,
-            (app_id, revision),
-        )
+        item = cursor.fetchone()
+        if item is None:
+            return False
+        if item["operation"] == "upsert":
+            cursor.execute(
+                """
+                UPDATE catalog_apps SET searchable_at = now()
+                WHERE id = %s AND revision = %s AND active = true AND schema_version = '2.0'
+                """,
+                (app_id, revision),
+            )
+        return True
 
 
-def fail_outbox_item(outbox_id: int, error: str) -> None:
-    """Retain a failed operation for exponential retry."""
+def fail_outbox_item(outbox_id: int, error: str, *, claimed_at: datetime) -> bool:
+    """Fence failure acknowledgements and retain terminal failures for explicit replay."""
     with connection() as conn, conn.cursor() as cursor:
         cursor.execute(
             """
-            UPDATE indexing_outbox
-            SET status = 'failed',
-                last_error = left(%s, 2000),
-                next_attempt_at = now() + make_interval(
-                    secs => LEAST(3600, power(2, attempts)::int)
-                ),
+            UPDATE indexing_outbox SET status = 'failed', last_error = left(%s, 2000),
+                next_attempt_at = CASE WHEN attempts >= %s THEN NULL ELSE
+                    now() + make_interval(secs => LEAST(3600, power(2, attempts)::int)) END,
                 updated_at = now()
-            WHERE id = %s
+            WHERE id = %s AND status = 'processing' AND updated_at = %s
+            RETURNING id
             """,
-            (error, outbox_id),
+            (error, OUTBOX_MAX_ATTEMPTS, outbox_id, claimed_at),
         )
+        return cursor.fetchone() is not None
+
+
+def outbox_status() -> dict[str, int]:
+    """Expose durable backlog and exhausted work independently of ingestion runs."""
+    with connection() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT count(*) FILTER (WHERE status != 'completed') AS outstanding,
+                   count(*) FILTER (WHERE status = 'failed' AND attempts >= %s) AS exhausted
+            FROM indexing_outbox
+            """,
+            (OUTBOX_MAX_ATTEMPTS,),
+        )
+        return dict(cursor.fetchone())
+
+
+def retry_outbox_item(outbox_id: int) -> bool:
+    """Explicitly release one exhausted operation after its underlying fault is fixed."""
+    with connection() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE indexing_outbox SET status = 'pending', attempts = 0,
+                next_attempt_at = NULL, updated_at = clock_timestamp()
+            WHERE id = %s AND status = 'failed' AND attempts >= %s RETURNING id
+            """,
+            (outbox_id, OUTBOX_MAX_ATTEMPTS),
+        )
+        return cursor.fetchone() is not None
+
+
+@contextmanager
+def catalogue_index_app(app_id: str) -> Iterator[dict[str, Any] | None]:
+    """Serialize a vector write with catalogue updates and other writers of this App."""
+    with connection() as conn, conn.cursor() as cursor:
+        cursor.execute("SET LOCAL lock_timeout = '5s'")
+        cursor.execute(
+            "SELECT id, revision, active, schema_version, checksum, payload "
+            "FROM catalog_apps WHERE id = %s FOR UPDATE",
+            (app_id,),
+        )
+        yield cursor.fetchone()
+
+
+def get_catalogue_apps(app_ids: list[str]) -> dict[str, dict[str, Any]]:
+    """Resolve candidates in one authoritative read, excluding withdrawn/source-only Apps."""
+    if not app_ids:
+        return {}
+    with connection() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT id, revision, payload FROM catalog_apps "
+            "WHERE id = ANY(%s) AND active = true AND schema_version = '2.0'",
+            (app_ids,),
+        )
+        return {row["id"]: row for row in cursor.fetchall()}
 
 
 def lexical_search(
@@ -452,7 +527,7 @@ def lexical_search(
     """Return an independent PostgreSQL full-text candidate ranking."""
     # The simple dictionary is deliberate: it is deterministic across all
     # eight locales and the catalogue also stores curated localized keywords.
-    where = ["active = true", "schema_version = '2.0'", "searchable_at IS NOT NULL"]
+    where = ["active = true", "schema_version = '2.0'"]
     filter_params: list[Any] = []
 
     if filters.publisher:

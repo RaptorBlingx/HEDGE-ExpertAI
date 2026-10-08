@@ -13,7 +13,7 @@ from hedge_shared.models_v2 import (
     RelevanceBand,
     SearchFilters,
 )
-from hedge_shared.storage import lexical_search
+from hedge_shared.storage import get_catalogue_apps, lexical_search
 from qdrant_client import QdrantClient
 
 from .embeddings import encode_single
@@ -32,6 +32,8 @@ def _cache() -> redis.Redis:
     return redis.from_url(
         os.getenv("VALKEY_CACHE_URL", "redis://valkey-cache:6379/1"),
         decode_responses=True,
+        socket_connect_timeout=1,
+        socket_timeout=1,
     )
 
 
@@ -48,7 +50,10 @@ def _matches_filters(payload: dict[str, Any], filters: SearchFilters) -> bool:
         actual = {str(item).casefold() for item in payload.get(field, [])}
         return all(value.casefold() in actual for value in expected)
 
-    if filters.publisher and filters.publisher.casefold() not in str(publisher.get("name", "")).casefold():
+    if (
+        filters.publisher
+        and filters.publisher.casefold() not in str(publisher.get("name", "")).casefold()
+    ):
         return False
     if filters.lifecycle_status and lifecycle.get("status") != filters.lifecycle_status.value:
         return False
@@ -97,13 +102,16 @@ def _dense_candidates(
     candidates = []
     for point in response.points:
         payload = point.payload or {}
-        if payload.get("schema_version") != "2.0" or not _matches_filters(payload, filters):
+        if (
+            payload.get("schema_version") != "2.0"
+            or not isinstance(payload.get("id"), str)
+            or type(payload.get("_index_revision")) is not int
+        ):
             continue
         candidates.append(
             {
                 "id": str(payload["id"]),
-                "payload": payload,
-                "dense_score": float(point.score),
+                "revision": payload["_index_revision"],
             }
         )
         if len(candidates) >= limit:
@@ -185,6 +193,42 @@ def reciprocal_rank_fusion(
     return results
 
 
+def _resolve_rankings(
+    rankings: dict[str, list[dict[str, Any]]], filters: SearchFilters
+) -> tuple[dict[str, list[dict[str, Any]]], bool]:
+    """Treat vectors/cache as ranked references, never publication or metadata authority."""
+    if set(rankings) != {"dense", "lexical"}:
+        raise ValueError("Invalid cached rankings")
+    for candidates in rankings.values():
+        if not isinstance(candidates, list) or len(candidates) > 160:
+            raise ValueError("Invalid cached candidates")
+        for item in candidates:
+            if (
+                not isinstance(item, dict)
+                or not isinstance(item.get("id"), str)
+                or type(item.get("revision")) is not int
+            ):
+                raise ValueError("Invalid candidate identity/revision")
+    rows = get_catalogue_apps([item["id"] for items in rankings.values() for item in items])
+    resolved = {"dense": [], "lexical": []}
+    changed = False
+    for source, candidates in rankings.items():
+        seen = set()
+        for item in candidates:
+            row = rows.get(item["id"])
+            if (
+                row is None
+                or row["revision"] != item["revision"]
+                or not _matches_filters(row["payload"], filters)
+            ):
+                changed = True
+                continue
+            if item["id"] not in seen:
+                resolved[source].append({**item, "payload": row["payload"]})
+                seen.add(item["id"])
+    return resolved, changed
+
+
 def search_apps_v2(
     client: QdrantClient,
     *,
@@ -194,8 +238,8 @@ def search_apps_v2(
     limit: int,
     catalogue_revision: str = "current",
 ) -> list[dict[str, Any]]:
-    """Run cached hybrid retrieval against the current catalogue revision."""
-    cache_key = "hedge:search:v2:" + json.dumps(
+    """Fuse ranked references using current PostgreSQL eligibility and payloads."""
+    cache_key = "hedge:search:v3:" + json.dumps(
         {
             "q": query.casefold().strip(),
             "locale": locale,
@@ -208,31 +252,37 @@ def search_apps_v2(
     )
     try:
         cached = _cache().get(cache_key)
-        if cached:
-            return json.loads(cached)
+        rankings = json.loads(cached) if cached else None
     except Exception:
         logger.warning("Search cache unavailable; continuing without cache")
+        rankings = None
+    if rankings is not None:
+        try:
+            resolved, changed = _resolve_rankings(rankings, filters)
+        except (ValueError, TypeError):
+            logger.warning("Invalid search cache entry; recomputing rankings")
+        else:
+            if not changed:
+                return reciprocal_rank_fusion(**resolved, filters=filters, limit=limit)
 
-    lexical = lexical_search(
-        query,
-        locale=locale,
-        filters=filters,
-        limit=min(limit * 8, 160),
-    )
-    dense = _dense_candidates(
-        client,
-        query,
-        filters=filters,
-        limit=min(limit * 8, 160),
-    )
-    results = reciprocal_rank_fusion(
-        dense,
-        lexical,
-        filters=filters,
-        limit=limit,
-    )
+    lexical = lexical_search(query, locale=locale, filters=filters, limit=min(limit * 8, 160))
+    vector_ok = True
     try:
-        _cache().setex(cache_key, CACHE_TTL, json.dumps(results))
+        dense = _dense_candidates(client, query, filters=filters, limit=min(limit * 8, 160))
     except Exception:
-        logger.warning("Search cache unavailable; result was not cached")
+        logger.warning("Vector retrieval unavailable; using PostgreSQL lexical candidates")
+        dense = []
+        vector_ok = False
+    rankings = {
+        "dense": dense,
+        "lexical": [{"id": row["id"], "revision": row["revision"]} for row in lexical],
+    }
+    resolved, changed = _resolve_rankings(rankings, filters)
+    results = reciprocal_rank_fusion(**resolved, filters=filters, limit=limit)
+    # Do not freeze degraded or outdated rankings while the vector index recovers.
+    if vector_ok and not changed and results:
+        try:
+            _cache().setex(cache_key, CACHE_TTL, json.dumps(rankings))
+        except Exception:
+            logger.warning("Search cache unavailable; result was not cached")
     return results

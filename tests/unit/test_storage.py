@@ -201,7 +201,7 @@ def test_tombstone_and_outbox_claim(monkeypatch: pytest.MonkeyPatch) -> None:
     assert storage.tombstone_missing_apps("run-final", conn=FakeConnection(cursor)) == 2
     assert storage.pending_outbox(limit=25)[0]["id"] == 9
     assert sum("INSERT INTO indexing_outbox" in sql for sql, _ in cursor.executed) == 2
-    assert cursor.executed[-1][1] == (25,)
+    assert cursor.executed[-1][1] == (10, 180, 25)
     assert "schema_version = '2.0'" in cursor.executed[0][0]
 
 
@@ -262,12 +262,13 @@ def test_store_registration_cannot_be_used_as_update_timestamp(monkeypatch) -> N
 
 
 def test_outbox_completion_and_retry(monkeypatch: pytest.MonkeyPatch) -> None:
-    cursor = FakeCursor()
+    cursor = FakeCursor(one=[{"operation": "upsert"}, {"id": 13}])
     install_connection(monkeypatch, cursor)
-    storage.complete_outbox_item(12, app_id="app-001", revision=7)
-    storage.fail_outbox_item(13, "temporary failure")
+    claim = datetime.now(UTC)
+    assert storage.complete_outbox_item(12, app_id="app-001", revision=7, claimed_at=claim)
+    assert storage.fail_outbox_item(13, "temporary failure", claimed_at=claim)
     assert any("searchable_at = now()" in sql for sql, _ in cursor.executed)
-    assert cursor.executed[-1][1] == ("temporary failure", 13)
+    assert cursor.executed[-1][1] == ("temporary failure", 10, 13, claim)
 
 
 def test_lexical_search_builds_all_typed_filters(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -391,3 +392,34 @@ def test_data_retention_is_transactional_and_privacy_minimized(
     assert "recommendation_daily_aggregates" in aggregate_sql
     assert "session_hash" not in aggregate_sql.split("INSERT INTO", 1)[1].split(")", 1)[0]
     assert all(params == (cutoff,) for _, params in cursor.executed)
+
+
+@pytest.mark.parametrize("kind", ["delete", None])
+def test_completion_never_marks_deleted_or_lost_claim_searchable(monkeypatch, kind):
+    cursor = FakeCursor(one=[{"operation": kind} if kind else None])
+    install_connection(monkeypatch, cursor)
+    assert storage.complete_outbox_item(
+        12, app_id="app-001", revision=7, claimed_at=datetime.now(UTC)
+    ) is (kind is not None)
+    assert not any("UPDATE catalog_apps" in sql for sql, _ in cursor.executed)
+
+
+def test_outbox_backlog_explicit_recovery_and_authoritative_candidate_reads(monkeypatch):
+    cursor = FakeCursor(
+        one=[{"outstanding": 2, "exhausted": 1}, {"id": 12}, None],
+        many=[[{"id": "app-001", "revision": 2, "payload": {}}]],
+    )
+    install_connection(monkeypatch, cursor)
+    assert storage.outbox_status() == {"outstanding": 2, "exhausted": 1}
+    assert storage.retry_outbox_item(12)
+    assert not storage.retry_outbox_item(12)
+    assert storage.get_catalogue_apps([]) == {}
+    assert storage.get_catalogue_apps(["app-001"])["app-001"]["revision"] == 2
+
+
+def test_index_lock_and_fenced_failed_acknowledgement(monkeypatch):
+    cursor = FakeCursor(one=[{"id": "app-001"}, None])
+    install_connection(monkeypatch, cursor)
+    with storage.catalogue_index_app("app-001") as row:
+        assert row == {"id": "app-001"}
+    assert not storage.fail_outbox_item(12, "late failure", claimed_at=datetime.now(UTC))

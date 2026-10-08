@@ -8,6 +8,7 @@ import os
 from typing import Any
 
 from hedge_shared.models_v2 import AppMetadataV2
+from hedge_shared.storage import catalogue_index_app, get_catalogue_apps
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import (
     CreateAlias,
@@ -17,6 +18,7 @@ from qdrant_client.http.models import (
     Distance,
     PointStruct,
     VectorParams,
+    WriteOrdering,
 )
 
 from .embeddings import VECTOR_DIM, encode
@@ -34,7 +36,7 @@ def get_client(host: str = "qdrant", port: int = 6333) -> QdrantClient:
     """Get or create the Qdrant client singleton."""
     global _client
     if _client is None:
-        _client = QdrantClient(host=host, port=port, check_compatibility=False)
+        _client = QdrantClient(host=host, port=port, timeout=10, check_compatibility=False)
         logger.info("Connected to Qdrant at %s:%d", host, port)
     return _client
 
@@ -69,38 +71,40 @@ def ensure_collection(client: QdrantClient) -> None:
 
 def _app_to_index_text(app: dict[str, Any]) -> str:
     """Build the text to embed from app metadata."""
-    if app.get("schema_version") == "2.0":
-        return AppMetadataV2.model_validate(app).to_index_text("en")
-    tags = app.get("tags", [])
-    if isinstance(tags, list):
-        tag_str = " ".join(tags)
-    else:
-        tag_str = str(tags)
-    return f"{app.get('title', '')} {app.get('description', '')} {tag_str}"
+    return AppMetadataV2.model_validate(app).to_index_text("en")
 
 
 def index_app(client: QdrantClient, app: dict[str, Any]) -> None:
     """Index a single app into Qdrant."""
-    text = _app_to_index_text(app)
-    vector = encode([text])[0].tolist()
-    point = PointStruct(
-        id=_app_id_to_int(app["id"]),
-        vector=vector,
-        payload=app,
+    model = AppMetadataV2.model_validate(app)
+    rows = get_catalogue_apps([model.id])
+    if model.id not in rows:
+        raise ValueError("App is not in the active catalogue")
+    apply_operations(
+        client,
+        [
+            {
+                "app_id": model.id,
+                "revision": rows[model.id]["revision"],
+                "operation": "upsert",
+                "app": app,
+            }
+        ],
     )
-    client.upsert(collection_name=COLLECTION_ALIAS, points=[point])
 
 
 def index_batch(
     client: QdrantClient,
     apps: list[dict[str, Any]],
     *,
-    revisions: dict[str, int] | None = None,
+    revisions: dict[str, int],
     collection_name: str = COLLECTION_ALIAS,
 ) -> int:
     """Index a batch of apps. Returns count of indexed apps."""
     if not apps:
         return 0
+    if collection_name == COLLECTION_ALIAS:
+        raise ValueError("Live alias writes require revisioned apply_operations")
     texts = [_app_to_index_text(a) for a in apps]
     vectors = encode(texts)
     points = [
@@ -109,7 +113,7 @@ def index_batch(
             vector=vec.tolist(),
             payload={
                 **app,
-                "_index_revision": (revisions or {}).get(str(app["id"]), 1),
+                "_index_revision": revisions[str(app["id"])],
                 "_index_model": os.getenv(
                     "EMBEDDING_MODEL",
                     "intfloat/multilingual-e5-small",
@@ -119,38 +123,86 @@ def index_batch(
         )
         for app, vec in zip(apps, vectors, strict=True)
     ]
-    client.upsert(collection_name=collection_name, points=points)
+    _require_completed(
+        client.upsert(
+            collection_name=collection_name, points=points, wait=True, ordering=WriteOrdering.STRONG
+        )
+    )
     logger.info("Indexed %d apps", len(points))
     return len(points)
 
 
 def delete_app(client: QdrantClient, app_id: str) -> None:
     """Delete an app from the index."""
-    client.delete(
-        collection_name=COLLECTION_ALIAS,
-        points_selector=[_app_id_to_int(app_id)],
+    _require_completed(
+        client.delete(
+            collection_name=COLLECTION_ALIAS,
+            points_selector=[_app_id_to_int(app_id)],
+            wait=True,
+            ordering=WriteOrdering.STRONG,
+        )
     )
 
 
+def _require_completed(result: Any) -> None:
+    if result.status != "completed":
+        raise RuntimeError("Qdrant operation did not complete")
+
+
 def apply_operations(client: QdrantClient, operations: list[dict[str, Any]]) -> int:
-    """Apply idempotent revisioned upserts/deletes."""
-    upserts: list[dict[str, Any]] = []
-    revisions: dict[str, int] = {}
+    """Apply only the current synthetic revision under its PostgreSQL row lock."""
     applied = 0
     for operation in operations:
         app_id = str(operation["app_id"])
         revision = int(operation["revision"])
-        if operation["operation"] == "delete":
-            delete_app(client, app_id)
+        kind = operation["operation"]
+        if kind not in {"upsert", "delete"}:
+            raise ValueError("Unknown index operation")
+        app = None
+        vector = None
+        if kind == "upsert":
+            app = AppMetadataV2.model_validate(operation["app"])
+            if app.id != app_id:
+                raise ValueError("operation app_id does not match payload")
+            current = get_catalogue_apps([app_id]).get(app_id)
+            if current is None or current["revision"] != revision:
+                continue
+            # Model loading/encoding stays outside the lock. The checksum is
+            # checked again under the lock before using this vector.
+            vector = encode([app.to_index_text("en")])[0].tolist()
+        with catalogue_index_app(app_id) as row:
+            if row is None or row["schema_version"] != "2.0" or row["revision"] != revision:
+                continue
+            if kind == "delete":
+                if row["active"]:
+                    continue
+                delete_app(client, app_id)
+            else:
+                if not row["active"]:
+                    continue
+                if app.checksum != row["checksum"]:
+                    raise ValueError("operation payload does not match authoritative revision")
+                point = PointStruct(
+                    id=_app_id_to_int(app_id),
+                    vector=vector,
+                    payload={
+                        **row["payload"],
+                        "_index_revision": revision,
+                        "_index_model": os.getenv(
+                            "EMBEDDING_MODEL", "intfloat/multilingual-e5-small"
+                        ),
+                        "_index_model_revision": os.getenv("EMBEDDING_MODEL_REVISION", "main"),
+                    },
+                )
+                _require_completed(
+                    client.upsert(
+                        collection_name=COLLECTION_ALIAS,
+                        points=[point],
+                        wait=True,
+                        ordering=WriteOrdering.STRONG,
+                    )
+                )
             applied += 1
-            continue
-        app = AppMetadataV2.model_validate(operation["app"])
-        if app.id != app_id:
-            raise ValueError("operation app_id does not match payload")
-        upserts.append(app.model_dump(mode="json", exclude={"checksum"}))
-        revisions[app.id] = revision
-    if upserts:
-        applied += index_batch(client, upserts, revisions=revisions)
     return applied
 
 
@@ -188,7 +240,13 @@ def rebuild_collection(client: QdrantClient, collection_name: str) -> dict[str, 
     indexed = 0
     for offset in range(0, total, 50):
         _, apps = list_catalogue_apps(limit=50, offset=offset)
-        indexed += index_batch(client, apps, collection_name=collection_name)
+        rows = get_catalogue_apps([app["id"] for app in apps])
+        indexed += index_batch(
+            client,
+            [row["payload"] for row in rows.values()],
+            revisions={key: row["revision"] for key, row in rows.items()},
+            collection_name=collection_name,
+        )
     if indexed != total:
         raise RuntimeError(f"reindex count mismatch: expected {total}, indexed {indexed}")
     promote_collection(client, collection_name, expected_count=total)
@@ -222,7 +280,9 @@ def promote_collection(
     aliases = {item.alias_name for item in client.get_aliases().aliases}
     operations = []
     if COLLECTION_ALIAS in aliases:
-        operations.append(DeleteAliasOperation(delete_alias=DeleteAlias(alias_name=COLLECTION_ALIAS)))
+        operations.append(
+            DeleteAliasOperation(delete_alias=DeleteAlias(alias_name=COLLECTION_ALIAS))
+        )
     operations.append(
         CreateAliasOperation(
             create_alias=CreateAlias(

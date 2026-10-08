@@ -54,19 +54,48 @@
     "/api/v2/ingestion/outbox/replay": {
       "post": {
         "summary": "Replay Outbox",
-        "description": "Queue retry of failed or pending index operations.",
+        "description": "Replay due work, or explicitly release one exhausted operation.",
         "operationId": "replay_outbox_api_v2_ingestion_outbox_replay_post",
+        "parameters": [
+          {
+            "name": "outbox_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Outbox Id"
+            }
+          }
+        ],
         "responses": {
           "202": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
+                  "type": "object",
                   "additionalProperties": {
                     "type": "string"
                   },
-                  "type": "object",
                   "title": "Response Replay Outbox Api V2 Ingestion Outbox Replay Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }

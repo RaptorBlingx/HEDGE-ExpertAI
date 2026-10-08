@@ -82,7 +82,7 @@
     "/api/v1/apps/{app_id}": {
       "get": {
         "summary": "Get App",
-        "description": "Retrieve a single app by ID from the index.",
+        "description": "Retrieve current public metadata from PostgreSQL.",
         "operationId": "get_app_api_v1_apps__app_id__get",
         "parameters": [
           {

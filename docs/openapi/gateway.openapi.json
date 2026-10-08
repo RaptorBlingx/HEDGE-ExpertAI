@@ -484,12 +484,41 @@
         "summary": "Proxy Ingestion Outbox Replay V2",
         "description": "Admin-only replay of pending and failed index operations.",
         "operationId": "proxy_ingestion_outbox_replay_v2_api_v2_ingestion_outbox_replay_post",
+        "parameters": [
+          {
+            "name": "outbox_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Outbox Id"
+            }
+          }
+        ],
         "responses": {
           "202": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }

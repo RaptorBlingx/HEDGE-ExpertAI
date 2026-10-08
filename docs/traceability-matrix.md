@@ -36,7 +36,9 @@ Local gate results and their explicit limitations are retained in
 
 Store v1 metadata mapping, durable identity, source-scoped reconciliation,
 and backend Bearer transport are implemented and tested offline. Authenticated
-Store acceptance remains pending; scheduled Store ingestion, absence retirement
+Store acceptance remains pending. [Outbox recovery and authoritative retrieval](outbox-retrieval-consistency.md)
+are implemented and tested offline; production fault/load acceptance remains pending.
+Scheduled Store ingestion, absence retirement
 from unverified responses, and public Store indexing remain disabled.
 Its supplied answers, observed API, dependencies, and implementation order are
 recorded in the [integration baseline](integration-baseline.md).

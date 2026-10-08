@@ -96,3 +96,29 @@ def test_configured_store_is_blocked_before_fetch_database_or_delivery(monkeypat
         monkeypatch.setattr(ingest, name, unexpected)
     result = ingest.ingest_all.run()
     assert result["status"] == "disabled" and "not enabled" in result["reason"]
+
+
+@pytest.mark.parametrize("ack", [{}, {"applied": True}, {"applied": 2}])
+def test_bad_index_acknowledgement_keeps_durable_work_for_retry(monkeypatch, ack):
+    from datetime import UTC, datetime
+    from unittest.mock import MagicMock
+
+    claim = {
+        "id": 1,
+        "app_id": "test-app",
+        "revision": 2,
+        "operation": "delete",
+        "updated_at": datetime.now(UTC),
+    }
+    claims = iter([[claim], []])
+    monkeypatch.setattr(ingest, "pending_outbox", lambda **kwargs: next(claims))
+    monkeypatch.setattr(ingest, "outbox_status", lambda: {"outstanding": 1, "exhausted": 0})
+    response = MagicMock()
+    response.json.return_value = ack
+    monkeypatch.setattr(ingest.httpx, "post", lambda *a, **k: response)
+    failed, completed = MagicMock(), MagicMock()
+    monkeypatch.setattr(ingest, "fail_outbox_item", failed)
+    monkeypatch.setattr(ingest, "complete_outbox_item", completed)
+    assert ingest.deliver_pending_outbox(limit=2)["failed"] == 1
+    completed.assert_not_called()
+    assert failed.call_args.kwargs["claimed_at"] == claim["updated_at"]

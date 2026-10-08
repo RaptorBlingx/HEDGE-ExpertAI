@@ -26,7 +26,7 @@ Widget / validation console
 
 1. Synthetic records use strict `AppMetadataV2` and reviewed ontology validation. Store v1 uses its separate sparse, offline profile; see [mapping and reconciliation notes](store-v1-phase1.md). Invalid records go to quarantine.
 2. Snapshot projection, revisions, quarantine and run statistics commit in one PostgreSQL transaction; synthetic changes also enqueue indexing operations. A checksum never suppresses a failed outbox retry.
-3. The worker sends revisioned upsert/delete operations to Qdrant. Only successful delivery sets `searchable_at`.
+3. The worker sends revisioned upsert/delete operations through the current-revision PostgreSQL row lock. Interrupted claims are reclaimed, late acknowledgements are fenced, and exhausted work is retained for explicit recovery. Only successful current-revision upsert delivery sets `searchable_at`; lexical retrieval does not depend on it.
 4. A source lock spans fetch through reconciliation. Only complete, unquarantined snapshots retire missing Apps within that source; empty snapshots require explicit approval. Synthetic retirement/reappearance enqueue revisioned delete/upsert operations. Store rows remain outside public v2 reads/indexing.
 5. New physical collections are populated and count-validated before `hedge_apps_current` is atomically promoted. Existing volumes are never opened in-place across unsupported upgrade gaps.
 
@@ -37,7 +37,7 @@ local fallback. The fallback is not counted as multilingual KPI evidence.
 
 ## Search and explanation
 
-PostgreSQL full-text search and Qdrant dense search retrieve candidates independently. Weighted reciprocal-rank fusion combines ranks, avoiding the false assumption that lexical and cosine scores are probabilities. Typed filters apply to both branches; semantic boosts are bounded and provenance-aware. Public responses expose only `high`, `medium` or `low` relevance.
+PostgreSQL full-text search and Qdrant dense search retrieve candidates independently. Ranked vector/cache references are checked against current PostgreSQL eligibility, revision, metadata and filters before fusion; vector failure leaves lexical retrieval usable. See [outbox and retrieval consistency](outbox-retrieval-consistency.md). Weighted reciprocal-rank fusion combines ranks, avoiding the false assumption that lexical and cosine scores are probabilities. Typed filters apply to both branches; semantic boosts are bounded and provenance-aware. Public responses expose only `high`, `medium` or `low` relevance.
 
 The E5 model uses `query:` and `passage:` prefixes and is pinned to an audited repository revision. The explanation layer receives only ordered retrieval results. It treats the query and metadata as untrusted delimited data, removes hidden-reasoning tags across stream chunks, verifies all titles and ordering, and falls back to deterministic localized evidence text on any validation failure.
 

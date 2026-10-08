@@ -10,17 +10,20 @@ import logging
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
-from hedge_shared.models_v2 import ReindexRequestV2, SearchRequestV2
+from hedge_shared.models_v2 import AppMetadataV2, ReindexRequestV2, SearchFilters, SearchRequestV2
 from hedge_shared.saref import app_to_jsonld
-from hedge_shared.storage import current_catalogue_revision, get_catalogue_app, list_catalogue_apps
+from hedge_shared.storage import (
+    current_catalogue_revision,
+    get_catalogue_app,
+    get_catalogue_apps,
+    list_catalogue_apps,
+)
 from pydantic import BaseModel, Field
 
 from .indexer import (
     apply_operations,
     ensure_collection,
-    get_app_by_id,
     get_client,
-    index_batch,
     promote_collection,
     rebuild_collection,
 )
@@ -58,32 +61,71 @@ class IndexOperationsRequest(BaseModel):
 def search_apps(req: SearchRequest):
     """Hybrid search: vector + keyword + SAREF boost."""
     client = get_client()
-    results = hybrid_search(
-        client,
-        query=req.query,
-        top_k=req.top_k,
-        saref_class=req.saref_class,
-    )
+    try:
+        results = hybrid_search(
+            client,
+            query=req.query,
+            top_k=req.top_k,
+            saref_class=req.saref_class,
+        )
+    except Exception:
+        logger.warning("Legacy vector retrieval unavailable; using current lexical retrieval")
+        results = []
+    rows = get_catalogue_apps([item["app"]["id"] for item in results])
+    results = [
+        {**item, "app": rows[item["app"]["id"]]["payload"]}
+        for item in results
+        if item["app"]["id"] in rows
+        and item["app"].get("_index_revision") == rows[item["app"]["id"]]["revision"]
+    ]
+    if not results:
+        results = search_apps_v2(
+            client,
+            query=req.query,
+            locale="en",
+            filters=SearchFilters(),
+            limit=req.top_k,
+            catalogue_revision=current_catalogue_revision(),
+        )
     return {"query": req.query, "total": len(results), "results": results}
 
 
 @router.post("/apps/index")
 def index_apps(req: IndexRequest):
     """Index a batch of apps into the vector store."""
+    try:
+        apps = [AppMetadataV2.model_validate(app) for app in req.apps]
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail="Only synthetic v2 Apps can be indexed"
+        ) from exc
+    rows = get_catalogue_apps([app.id for app in apps])
+    if any(app.id not in rows for app in apps):
+        raise HTTPException(status_code=409, detail="App is not in the active catalogue")
     client = get_client()
     ensure_collection(client)
-    count = index_batch(client, req.apps)
+    count = apply_operations(
+        client,
+        [
+            {
+                "app_id": app.id,
+                "revision": rows[app.id]["revision"],
+                "operation": "upsert",
+                "app": app.model_dump(mode="json", exclude={"checksum"}),
+            }
+            for app in apps
+        ],
+    )
     invalidate_cache()
     return {"indexed": count}
 
 
 @router.get("/apps/{app_id}")
 def get_app(app_id: str):
-    """Retrieve a single app by ID from the index."""
-    client = get_client()
-    app = get_app_by_id(client, app_id)
+    """Retrieve current public metadata from PostgreSQL."""
+    app = get_catalogue_app(app_id)
     if app is None:
-        raise HTTPException(status_code=404, detail=f"App {app_id} not found in index")
+        raise HTTPException(status_code=404, detail=f"App {app_id} not found in catalogue")
     return app
 
 

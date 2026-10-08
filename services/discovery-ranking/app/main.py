@@ -13,6 +13,7 @@ from .routes import router, v2_router
 
 try:
     from hedge_shared.metrics import MetricsMiddleware
+
     _HAS_METRICS = True
 except ImportError:
     _HAS_METRICS = False
@@ -29,13 +30,16 @@ async def lifespan(_: FastAPI):
     host = os.getenv("QDRANT_HOST", "qdrant")
     port = int(os.getenv("QDRANT_PORT", "6333"))
     client = get_client(host=host, port=port)
-    ensure_collection(client)
+    try:
+        ensure_collection(client)
+        from .embeddings import encode_single
 
-    from .embeddings import encode_single
-
-    encode_single("warmup")
-    logger.info("Discovery-Ranking service ready (embeddings preloaded)")
+        encode_single("warmup")
+    except Exception:
+        logger.warning("Vector initialization unavailable; lexical retrieval remains usable")
+    logger.info("Discovery-Ranking service started")
     yield
+
 
 app = FastAPI(
     title="HEDGE-ExpertAI Discovery & Ranking",
@@ -61,7 +65,7 @@ def health(response: Response):
     except Exception:
         logger.exception("Qdrant health check failed")
     postgres_ok = ping_database()
-    ready_state = qdrant_ok and postgres_ok
+    ready_state = postgres_ok
     if not ready_state:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return {

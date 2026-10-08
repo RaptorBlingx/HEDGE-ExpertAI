@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Path, Query
-from hedge_shared.storage import get_ingestion_run, latest_ingestion_run, list_quarantined_items
+from hedge_shared.storage import (
+    get_ingestion_run,
+    latest_ingestion_run,
+    list_quarantined_items,
+    outbox_status,
+    retry_outbox_item,
+)
 
 from .tasks.ingest import deliver_outbox_task, ingest_all
 
@@ -19,8 +25,10 @@ def trigger_ingest() -> dict[str, str]:
 
 
 @router.post("/api/v2/ingestion/outbox/replay", status_code=202)
-def replay_outbox() -> dict[str, str]:
-    """Queue retry of failed or pending index operations."""
+def replay_outbox(outbox_id: int | None = Query(default=None, ge=1)) -> dict[str, str]:
+    """Replay due work, or explicitly release one exhausted operation."""
+    if outbox_id is not None and not retry_outbox_item(outbox_id):
+        raise HTTPException(status_code=409, detail="Outbox item is not an exhausted failure")
     task = deliver_outbox_task.delay()
     return {"status": "queued", "task_id": task.id}
 
@@ -31,8 +39,8 @@ def ingest_status() -> dict:
     """Return the latest durable ingestion run."""
     run = latest_ingestion_run()
     if run is None:
-        return {"status": "not_run", "run": None}
-    return {"status": run["status"], "run": run}
+        return {"status": "not_run", "run": None, "outbox": outbox_status()}
+    return {"status": run["status"], "run": run, "outbox": outbox_status()}
 
 
 @router.get("/api/v2/ingestion/runs/{run_id}")
