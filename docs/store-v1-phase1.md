@@ -13,6 +13,12 @@ The public Store OpenAPI was checked on 2026-10-08; its SHA-256 remains
 `f5090c9cad06ea314a70ca1676dc433d97006ddbd7a65f9273058480239793a3`, matching
 the [baseline](integration-baseline.md). The [contract fixtures](../tests/fixtures/store-v1/apps.json)
 are constructed examples of the documented shape, not authenticated HEDGE data.
+The [sanitized regression shapes](../tests/fixtures/store-v1/sanitized-observed-shapes.json)
+reconstruct formats reported by the user from an authenticated `getAllApps`
+sample: integer millisecond dates, scheme-less registry locations, nulls, empty
+versions, HTML README and JSON-encoded `dataspaceAppDescription`. They contain
+invented IDs/text, no owner emails, and no raw authenticated records; the agent
+did not independently inspect the signed-in session or the two original Apps.
 
 | Source | Local representation and limits |
 |---|---|
@@ -20,8 +26,9 @@ are constructed examples of the documented shape, not authenticated HEDGE data.
 | Native pair | Retained as `store_id` and `app_id`; local `id` is `store-v1-` plus SHA-256 of the ordered JSON pair. It does not replace the native IDs. Delimiter ambiguity and cross-Store App ID collisions are avoided. |
 | `name`, `description`, `provider`, `readme` | Optional source strings. Blank text becomes missing; no title, summary, publisher, language, licence, taxonomy, or SAREF assertion is invented. |
 | `visible`, `active` | Strict boolean or unknown (`None`), preserving the distinction between false and absent. `public_eligible` conservatively requires both flags to be explicitly true. No certification status is used as a publication gate. |
-| `registrationDate` | Optional timezone-aware ISO date-time; numeric timestamps and malformed values fail. Never used as an update timestamp. |
-| `uiUrl`, `openAPIURL`, `deployURL`, `registryBaseURL` | Optional HTTP(S) URLs, retained by their source role. None is asserted to be a canonical Store detail or documentation link. |
+| `registrationDate` | Optional timezone-aware ISO date-time or integer Unix milliseconds, converted explicitly to UTC without magnitude-based seconds guessing. Floats, booleans, numeric strings, out-of-range and malformed values fail. Never used as an update timestamp. |
+| `uiUrl`, `openAPIURL`, `deployURL` | Optional HTTP(S) URLs, retained by their source role. None is asserted to be a canonical Store detail or documentation link. |
+| `registryBaseURL` | Optional plain string, preserving Docker registry locations with or without a scheme. No scheme is added and it is not a navigation link. |
 | `appVersionList` | Optional versions in source order with IDs, version strings, registration dates and comments. No latest/current version is chosen; supplied `fkAppId` must match the parent App. |
 | Unknown fields and asset descriptions | Ignored by this minimal projection; they cannot inject local identity or eligibility. No App/asset join is inferred. |
 
@@ -30,6 +37,9 @@ Non-object records, missing identity, and malformed known fields raise
 do not produce partially fabricated Apps. Optional fields do not become new
 required upstream properties merely because the synthetic profile requires them.
 Null/absent versions stay missing; an explicitly empty version list stays empty.
+HTML README remains source text, not trusted rendered HTML. JSON-encoded
+`dataspaceAppDescription` remains excluded from this projection; it is not parsed
+or joined to assets. These reported shapes need no enrichment change.
 
 ## Persistence and compatibility
 

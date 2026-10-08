@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Literal
 
 from pydantic import (
@@ -34,8 +34,16 @@ NativeIdentifier = Annotated[
 
 
 def _date_input(value: object) -> object:
-    if value is not None and not isinstance(value, (str, datetime)):
-        raise ValueError("registrationDate must be an ISO date-time")
+    if type(value) is int:
+        # Store v1 uses milliseconds, never infer seconds from the magnitude.
+        try:
+            return datetime(1970, 1, 1, tzinfo=UTC) + timedelta(milliseconds=value)
+        except OverflowError:
+            raise ValueError("registrationDate milliseconds are out of range") from None
+    if isinstance(value, str):
+        return datetime.fromisoformat(value)
+    if value is not None and not isinstance(value, datetime):
+        raise ValueError("registrationDate must be an ISO date-time or integer milliseconds")
     return value
 
 
@@ -81,7 +89,8 @@ class StoreAppMetadata(BaseModel):
     ui_url: AnyHttpUrl | None = None
     openapi_url: AnyHttpUrl | None = None
     deploy_url: AnyHttpUrl | None = None
-    registry_base_url: AnyHttpUrl | None = None
+    # Docker registry locations may lack a scheme; they are not navigation links.
+    registry_base_url: StrictStr | None = None
     versions: list[StoreAppVersion] | None = Field(default=None, strict=True)
 
     @field_validator(

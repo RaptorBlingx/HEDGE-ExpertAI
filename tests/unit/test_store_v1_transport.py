@@ -8,7 +8,7 @@ import httpx
 import pytest
 from hedge_shared.config import Settings
 from pydantic import ValidationError
-from test_store_v1 import client
+from test_store_v1 import SAMPLED_SHAPES, client
 
 BASE = "https://store.invalid/backend/api/v1"
 TOKEN = "test-only.header.signature"
@@ -62,6 +62,20 @@ def test_exact_store_v1_routes_bearer_and_source_normalization():
     model = client.normalize_store_v1_app(raw, store_id=api.store_id)
     assert model.public_eligible and model.provider is None
     assert "futureField" not in model.model_dump()
+    assert api.snapshot_complete is False
+
+
+def test_observed_shapes_pass_catalogue_and_detail_transport_validation():
+    def handler(request):
+        if request.url.path.endswith("/all"):
+            return httpx.Response(200, json=SAMPLED_SHAPES)
+        app_id = request.url.path.rsplit("/", 1)[-1]
+        return httpx.Response(200, json=next(a for a in SAMPLED_SHAPES if a["appId"] == app_id))
+
+    api = make_client(handler, store_id="Sample-Store")
+    assert api.fetch_all_apps() == SAMPLED_SHAPES
+    for raw in SAMPLED_SHAPES:
+        assert api.fetch_app(raw["appId"]) == raw
     assert api.snapshot_complete is False
 
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from copy import deepcopy
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -23,6 +24,9 @@ assert spec.loader is not None
 spec.loader.exec_module(client)
 normalize = client.normalize_store_v1_app
 RECORDS = json.loads((ROOT / "tests/fixtures/store-v1/apps.json").read_text())
+SAMPLED_SHAPES = json.loads(
+    (ROOT / "tests/fixtures/store-v1/sanitized-observed-shapes.json").read_text()
+)
 
 
 def test_sparse_record_retains_only_known_identity() -> None:
@@ -106,7 +110,10 @@ def test_endpoint_store_context_supplies_missing_identity_but_cannot_override_it
         ("provider", {"name": "Publisher"}),
         ("uiUrl", "javascript:alert(1)"),
         ("openAPIURL", "bad-url"),
-        ("registrationDate", 1750000000),
+        ("registrationDate", 1750000000000.0),
+        ("registrationDate", True),
+        ("registrationDate", 10**30),
+        ("registrationDate", "1750000000000"),
         ("registrationDate", "not-a-date"),
         ("registrationDate", "2026-10-01T12:00:00"),
         ("appVersionList", {}),
@@ -115,6 +122,8 @@ def test_endpoint_store_context_supplies_missing_identity_but_cannot_override_it
         ("appVersionList", [{"appVersionId": " "}]),
         ("appVersionList", [{"registrationDate": False}]),
         ("appVersionList", [{"fkAppId": "Another-App"}]),
+        ("registryBaseURL", 123),
+        ("registryBaseURL", {}),
     ],
 )
 def test_malformed_known_metadata_is_rejected_without_coercion(field, value) -> None:
@@ -152,3 +161,42 @@ def test_internal_v2_remains_strict_and_synthetic_transport_is_unchanged() -> No
     assert isinstance(client.get_client("https://mock.invalid"), client.MockApiClient)
     with patch.object(client.httpx, "get", side_effect=AssertionError("network call")):
         assert isinstance(normalize(RECORDS[0]), StoreAppMetadata)
+
+
+def test_sanitized_observed_shapes_normalize_without_enrichment() -> None:
+    first, second = [normalize(raw, store_id="Sample-Store") for raw in SAMPLED_SHAPES]
+    assert first.registration_date == datetime(2026, 10, 1, 12, 0, 0, 123000, tzinfo=UTC)
+    assert first.versions[0].registration_date == datetime(2026, 9, 1, 12, tzinfo=UTC)
+    assert [v.version for v in first.versions] == ["1.0", "2.0"]
+    assert first.registry_base_url == "registry.example.invalid/sample/app-a"
+    assert first.readme == "<h2>Sample README</h2><p>Supplied HTML.</p>"
+    assert first.public_eligible and not second.public_eligible
+    assert second.registration_date is second.description is second.ui_url is None
+    assert second.versions == [] and second.registry_base_url is None
+    for raw, app in zip(SAMPLED_SHAPES, (first, second), strict=True):
+        assert app.app_id == raw["appId"] and app.store_id == raw["fkAppStoreId"]
+        assert "dataspaceAppDescription" not in app.model_dump()
+        assert "Unjoined asset" not in app.to_index_text()
+        payload = app.model_dump_json(exclude={"id", "public_eligible", "checksum"})
+        assert StoreAppMetadata.model_validate_json(payload) == app
+
+
+@pytest.mark.parametrize(
+    "milliseconds,expected",
+    [
+        (0, "1970-01-01T00:00:00+00:00"),
+        (-1, "1969-12-31T23:59:59.999000+00:00"),
+        (1750000000, "1970-01-21T06:06:40+00:00"),
+    ],
+)
+def test_integer_dates_always_use_milliseconds(milliseconds, expected) -> None:
+    app = normalize({**RECORDS[0], "registrationDate": milliseconds})
+    assert app.registration_date.isoformat() == expected
+
+
+@pytest.mark.parametrize(
+    "registry", ["registry.example.invalid:5000/team/app", "https://example.invalid/registry"]
+)
+def test_registry_locations_are_preserved_as_strings(registry) -> None:
+    app = normalize({**RECORDS[0], "registryBaseURL": registry})
+    assert type(app.registry_base_url) is str and app.registry_base_url == registry
