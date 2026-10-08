@@ -121,7 +121,8 @@ def test_composite_identity_and_synthetic_reads_remain_separate(database) -> Non
         )
     )
     # The legacy synthetic reconciler cannot retire offline Store source rows.
-    storage.tombstone_missing_apps(run)
+    with storage.catalogue_snapshot("offline-contract-fixture") as conn:
+        storage.tombstone_missing_apps(run, conn=conn)
     assert all(r["active"] for r in rows("catalog_apps") if r["source_app_id"])
 
 

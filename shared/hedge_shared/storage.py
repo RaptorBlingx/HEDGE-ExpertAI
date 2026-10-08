@@ -11,7 +11,7 @@ import json
 import os
 import uuid
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from typing import Any
 
@@ -77,9 +77,10 @@ def complete_ingestion_run(
     deleted: int,
     quarantined: int,
     error: str | None = None,
+    conn: Any | None = None,
 ) -> None:
     """Finalize an ingestion record with immutable run statistics."""
-    with connection() as conn, conn.cursor() as cursor:
+    with nullcontext(conn) if conn is not None else connection() as db, db.cursor() as cursor:
         cursor.execute(
             """
             UPDATE ingestion_runs
@@ -165,11 +166,33 @@ def list_quarantined_items(
         return total, cursor.fetchall()
 
 
+def _lock_catalogue_source(cursor: Any, *, source: str, store_id: str | None) -> None:
+    # Store identity, rather than transport URL, defines the synchronization scope.
+    scope = ["hedge-store-v1", store_id] if store_id is not None else ["2.0", source]
+    cursor.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+        (json.dumps(scope, ensure_ascii=False),),
+    )
+
+
+@contextmanager
+def catalogue_snapshot(source: str, *, store_id: str | None = None) -> Iterator[Any]:
+    """Serialize a source from BEFORE fetch through atomic reconciliation.
+
+    Fetch inside this context: locking only the writes lets a delayed older
+    fetch overwrite newer publication state. Different Stores use distinct locks.
+    """
+    with connection() as conn, conn.cursor() as cursor:
+        _lock_catalogue_source(cursor, source=source, store_id=store_id)
+        yield conn
+
+
 def upsert_catalogue_app(
     run_id: str,
     app: AppMetadataV2 | StoreAppMetadata,
     *,
     source_updated_at: datetime | None = None,
+    conn: Any | None = None,
 ) -> str:
     """Upsert one app and enqueue its vector revision in the same transaction.
 
@@ -188,18 +211,31 @@ def upsert_catalogue_app(
     active = app.public_eligible if store_app else True
     native_store = app.store_id if store_app else None
     native_app = app.app_id if store_app else None
-    with connection() as conn, conn.cursor() as cursor:
-        if store_app:
-            # Serialize first inserts as well as updates of one native identity.
-            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (app.id,))
+    with nullcontext(conn) if conn is not None else connection() as db, db.cursor() as cursor:
+        cursor.execute("SELECT source FROM ingestion_runs WHERE id = %s", (run_id,))
+        run = cursor.fetchone()
+        if run is None:
+            raise ValueError("unknown ingestion run")
+        _lock_catalogue_source(cursor, source=run["source"], store_id=native_store)
         cursor.execute(
-            "SELECT checksum, revision, schema_version FROM catalog_apps WHERE id = %s FOR UPDATE",
+            """
+            SELECT checksum, revision, schema_version, active, last_seen_run_id
+            FROM catalog_apps WHERE id = %s FOR UPDATE
+            """,
             (app.id,),
         )
         existing = cursor.fetchone()
         if existing and existing["schema_version"] != schema_version:
             raise ValueError("catalogue key belongs to a different source profile")
-        if existing and existing["checksum"] == checksum:
+        if existing and not store_app and existing["last_seen_run_id"] is not None:
+            # Read ownership AFTER locking the row; a concurrent first claim
+            # may have changed last_seen_run_id while this statement waited.
+            cursor.execute(
+                "SELECT source FROM ingestion_runs WHERE id = %s", (existing["last_seen_run_id"],)
+            )
+            if cursor.fetchone()["source"] != run["source"]:
+                raise ValueError("catalogue key belongs to a different source")
+        if existing and existing["checksum"] == checksum and existing["active"] == active:
             cursor.execute(
                 """
                 UPDATE catalog_apps
@@ -275,11 +311,12 @@ def quarantine_item(
     run_id: str,
     *,
     source_key: str,
-    payload: dict[str, Any],
+    payload: Any,
     errors: list[dict[str, Any]] | list[str],
+    conn: Any | None = None,
 ) -> None:
     """Persist an invalid source record without admitting it to the catalogue."""
-    with connection() as conn, conn.cursor() as cursor:
+    with nullcontext(conn) if conn is not None else connection() as db, db.cursor() as cursor:
         cursor.execute(
             """
             INSERT INTO ingestion_items (
@@ -291,29 +328,51 @@ def quarantine_item(
         )
 
 
-def tombstone_missing_apps(run_id: str) -> int:
-    """Deactivate apps not observed in a complete source snapshot."""
-    with connection() as conn, conn.cursor() as cursor:
+def tombstone_missing_apps(run_id: str, *, conn: Any, store_id: str | None = None) -> int:
+    """Retire absent Apps in a validated snapshot's transaction and source scope.
+
+    Only call after complete, unquarantined, nonempty (or explicitly approved
+    empty) validation inside catalogue_snapshot. Source facts stay unchanged.
+    """
+    if store_id is not None:
+        scope = "schema_version = 'hedge-store-v1' AND source_store_id = %s"
+        scope_params = (store_id,)
+    else:
+        scope = """schema_version = '2.0' AND last_seen_run_id IN (
+            SELECT id FROM ingestion_runs WHERE source = (
+                SELECT source FROM ingestion_runs WHERE id = %s
+            )
+        )"""
+        scope_params = (run_id,)
+    with conn.cursor() as cursor:
         cursor.execute(
-            """
+            f"""
             UPDATE catalog_apps
             SET active = false, revision = revision + 1, updated_at = now(), searchable_at = NULL
-            WHERE active = true AND schema_version = '2.0'
-              AND last_seen_run_id IS DISTINCT FROM %s
-            RETURNING id, revision
+            WHERE active = true AND last_seen_run_id IS DISTINCT FROM %s AND {scope}
+            RETURNING id, revision, checksum, payload
             """,
-            (run_id,),
+            (run_id, *scope_params),
         )
         rows = cursor.fetchall()
         for row in rows:
             cursor.execute(
                 """
-                INSERT INTO indexing_outbox (app_id, revision, operation, payload, status)
-                VALUES (%s, %s, 'delete', '{}'::jsonb, 'pending')
-                ON CONFLICT (app_id, revision, operation) DO NOTHING
+                INSERT INTO catalog_app_revisions
+                    (app_id, revision, checksum, payload, ingestion_run_id)
+                VALUES (%s, %s, %s, %s::jsonb, %s)
                 """,
-                (row["id"], row["revision"]),
+                (row["id"], row["revision"], row["checksum"], json.dumps(row["payload"]), run_id),
             )
+            if store_id is None:
+                cursor.execute(
+                    """
+                    INSERT INTO indexing_outbox (app_id, revision, operation, payload, status)
+                    VALUES (%s, %s, 'delete', '{}'::jsonb, 'pending')
+                    ON CONFLICT (app_id, revision, operation) DO NOTHING
+                    """,
+                    (row["id"], row["revision"]),
+                )
         return len(rows)
 
 

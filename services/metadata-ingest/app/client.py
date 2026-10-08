@@ -86,15 +86,28 @@ class MockApiClient(AppStoreClient):
         all_apps: list[dict[str, Any]] = []
         page = 1
         page_size = 50
+        expected_total: int | None = None
         while True:
             url = f"{self.base_url}/api/v2/apps?page={page}&page_size={page_size}"
             resp = httpx.get(url, timeout=self.timeout)
             resp.raise_for_status()
             data = resp.json()
-            apps = data.get("apps", [])
+            if not isinstance(data, dict) or not isinstance(data.get("apps"), list):
+                raise ValueError("malformed mock catalogue page")
+            total = data.get("total")
+            if type(total) is not int or total < 0:
+                raise ValueError("missing or invalid mock catalogue total")
+            if expected_total is not None and total != expected_total:
+                raise ValueError("mock catalogue total changed during pagination")
+            expected_total = total
+            apps = data["apps"]
+            if len(apps) > page_size or len(all_apps) + len(apps) > total:
+                raise ValueError("mock catalogue exceeds declared page size or total")
             all_apps.extend(apps)
-            if len(all_apps) >= data.get("total", 0) or not apps:
+            if len(all_apps) == total:
                 break
+            if len(apps) != page_size:
+                raise ValueError("incomplete mock catalogue pagination")
             page += 1
         logger.info("Fetched %d apps from mock API", len(all_apps))
         return all_apps

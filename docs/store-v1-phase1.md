@@ -120,7 +120,71 @@ from pending live integration.
   were removed after verification.
 
 At import, outbound authentication/transport and safe snapshot reconciliation
-remain pending at this checkpoint.
+remained pending; the subsequent reconciliation slice is recorded below.
 Migration `0003_store_identity` remains a prerequisite
 before running updated storage code against any non-test database; no live
 migration, ingestion, deployment, or push was performed.
+
+## Safe snapshot reconciliation slice (2026-10-08)
+
+[`reconcile_catalogue_snapshot`](../services/metadata-ingest/app/snapshot.py)
+now fetches **inside** a PostgreSQL transaction advisory lock, scoped by native
+Store ID (synthetic profile: exact ingestion source string). The lock spans
+fetch, validation, projection, revisions, quarantine, absence retirement, and
+run statistics. These writes commit together or roll back together. Different
+Stores do not share the lock, even when their transport source is the same URL.
+No new migration, service, dependency, transport or authentication was added.
+
+- Absence retirement requires `snapshot_complete=True`, no quarantined records,
+  and a nonempty snapshot. An empty snapshot additionally requires deliberate
+  `allow_empty=True`; the scheduler never supplies it. Completeness defaults to
+  false. Failed fetches, malformed envelopes, truncated mock pagination,
+  duplicate identities, mismatched Store IDs and invalid records cannot authorize
+  retirement. All occurrences of a duplicate identity are quarantined.
+- Valid records in partial snapshots still apply, including explicit `visible`
+  or `active` withdrawal. The Phase 1 conservative eligibility rule still
+  applies to unknown publication flags. Malformed records preserve their previous
+  projection. Retirement affects only the current Store/profile; synthetic
+  rows use their previous ingestion run's source, reject cross-source key
+  takeover, and leave unowned legacy rows alone until observed by a source.
+- Absence retirement retains source payload/flags and adds a local revision;
+  it does not fabricate an owner withdrawal. Identical eligible metadata
+  reappearing after retirement also adds a revision. Synthetic delete/reactivation
+  enqueue ordered delete/upsert operations in the existing outbox. Store rows
+  still create **no** index operations and remain outside public v2 consumers.
+- The scheduled synthetic job uses this boundary. Mock pagination checks declared
+  totals, page lengths and premature termination. The legacy guessed HEDGE client
+  cannot authorize absence; real Store v1 transport remains unwired.
+
+Remaining assumptions: a caller must establish that a snapshot covers the whole
+authorized Store catalogue before setting `snapshot_complete`. A syntactically
+valid nonempty subset is indistinguishable from a full catalogue without that
+external contract. Do not fetch outside the lock or pass a previously fetched
+snapshot. Synthetic ownership depends on retaining referenced ingestion runs;
+source-string changes require a deliberate ownership transition. Confirm HEDGE
+visibility/`active` semantics, authorization scope and
+full-response behavior with authenticated examples. Future transport must bound
+fetch duration; a slow fetch holds its Store's lock and DB connection. Outbox
+crash recovery, stale vector/cache rejection and public Store retrieval remain
+the separate safety gate in the [baseline](integration-baseline.md).
+
+Verification: 21 new PostgreSQL reconciliation cases cover source isolation,
+partial/malformed/empty/failing snapshots, transaction rollback, publication,
+identical reappearance, synthetic outbox ordering, and overlapping fetches.
+They reuse the explicitly disposable `hedge_phase1_test` database and per-test
+schemas. These 21 cases and the six Phase 1 persistence tests passed on isolated
+PostgreSQL 16.9. The existing nine adapter tests also passed. All 239 unit tests
+passed with 93.84% shared branch coverage against the 80% gate (one existing
+Starlette/httpx deprecation warning). Repository Ruff and whitespace checks
+passed; all six regenerated OpenAPI contracts were byte-identical. Run the
+database cases with the Phase 1 persistence tests:
+
+```sh
+# HEDGE_TEST_DATABASE_URL must target a disposable database named hedge_phase1_test.
+python -m pytest tests/integration/test_store_v1_persistence.py \
+  tests/integration/test_catalogue_snapshot.py -q
+```
+
+The preserved demo checkout, containers, volumes and database were not used as
+test resources. No live migrations or deployment were performed. These offline
+checks establish reconciliation behavior, not authenticated Store acceptance.

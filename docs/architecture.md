@@ -24,10 +24,10 @@ Widget / validation console
 
 ## Ingestion invariants
 
-1. Every source record is parsed as strict `AppMetadataV2` and its ontology URIs are checked against the reviewed registry. Invalid records go to quarantine with structured errors.
-2. The current catalogue revision and indexing outbox entry are committed in one PostgreSQL transaction. A checksum never suppresses a failed outbox retry.
+1. Synthetic records use strict `AppMetadataV2` and reviewed ontology validation. Store v1 uses its separate sparse, offline profile; see [mapping and reconciliation notes](store-v1-phase1.md). Invalid records go to quarantine.
+2. Snapshot projection, revisions, quarantine and run statistics commit in one PostgreSQL transaction; synthetic changes also enqueue indexing operations. A checksum never suppresses a failed outbox retry.
 3. The worker sends revisioned upsert/delete operations to Qdrant. Only successful delivery sets `searchable_at`.
-4. Complete snapshots retire missing apps and enqueue tombstone deletes. Qdrant can be rebuilt entirely from active PostgreSQL rows.
+4. A source lock spans fetch through reconciliation. Only complete, unquarantined snapshots retire missing Apps within that source; empty snapshots require explicit approval. Synthetic retirement/reappearance enqueue revisioned delete/upsert operations. Store rows remain outside public v2 reads/indexing.
 5. New physical collections are populated and count-validated before `hedge_apps_current` is atomically promoted. Existing volumes are never opened in-place across unsupported upgrade gaps.
 
 Rasa is an NLU-only dependency in the production and deterministic acceptance

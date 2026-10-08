@@ -143,12 +143,24 @@ def test_upsert_catalogue_created_updated_and_unchanged(
     app: AppMetadataV2,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    created = FakeCursor(one=[None])
+    created = FakeCursor(one=[{"source": "fixture"}, None])
     install_connection(monkeypatch, created)
     assert storage.upsert_catalogue_app("run-1", app) == "created"
     assert any("INSERT INTO indexing_outbox" in sql for sql, _ in created.executed)
 
-    updated = FakeCursor(one=[{"checksum": "different", "revision": 4, "schema_version": "2.0"}])
+    updated = FakeCursor(
+        one=[
+            {"source": "fixture"},
+            {
+                "checksum": "different",
+                "revision": 4,
+                "schema_version": "2.0",
+                "active": True,
+                "last_seen_run_id": "owner",
+            },
+            {"source": "fixture"},
+        ]
+    )
     install_connection(monkeypatch, updated)
     assert storage.upsert_catalogue_app("run-2", app) == "updated"
     catalogue_params = next(
@@ -156,7 +168,19 @@ def test_upsert_catalogue_created_updated_and_unchanged(
     )
     assert catalogue_params[2] == 5
 
-    unchanged = FakeCursor(one=[{"checksum": app.checksum, "revision": 5, "schema_version": "2.0"}])
+    unchanged = FakeCursor(
+        one=[
+            {"source": "fixture"},
+            {
+                "checksum": app.checksum,
+                "revision": 5,
+                "schema_version": "2.0",
+                "active": True,
+                "last_seen_run_id": "owner",
+            },
+            {"source": "fixture"},
+        ]
+    )
     install_connection(monkeypatch, unchanged)
     assert storage.upsert_catalogue_app("run-3", app) == "unchanged"
     assert any("last_seen_run_id" in sql for sql, _ in unchanged.executed)
@@ -166,12 +190,15 @@ def test_upsert_catalogue_created_updated_and_unchanged(
 def test_tombstone_and_outbox_claim(monkeypatch: pytest.MonkeyPatch) -> None:
     cursor = FakeCursor(
         many=[
-            [{"id": "app-001", "revision": 3}, {"id": "app-002", "revision": 2}],
+            [
+                {"id": "app-001", "revision": 3, "checksum": "old", "payload": {}},
+                {"id": "app-002", "revision": 2, "checksum": "old", "payload": {}},
+            ],
             [{"id": 9, "app_id": "app-001", "operation": "delete", "attempts": 1}],
         ]
     )
     install_connection(monkeypatch, cursor)
-    assert storage.tombstone_missing_apps("run-final") == 2
+    assert storage.tombstone_missing_apps("run-final", conn=FakeConnection(cursor)) == 2
     assert storage.pending_outbox(limit=25)[0]["id"] == 9
     assert sum("INSERT INTO indexing_outbox" in sql for sql, _ in cursor.executed) == 2
     assert cursor.executed[-1][1] == (25,)
@@ -184,7 +211,7 @@ def test_store_projection_retains_visibility_without_indexing(
     visible: bool | None,
 ) -> None:
     app = StoreAppMetadata(store_id="Store", app_id="App", active=True, visible=visible)
-    cursor = FakeCursor(one=[None])
+    cursor = FakeCursor(one=[{"source": "offline"}, None])
     install_connection(monkeypatch, cursor)
     assert storage.upsert_catalogue_app("run-1", app) == "created"
     params = next(params for sql, params in cursor.executed if "INSERT INTO catalog_apps" in sql)
@@ -198,11 +225,13 @@ def test_store_projection_retains_visibility_without_indexing(
 
     cursor = FakeCursor(
         one=[
+            {"source": "offline"},
             {
                 "checksum": app.checksum,
                 "revision": 1,
                 "schema_version": "hedge-store-v1",
-            }
+                "active": visible is True,
+            },
         ]
     )
     install_connection(monkeypatch, cursor)
@@ -211,7 +240,9 @@ def test_store_projection_retains_visibility_without_indexing(
 
 
 def test_profile_key_collision_cannot_overwrite_existing_data(monkeypatch) -> None:
-    cursor = FakeCursor(one=[{"checksum": "old", "revision": 1, "schema_version": "2.0"}])
+    cursor = FakeCursor(
+        one=[{"source": "offline"}, {"checksum": "old", "revision": 1, "schema_version": "2.0"}]
+    )
     install_connection(monkeypatch, cursor)
     with pytest.raises(ValueError, match="different source profile"):
         storage.upsert_catalogue_app("run", StoreAppMetadata(store_id="Store", app_id="App"))

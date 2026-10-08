@@ -2,9 +2,9 @@
 
 Prepared 2026-10-08 against repository commit `fa06952`. This is the current
 integration planning entry point; live integration and acceptance remain pending.
-Phase 1 offline metadata and identity support is now implemented locally; see
-the [implementation notes](store-v1-phase1.md) for mapping, persistence,
-verification and assumptions. Live integration and acceptance remain pending.
+Phase 1 offline metadata/identity and safe source-scoped snapshot reconciliation
+are now implemented locally; see the [implementation notes](store-v1-phase1.md)
+for mapping, persistence, reconciliation, verification and assumptions.
 Keep it current as decisions are approved, and link to detailed guides instead
 of copying them here.
 
@@ -70,14 +70,14 @@ These are repository planning decisions, not additional HEDGE approvals:
 ## Dependencies and implementation order
 
 Split each phase into focused, reviewable changes with the exit evidence below.
-Offline mapping can begin before credentials; live ingestion depends on both
-contract examples and safe reconciliation. Separate transport from reconciliation
-changes, and outbox recovery from retrieval safety fixes.
+Offline mapping and reconciliation are implemented; live ingestion still depends
+on authenticated contract examples and proven snapshot completeness. Separate
+transport from reconciliation changes, and outbox recovery from retrieval safety fixes.
 
 | Priority | Work and boundary | Exit evidence |
 |---|---|---|
-| 1 — prerequisite | Define the minimal Store source profile and explicit mapping at the client/shared-model boundary. Preserve Store/App identity and public eligibility; accommodate absent optional metadata without weakening synthetic validation globally. | Contract fixtures for sparse and rich Apps, duplicate App IDs across Stores, unknown fields, unpublished Apps, and malformed records; document assumptions pending payload confirmation. |
-| 2 — prerequisite | Implement v1 HTTPS transport and outbound Bearer credentials. Correct guessed `/api/apps` routes and pagination. Make [snapshot reconciliation](../services/metadata-ingest/app/tasks/ingest.py) source-scoped, serialized, and deletion-safe before live use. | Mocked auth/renewal/error tests; failed, partial, quarantined, and unexpected-empty snapshots cannot erase unrelated or previously valid records; visibility withdrawal tested. Then validate read-only authenticated access on an agreed Store. |
+| 1 — implemented offline | Minimal Store source profile, explicit mapping, and durable identity support are implemented; see [Phase 1 notes](store-v1-phase1.md). Synthetic validation remains strict, and Store rows stay outside public v2 reads/indexing. | Contract and isolated persistence tests pass. Eligibility and field assumptions still require authenticated HEDGE payload confirmation. |
+| 2 — prerequisite, reconciliation implemented offline | Source-scoped, serialized, deletion-safe [snapshot reconciliation](../services/metadata-ingest/app/snapshot.py) is implemented and tested; see [notes and assumptions](store-v1-phase1.md#safe-snapshot-reconciliation-slice-2026-10-08). Next implement v1 HTTPS transport and outbound Bearer credentials, replacing guessed `/api/apps` routes and proving response completeness before enabling absence retirement. | Isolated PostgreSQL failure/concurrency/publication tests pass. Still required: mocked auth/renewal/error tests and read-only authenticated access on an agreed Store, including visibility and completeness validation. |
 | 3 — safety gate | Close existing [outbox/storage](../shared/hedge_shared/storage.py) and [retrieval](../services/discovery-ranking/app/searcher_v2.py) gaps: reclaim stalled work, handle exhausted retries, reject stale revisions, reindex reactivation, and verify final results against current public catalogue state. | Crash/replay/reordered-update tests; withdrawn Apps cannot escape through stale vectors or cache; lexical retrieval remains usable during vector lag. |
 | 4 — native UI | Agree one UI surface and request/result/navigation contract; reuse gateway and dialogue flows. Specify native IDs, ordering, grounded explanations, terminal errors, and telemetry semantics. | Dummy-Store flow through Angular UI → gateway → current catalogue; browser/auth/CORS and error-path checks. SSE only if agreed; widget checks do not establish native UI acceptance. |
 | 5 — hardening/validation | Validate the chosen host and production profile, secrets, TLS, monitoring, recovery, real models, and bounded load. Align corpus rights and evaluation protocols. | Retained target-environment evidence and reviewed acceptance results, linked from traceability; deterministic E2E and health checks alone are insufficient. |
