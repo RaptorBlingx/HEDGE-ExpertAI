@@ -79,15 +79,17 @@ def apply_data_retention_task() -> dict[str, int]:
 @celery_app.task(name="app.tasks.ingest.ingest_all", bind=True, max_retries=2)
 def ingest_all(self: Any) -> dict[str, Any]:
     """Reconcile the synthetic source; Store v1 transport remains unwired."""
-    source = HEDGE_API_URL or MOCK_API_URL
-    client = get_client(mock_url=MOCK_API_URL, hedge_url=HEDGE_API_URL or None)
+    if HEDGE_API_URL:
+        # Credentials/configuration do not authorize scheduled live ingestion.
+        return {"status": "disabled", "reason": "Store v1 ingestion is not enabled"}
+    source = MOCK_API_URL
+    client = get_client(mock_url=MOCK_API_URL)
     try:
         result = reconcile_catalogue_snapshot(
             source,
             client.fetch_all_apps,
             # Only the mock's validated pagination establishes completeness.
-            # The guessed legacy HEDGE transport must never authorize absence.
-            snapshot_complete=not bool(HEDGE_API_URL),
+            snapshot_complete=True,
         )
     except Exception as exc:
         logger.exception("Failed to reconcile source catalogue")

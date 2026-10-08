@@ -2,9 +2,11 @@
 
 Prepared 2026-10-08 against repository commit `fa06952`. This is the current
 integration planning entry point; live integration and acceptance remain pending.
-Phase 1 offline metadata/identity and safe source-scoped snapshot reconciliation
-are now implemented locally; see the [implementation notes](store-v1-phase1.md)
-for mapping, persistence, reconciliation, verification and assumptions.
+Phase 1 metadata/identity, safe source-scoped snapshot reconciliation, and
+[read-only Store v1 transport](store-v1-transport.md) are implemented locally and
+tested offline. See the [Phase 1 notes](store-v1-phase1.md) for mapping,
+persistence and reconciliation. Scheduled Store ingestion and public indexing
+remain disabled; authenticated acceptance and token acquisition remain pending.
 Keep it current as decisions are approved, and link to detailed guides instead
 of copying them here.
 
@@ -77,7 +79,7 @@ transport from reconciliation changes, and outbox recovery from retrieval safety
 | Priority | Work and boundary | Exit evidence |
 |---|---|---|
 | 1 — implemented offline | Minimal Store source profile, explicit mapping, and durable identity support are implemented; see [Phase 1 notes](store-v1-phase1.md). Synthetic validation remains strict, and Store rows stay outside public v2 reads/indexing. | Contract and isolated persistence tests pass. Eligibility and field assumptions still require authenticated HEDGE payload confirmation. |
-| 2 — prerequisite, reconciliation implemented offline | Source-scoped, serialized, deletion-safe [snapshot reconciliation](../services/metadata-ingest/app/snapshot.py) is implemented and tested; see [notes and assumptions](store-v1-phase1.md#safe-snapshot-reconciliation-slice-2026-10-08). Next implement v1 HTTPS transport and outbound Bearer credentials, replacing guessed `/api/apps` routes and proving response completeness before enabling absence retirement. | Isolated PostgreSQL failure/concurrency/publication tests pass. Still required: mocked auth/renewal/error tests and read-only authenticated access on an agreed Store, including visibility and completeness validation. |
+| 2 — implemented and tested offline; authenticated validation pending | Source-scoped [reconciliation](../services/metadata-ingest/app/snapshot.py) and documented v1 HTTPS routes with externally supplied backend Bearer credentials are implemented. See [transport notes](store-v1-transport.md). Scheduled Store ingestion is blocked; successful arrays never establish absence authority. | Mocked route/auth/error/rotation tests and isolated PostgreSQL safety tests pass. Still required: HEDGE credentials, representative authenticated responses, confirmed Keycloak acquisition/renewal and permissions, and proof of catalogue completeness before enabling live ingestion or absence retirement. |
 | 3 — safety gate | Close existing [outbox/storage](../shared/hedge_shared/storage.py) and [retrieval](../services/discovery-ranking/app/searcher_v2.py) gaps: reclaim stalled work, handle exhausted retries, reject stale revisions, reindex reactivation, and verify final results against current public catalogue state. | Crash/replay/reordered-update tests; withdrawn Apps cannot escape through stale vectors or cache; lexical retrieval remains usable during vector lag. |
 | 4 — native UI | Agree one UI surface and request/result/navigation contract; reuse gateway and dialogue flows. Specify native IDs, ordering, grounded explanations, terminal errors, and telemetry semantics. | Dummy-Store flow through Angular UI → gateway → current catalogue; browser/auth/CORS and error-path checks. SSE only if agreed; widget checks do not establish native UI acceptance. |
 | 5 — hardening/validation | Validate the chosen host and production profile, secrets, TLS, monitoring, recovery, real models, and bounded load. Align corpus rights and evaluation protocols. | Retained target-environment evidence and reviewed acceptance results, linked from traceability; deterministic E2E and health checks alone are insufficient. |

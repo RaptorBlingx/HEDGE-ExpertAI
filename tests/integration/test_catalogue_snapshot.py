@@ -12,6 +12,7 @@ from copy import deepcopy
 from pathlib import Path
 from threading import Event
 
+import httpx
 import pytest
 from hedge_shared import storage
 from hedge_shared.store_v1 import StoreAppMetadata
@@ -319,3 +320,51 @@ def test_concurrent_first_claim_cannot_transfer_synthetic_source_ownership(migra
     row = next(r for r in rows("catalog_apps") if r["id"] == migrated_database.id)
     assert str(row["last_seen_run_id"]) == first_run and row["revision"] == 7
     assert len(rows("catalog_app_revisions")) == len(rows("indexing_outbox")) == 1
+
+
+@pytest.mark.parametrize("payload", [[published()], []])
+def test_unverified_store_http_array_cannot_authorize_absence(migrated_database, payload):
+    reconcile([published(), published("B")])
+    before = projection()
+    transport_client = importlib.import_module("snapshot_test_ingest.client")
+    api = transport_client.HedgeApiClient(
+        "https://store.invalid/backend/api/v1",
+        store_id="Store-A",
+        token="test-only-token",
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=payload)),
+    )
+    result = snapshot.reconcile_catalogue_snapshot(
+        api.base_url,
+        api.fetch_all_apps,
+        store_id=api.store_id,
+        snapshot_complete=api.snapshot_complete,
+        allow_empty=True,
+    )
+    assert result["status"] == "partial" and result["deleted"] == 0
+    assert app_row()["active"] is app_row("B")["active"] is True
+    assert rows("catalog_app_revisions") == before["catalog_app_revisions"]
+    assert rows("indexing_outbox") == before["indexing_outbox"]
+
+
+@pytest.mark.parametrize(
+    "status,payload", [(401, {"error": "unauthorized"}), (200, [published(visible="invalid")])]
+)
+def test_failed_store_http_response_preserves_projection(migrated_database, status, payload):
+    reconcile([published(), published("B")])
+    before = projection()
+    transport_client = importlib.import_module("snapshot_test_ingest.client")
+    api = transport_client.HedgeApiClient(
+        "https://store.invalid/backend/api/v1",
+        store_id="Store-A",
+        token="test-only-token",
+        transport=httpx.MockTransport(lambda request: httpx.Response(status, json=payload)),
+    )
+    with pytest.raises(transport_client.StoreApiError):
+        snapshot.reconcile_catalogue_snapshot(
+            api.base_url,
+            api.fetch_all_apps,
+            store_id=api.store_id,
+            snapshot_complete=api.snapshot_complete,
+        )
+    assert projection() == before
+    assert storage.latest_ingestion_run()["status"] == "failed"

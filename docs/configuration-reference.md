@@ -61,19 +61,27 @@ fixed to `en`, `de`, `fr`, `es`, `it`, `nl`, `pt`, and `tr`.
 | Variable | Default | Purpose |
 |---|---|---|
 | `MOCK_API_URL` | `http://mock-api:9000` | Synthetic fixture source |
-| `HEDGE_API_URL` | empty | Selects the provisional real-source client; Store v1 integration is pending |
+| `HEDGE_API_URL` | empty | Manual Store v1 client base; full credential-free HTTPS URL ending in `/api/v1`. Nonempty blocks the scheduled ingestion job |
+| `HEDGE_STORE_ID` | empty | Native Store identity for the scoped App endpoints |
+| `HEDGE_STORE_TOKEN_FILE` | empty | Absolute backend token-file path; provision/rotate externally, with a read-only container mount when needed |
+| `HEDGE_STORE_TIMEOUT_SECONDS` | `30` | Operation time budget and maximum per-I/O timeout; greater than zero, at most 120 seconds |
+| `HEDGE_STORE_MAX_RETRIES` | `2` | Additional GET attempts; allowed 0–3, within the same time budget |
 | `INGEST_INTERVAL_SECONDS` | `7200` | Scheduler interval |
 | `CHAT_INTENT_URL` | `http://chat-intent:8001` | Gateway chat target |
 | `EXPERT_RECOMMEND_URL` | `http://expert-recommend:8002` | Recommendation target |
 | `DISCOVERY_RANKING_URL` | `http://discovery-ranking:8003` | Retrieval/index target |
 | `METADATA_INGEST_URL` | `http://metadata-ingest:8004` | Administrative ingestion target |
 
-Setting `HEDGE_API_URL` selects a client that still uses guessed `/api/apps`
-routes, sends no Bearer token, and requires the synthetic `schema_version: 2.0`
-shape. It does not enable the real Store v1 contract. Keep the synthetic source
-for development until transport, mapping, and safe reconciliation are implemented;
-see the [integration baseline](integration-baseline.md). ExpertAI API v2 is
-independent of the Store API v1.
+The explicit client factory now uses the documented Store v1 routes and an
+externally supplied backend Bearer token. Existing Compose `env_file` wiring
+passes these settings; it mounts no token file and enables no live Store job.
+Keep token contents outside `.env`, source, logs and browser configuration. Mount
+the token only into an authorized backend during later approved setup. Token
+acquisition/renewal and authenticated catalogue completeness remain pending;
+see [transport notes](store-v1-transport.md) and the
+[integration baseline](integration-baseline.md). Empty `HEDGE_API_URL` retains
+synthetic scheduling; nonempty returns a disabled job result before network,
+database or index access. ExpertAI API v2 is independent of Store API v1.
 
 ## Public security boundary
 

@@ -143,9 +143,6 @@ def test_optional_blanks_stay_missing_and_unknown_fields_do_not_affect_checksum(
 def test_internal_v2_remains_strict_and_synthetic_transport_is_unchanged() -> None:
     fixtures = json.loads((ROOT / "services/mock-api/app/data/apps-v2.json").read_text())
     assert AppMetadataV2.model_validate(fixtures[0]).id == fixtures[0]["id"]
-    assert client.HedgeApiClient._normalise(fixtures[0]) == fixtures[0]
-    with pytest.raises(ValueError, match="unsupported"):
-        client.HedgeApiClient._normalise(RECORDS[0])
     with pytest.raises(ValidationError):
         AppMetadataV2.model_validate(normalize(RECORDS[1]).model_dump())
     broken = deepcopy(fixtures[0])

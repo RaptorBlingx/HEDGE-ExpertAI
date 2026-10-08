@@ -3,6 +3,7 @@
 Every default here MUST match .env.example AND docker-compose.yml environment blocks.
 """
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -43,6 +44,10 @@ class Settings(BaseSettings):
     # --- App Store API ---
     MOCK_API_URL: str = "http://mock-api:9000"
     HEDGE_API_URL: str = ""
+    HEDGE_STORE_ID: str = ""
+    HEDGE_STORE_TOKEN_FILE: str = ""
+    HEDGE_STORE_TIMEOUT_SECONDS: float = Field(default=30.0, gt=0, le=120)
+    HEDGE_STORE_MAX_RETRIES: int = Field(default=2, ge=0, le=3)
 
     # --- Ingestion ---
     INGEST_INTERVAL_SECONDS: int = 7200

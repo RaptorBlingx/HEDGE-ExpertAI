@@ -20,12 +20,9 @@ spec.loader.exec_module(package)
 ingest = importlib.import_module("snapshot_task_ingest.tasks.ingest")
 
 
-@pytest.mark.parametrize("hedge_url", ["", "https://legacy.invalid"])
 @pytest.mark.parametrize("delivery_failed", [0, 1])
-def test_job_gates_completeness_and_records_delivery_failure(
-    monkeypatch, hedge_url, delivery_failed
-):
-    monkeypatch.setattr(ingest, "HEDGE_API_URL", hedge_url)
+def test_job_gates_completeness_and_records_delivery_failure(monkeypatch, delivery_failed):
+    monkeypatch.setattr(ingest, "HEDGE_API_URL", "")
 
     def fetch():
         return []
@@ -36,9 +33,9 @@ def test_job_gates_completeness_and_records_delivery_failure(
     completed = []
 
     def reconcile(source, fetch_apps, **kwargs):
-        assert source == (hedge_url or ingest.MOCK_API_URL)
+        assert source == ingest.MOCK_API_URL
         assert fetch_apps is fetch
-        assert kwargs == {"snapshot_complete": not bool(hedge_url)}
+        assert kwargs == {"snapshot_complete": True}
         return {
             "run_id": "run",
             "status": "completed",
@@ -82,3 +79,20 @@ def test_reconciliation_failure_retries_without_index_delivery(monkeypatch):
     monkeypatch.setattr(ingest, "deliver_pending_outbox", unexpected_delivery)
     with pytest.raises(RuntimeError, match="retry requested"):
         ingest.ingest_all.run()
+
+
+def test_configured_store_is_blocked_before_fetch_database_or_delivery(monkeypatch):
+    monkeypatch.setattr(ingest, "HEDGE_API_URL", "https://store.invalid/backend/api/v1")
+
+    def unexpected(*args, **kwargs):
+        pytest.fail("Store job must not access the network, database or index")
+
+    for name in (
+        "get_client",
+        "reconcile_catalogue_snapshot",
+        "deliver_pending_outbox",
+        "complete_ingestion_run",
+    ):
+        monkeypatch.setattr(ingest, name, unexpected)
+    result = ingest.ingest_all.run()
+    assert result["status"] == "disabled" and "not enabled" in result["reason"]
