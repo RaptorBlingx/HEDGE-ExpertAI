@@ -1,0 +1,20 @@
+[
+  {"appId": "Shared-App", "fkAppStoreId": "Store-A"},
+  {
+    "appId": "Shared-App", "fkAppStoreId": "Store-B",
+    "active": true, "visible": true,
+    "name": "Energy monitor", "description": "Shows supplied meter readings.",
+    "provider": "Example publisher", "readme": "# Meter readings",
+    "registrationDate": "2026-10-01T12:00:00Z",
+    "uiUrl": "https://example.invalid/ui",
+    "openAPIURL": "https://example.invalid/openapi.json",
+    "deployURL": "https://example.invalid/deploy",
+    "registryBaseURL": "https://example.invalid/registry",
+    "appVersionList": [
+      {"appVersionId": "v2", "fkAppId": "Shared-App", "version": "2.0", "versionComments": "New"},
+      {"appVersionId": "v1", "fkAppId": "Shared-App", "version": "1.0", "registrationDate": "2026-09-01T12:00:00Z"}
+    ],
+    "futureField": {"ignored": true}, "dataspaceAppDescription": "Unverified asset join"
+  },
+  {"appId": "Unpublished", "fkAppStoreId": "Store-B", "active": true, "visible": false, "name": "Owner only"}
+]

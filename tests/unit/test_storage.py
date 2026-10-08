@@ -15,6 +15,7 @@ from hedge_shared.models_v2 import (
     RecommendationEventRequest,
     SearchFilters,
 )
+from hedge_shared.store_v1 import StoreAppMetadata
 
 ROOT = Path(__file__).parents[2]
 
@@ -147,7 +148,7 @@ def test_upsert_catalogue_created_updated_and_unchanged(
     assert storage.upsert_catalogue_app("run-1", app) == "created"
     assert any("INSERT INTO indexing_outbox" in sql for sql, _ in created.executed)
 
-    updated = FakeCursor(one=[{"checksum": "different", "revision": 4}])
+    updated = FakeCursor(one=[{"checksum": "different", "revision": 4, "schema_version": "2.0"}])
     install_connection(monkeypatch, updated)
     assert storage.upsert_catalogue_app("run-2", app) == "updated"
     catalogue_params = next(
@@ -155,7 +156,7 @@ def test_upsert_catalogue_created_updated_and_unchanged(
     )
     assert catalogue_params[2] == 5
 
-    unchanged = FakeCursor(one=[{"checksum": app.checksum, "revision": 5}])
+    unchanged = FakeCursor(one=[{"checksum": app.checksum, "revision": 5, "schema_version": "2.0"}])
     install_connection(monkeypatch, unchanged)
     assert storage.upsert_catalogue_app("run-3", app) == "unchanged"
     assert any("last_seen_run_id" in sql for sql, _ in unchanged.executed)
@@ -174,6 +175,59 @@ def test_tombstone_and_outbox_claim(monkeypatch: pytest.MonkeyPatch) -> None:
     assert storage.pending_outbox(limit=25)[0]["id"] == 9
     assert sum("INSERT INTO indexing_outbox" in sql for sql, _ in cursor.executed) == 2
     assert cursor.executed[-1][1] == (25,)
+    assert "schema_version = '2.0'" in cursor.executed[0][0]
+
+
+@pytest.mark.parametrize("visible", [True, False, None])
+def test_store_projection_retains_visibility_without_indexing(
+    monkeypatch: pytest.MonkeyPatch,
+    visible: bool | None,
+) -> None:
+    app = StoreAppMetadata(store_id="Store", app_id="App", active=True, visible=visible)
+    cursor = FakeCursor(one=[None])
+    install_connection(monkeypatch, cursor)
+    assert storage.upsert_catalogue_app("run-1", app) == "created"
+    params = next(params for sql, params in cursor.executed if "INSERT INTO catalog_apps" in sql)
+    assert params[3] == "hedge-store-v1"
+    assert params[6] is (visible is True)
+    assert params[7] is None  # registration is not an update timestamp
+    assert params[-2:] == ("Store", "App")
+    assert json.loads(params[4])["visible"] is visible
+    assert any("INSERT INTO catalog_app_revisions" in sql for sql, _ in cursor.executed)
+    assert not any("indexing_outbox" in sql for sql, _ in cursor.executed)
+
+    cursor = FakeCursor(
+        one=[
+            {
+                "checksum": app.checksum,
+                "revision": 1,
+                "schema_version": "hedge-store-v1",
+            }
+        ]
+    )
+    install_connection(monkeypatch, cursor)
+    assert storage.upsert_catalogue_app("run-2", app) == "unchanged"
+    assert cursor.executed[-1][1][0] is (visible is True)
+
+
+def test_profile_key_collision_cannot_overwrite_existing_data(monkeypatch) -> None:
+    cursor = FakeCursor(one=[{"checksum": "old", "revision": 1, "schema_version": "2.0"}])
+    install_connection(monkeypatch, cursor)
+    with pytest.raises(ValueError, match="different source profile"):
+        storage.upsert_catalogue_app("run", StoreAppMetadata(store_id="Store", app_id="App"))
+    assert not any(sql.startswith(("INSERT", "UPDATE")) for sql, _ in cursor.executed)
+
+
+def test_store_registration_cannot_be_used_as_update_timestamp(monkeypatch) -> None:
+    cursor = FakeCursor()
+    install_connection(monkeypatch, cursor)
+    with pytest.raises(ValueError, match="no confirmed source update timestamp"):
+        storage.upsert_catalogue_app(
+            "run",
+            StoreAppMetadata(store_id="Store", app_id="App"),
+            source_updated_at=datetime.now(UTC),
+        )
+    assert not cursor.executed
 
 
 def test_outbox_completion_and_retry(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -230,6 +284,7 @@ def test_catalogue_reads_and_revision(monkeypatch: pytest.MonkeyPatch) -> None:
     total, apps = storage.list_catalogue_apps(limit=2, offset=1)
     assert total == 2 and len(apps) == 2
     assert storage.current_catalogue_revision() == "rev-hash"
+    assert all("schema_version = '2.0'" in sql for sql, _ in cursor.executed)
 
 
 def test_impressions_events_and_kpis(monkeypatch: pytest.MonkeyPatch) -> None:

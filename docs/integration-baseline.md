@@ -1,7 +1,10 @@
 # HEDGE Store integration baseline
 
 Prepared 2026-10-08 against repository commit `fa06952`. This is the current
-integration planning entry point; implementation and acceptance remain pending.
+integration planning entry point; live integration and acceptance remain pending.
+Phase 1 offline metadata and identity support is now implemented locally; see
+the [implementation notes](store-v1-phase1.md) for mapping, persistence,
+verification and assumptions. Live integration and acceptance remain pending.
 Keep it current as decisions are approved, and link to detailed guides instead
 of copying them here.
 

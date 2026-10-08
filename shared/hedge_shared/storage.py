@@ -21,6 +21,7 @@ from .models_v2 import (
     RecommendationEventType,
     SearchFilters,
 )
+from .store_v1 import StoreAppMetadata
 
 
 def database_url() -> str:
@@ -166,33 +167,48 @@ def list_quarantined_items(
 
 def upsert_catalogue_app(
     run_id: str,
-    app: AppMetadataV2,
+    app: AppMetadataV2 | StoreAppMetadata,
     *,
     source_updated_at: datetime | None = None,
 ) -> str:
     """Upsert one app and enqueue its vector revision in the same transaction.
 
+    Store source profiles are retained offline without v2 indexing operations.
     Returns ``created``, ``updated``, or ``unchanged``.
     """
-    payload = app.model_dump(mode="json", exclude={"checksum"})
+    store_app = isinstance(app, StoreAppMetadata)
+    # Store derived values are recomputed on read, not accepted as source facts.
+    excluded = {"checksum", "id", "public_eligible"} if store_app else {"checksum"}
+    payload = app.model_dump(mode="json", exclude=excluded)
     search_document = app.to_index_text("en")
     checksum = app.checksum
+    if store_app and source_updated_at is not None:
+        raise ValueError("Store v1 has no confirmed source update timestamp")
+    schema_version = app.source_profile if store_app else app.schema_version
+    active = app.public_eligible if store_app else True
+    native_store = app.store_id if store_app else None
+    native_app = app.app_id if store_app else None
     with connection() as conn, conn.cursor() as cursor:
+        if store_app:
+            # Serialize first inserts as well as updates of one native identity.
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", (app.id,))
         cursor.execute(
-            "SELECT checksum, revision FROM catalog_apps WHERE id = %s FOR UPDATE",
+            "SELECT checksum, revision, schema_version FROM catalog_apps WHERE id = %s FOR UPDATE",
             (app.id,),
         )
         existing = cursor.fetchone()
+        if existing and existing["schema_version"] != schema_version:
+            raise ValueError("catalogue key belongs to a different source profile")
         if existing and existing["checksum"] == checksum:
             cursor.execute(
                 """
                 UPDATE catalog_apps
-                SET active = true,
+                SET active = %s,
                     last_seen_run_id = %s,
                     source_updated_at = COALESCE(%s, source_updated_at)
                 WHERE id = %s
                 """,
-                (run_id, source_updated_at, app.id),
+                (active, run_id, source_updated_at, app.id),
             )
             return "unchanged"
 
@@ -202,15 +218,18 @@ def upsert_catalogue_app(
             """
             INSERT INTO catalog_apps (
                 id, checksum, revision, schema_version, payload, search_document,
-                active, source_updated_at, last_seen_run_id, searchable_at
+                active, source_updated_at, last_seen_run_id, searchable_at,
+                source_store_id, source_app_id
             )
-            VALUES (%s, %s, %s, '2.0', %s::jsonb, %s, true, %s, %s, NULL)
+            VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, NULL, %s, %s)
             ON CONFLICT (id) DO UPDATE SET
                 checksum = EXCLUDED.checksum,
                 revision = EXCLUDED.revision,
                 payload = EXCLUDED.payload,
                 search_document = EXCLUDED.search_document,
-                active = true,
+                active = EXCLUDED.active,
+                source_store_id = EXCLUDED.source_store_id,
+                source_app_id = EXCLUDED.source_app_id,
                 source_updated_at = EXCLUDED.source_updated_at,
                 last_seen_run_id = EXCLUDED.last_seen_run_id,
                 searchable_at = NULL,
@@ -220,10 +239,14 @@ def upsert_catalogue_app(
                 app.id,
                 checksum,
                 revision,
+                schema_version,
                 json.dumps(payload),
                 search_document,
+                active,
                 source_updated_at,
                 run_id,
+                native_store,
+                native_app,
             ),
         )
         cursor.execute(
@@ -236,14 +259,15 @@ def upsert_catalogue_app(
             """,
             (app.id, revision, checksum, json.dumps(payload), run_id),
         )
-        cursor.execute(
-            """
-            INSERT INTO indexing_outbox (app_id, revision, operation, payload, status)
-            VALUES (%s, %s, 'upsert', %s::jsonb, 'pending')
-            ON CONFLICT (app_id, revision, operation) DO NOTHING
-            """,
-            (app.id, revision, json.dumps(payload)),
-        )
+        if not store_app:
+            cursor.execute(
+                """
+                INSERT INTO indexing_outbox (app_id, revision, operation, payload, status)
+                VALUES (%s, %s, 'upsert', %s::jsonb, 'pending')
+                ON CONFLICT (app_id, revision, operation) DO NOTHING
+                """,
+                (app.id, revision, json.dumps(payload)),
+            )
         return action
 
 
@@ -274,7 +298,8 @@ def tombstone_missing_apps(run_id: str) -> int:
             """
             UPDATE catalog_apps
             SET active = false, revision = revision + 1, updated_at = now(), searchable_at = NULL
-            WHERE active = true AND last_seen_run_id IS DISTINCT FROM %s
+            WHERE active = true AND schema_version = '2.0'
+              AND last_seen_run_id IS DISTINCT FROM %s
             RETURNING id, revision
             """,
             (run_id,),
@@ -368,7 +393,7 @@ def lexical_search(
     """Return an independent PostgreSQL full-text candidate ranking."""
     # The simple dictionary is deliberate: it is deterministic across all
     # eight locales and the catalogue also stores curated localized keywords.
-    where = ["active = true", "searchable_at IS NOT NULL"]
+    where = ["active = true", "schema_version = '2.0'", "searchable_at IS NOT NULL"]
     filter_params: list[Any] = []
 
     if filters.publisher:
@@ -441,7 +466,7 @@ def get_catalogue_app(app_id: str, *, include_inactive: bool = False) -> dict[st
     clause = "" if include_inactive else "AND active = true"
     with connection() as conn, conn.cursor() as cursor:
         cursor.execute(
-            f"SELECT payload FROM catalog_apps WHERE id = %s {clause}",
+            f"SELECT payload FROM catalog_apps WHERE id = %s AND schema_version = '2.0' {clause}",
             (app_id,),
         )
         row = cursor.fetchone()
@@ -451,13 +476,16 @@ def get_catalogue_app(app_id: str, *, include_inactive: bool = False) -> dict[st
 def list_catalogue_apps(*, limit: int, offset: int = 0) -> tuple[int, list[dict[str, Any]]]:
     """List active catalogue apps from the durable source of truth."""
     with connection() as conn, conn.cursor() as cursor:
-        cursor.execute("SELECT count(*) AS total FROM catalog_apps WHERE active = true")
+        cursor.execute(
+            "SELECT count(*) AS total FROM catalog_apps "
+            "WHERE active = true AND schema_version = '2.0'"
+        )
         total = int(cursor.fetchone()["total"])
         cursor.execute(
             """
             SELECT payload
             FROM catalog_apps
-            WHERE active = true
+            WHERE active = true AND schema_version = '2.0'
             ORDER BY id
             LIMIT %s OFFSET %s
             """,
@@ -473,7 +501,7 @@ def current_catalogue_revision() -> str:
             """
             SELECT COALESCE(md5(string_agg(id || ':' || revision::text, ',' ORDER BY id)), 'empty')
                    AS revision
-            FROM catalog_apps WHERE active = true
+            FROM catalog_apps WHERE active = true AND schema_version = '2.0'
             """
         )
         return str(cursor.fetchone()["revision"])

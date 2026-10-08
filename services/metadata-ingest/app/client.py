@@ -9,8 +9,58 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 import httpx
+from hedge_shared.store_v1 import StoreAppMetadata
 
 logger = logging.getLogger(__name__)
+
+
+def normalize_store_v1_app(raw: object, *, store_id: str | None = None) -> StoreAppMetadata:
+    """Normalize one offline Store App; never fetch, infer, or enrich metadata.
+
+    A Store ID from the scoped endpoint may supply an absent fkAppStoreId, but
+    a conflicting payload is rejected. Unknown source fields are deliberately
+    ignored; malformed known fields fail validation for later quarantine.
+    """
+    if not isinstance(raw, dict):
+        raise ValueError("Store App must be an object")
+    native_store = raw.get("fkAppStoreId")
+    if store_id is not None and native_store is not None and native_store != store_id:
+        raise ValueError("fkAppStoreId conflicts with the requested Store")
+    fields = {
+        "name": "name",
+        "description": "description",
+        "provider": "provider",
+        "readme": "readme",
+        "active": "active",
+        "visible": "visible",
+        "registrationDate": "registration_date",
+        "uiUrl": "ui_url",
+        "openAPIURL": "openapi_url",
+        "deployURL": "deploy_url",
+        "registryBaseURL": "registry_base_url",
+    }
+    values = {target: raw[source] for source, target in fields.items() if source in raw}
+    versions = raw.get("appVersionList")
+    if versions is not None:
+        if not isinstance(versions, list) or any(not isinstance(v, dict) for v in versions):
+            raise ValueError("appVersionList must be an array of objects")
+        if any(v.get("fkAppId") is not None and v["fkAppId"] != raw.get("appId") for v in versions):
+            raise ValueError("App version belongs to a different App")
+        version_fields = {
+            "appVersionId": "app_version_id",
+            "version": "version",
+            "registrationDate": "registration_date",
+            "versionComments": "comments",
+        }
+        values["versions"] = [
+            {target: v[source] for source, target in version_fields.items() if source in v}
+            for v in versions
+        ]
+    return StoreAppMetadata(
+        store_id=native_store if native_store is not None else store_id,
+        app_id=raw.get("appId"),
+        **values,
+    )
 
 
 class AppStoreClient(ABC):
@@ -59,11 +109,10 @@ class MockApiClient(AppStoreClient):
 
 
 class HedgeApiClient(AppStoreClient):
-    """Client for the real HEDGE-IoT App Store API.
+    """Legacy synthetic transport; real Store v1 transport is still pending.
 
-    Expects the sandbox API to follow the same pagination/detail contract as
-    the mock service.  The field mapping normalises any naming differences so
-    that downstream indexing receives a consistent schema.
+    Offline Store v1 normalization is deliberately separate and not selected
+    by this client or the scheduler until safe reconciliation is implemented.
     """
 
     def __init__(self, base_url: str, timeout: float = 30.0):
