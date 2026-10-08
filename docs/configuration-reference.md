@@ -61,16 +61,19 @@ fixed to `en`, `de`, `fr`, `es`, `it`, `nl`, `pt`, and `tr`.
 | Variable | Default | Purpose |
 |---|---|---|
 | `MOCK_API_URL` | `http://mock-api:9000` | Synthetic fixture source |
-| `HEDGE_API_URL` | empty | Future real-store endpoint; real calls remain out of scope |
+| `HEDGE_API_URL` | empty | Selects the provisional real-source client; Store v1 integration is pending |
 | `INGEST_INTERVAL_SECONDS` | `7200` | Scheduler interval |
 | `CHAT_INTENT_URL` | `http://chat-intent:8001` | Gateway chat target |
 | `EXPERT_RECOMMEND_URL` | `http://expert-recommend:8002` | Recommendation target |
 | `DISCOVERY_RANKING_URL` | `http://discovery-ranking:8003` | Retrieval/index target |
 | `METADATA_INGEST_URL` | `http://metadata-ingest:8004` | Administrative ingestion target |
 
-`HEDGE_API_URL` does not enable a guessed legacy mapping. The adapter accepts
-only the provisional v2 fixture contract until the real API schema and data
-rights are approved.
+Setting `HEDGE_API_URL` selects a client that still uses guessed `/api/apps`
+routes, sends no Bearer token, and requires the synthetic `schema_version: 2.0`
+shape. It does not enable the real Store v1 contract. Keep the synthetic source
+for development until transport, mapping, and safe reconciliation are implemented;
+see the [integration baseline](integration-baseline.md). ExpertAI API v2 is
+independent of the Store API v1.
 
 ## Public security boundary
 

@@ -2,6 +2,10 @@
 set -Eeuo pipefail
 
 STACK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -f "$STACK_DIR/ops/demo-preserved.path" ]]; then
+  IFS= read -r demo_state < "$STACK_DIR/ops/demo-preserved.path"
+  exec python3 "$demo_state/preserved_demo.py" check
+fi
 expected_bind="127.0.0.1"
 if [[ -f "$STACK_DIR/.env" ]]; then
   configured_bind="$(awk -F= '$1 == "GATEWAY_BIND_ADDRESS" {print $2}' "$STACK_DIR/.env" | tail -n 1)"

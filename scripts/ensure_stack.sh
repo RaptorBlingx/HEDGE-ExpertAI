@@ -5,6 +5,10 @@ set -Eeuo pipefail
 # can restore a container's process while leaving its network endpoint stale;
 # recreating the edge gateway is safe and restores its published listener.
 STACK_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -f "$STACK_DIR/ops/demo-preserved.path" ]]; then
+  IFS= read -r demo_state < "$STACK_DIR/ops/demo-preserved.path"
+  exec python3 "$demo_state/preserved_demo.py" start
+fi
 COMPOSE=(docker compose -f "$STACK_DIR/docker-compose.yml" -f "$STACK_DIR/docker-compose.e2e.yml")
 DEMO_SERVICES=(
   postgres migrations qdrant discovery-ranking mock-api

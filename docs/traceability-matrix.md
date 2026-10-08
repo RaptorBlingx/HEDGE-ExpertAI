@@ -34,4 +34,9 @@ Local gate results and their explicit limitations are retained in
 | HitRate@2 ≥70%, multilingual NLU and explanation gates | 3 | evaluation requirements defined | Evaluation | Pending evidence |
 | Acceptance/exposure/discovery/maintenance/satisfaction/uptime KPIs | 3 | verified event model available | Evaluation | Pending consented pilot/before-after evidence |
 
-The real HEDGE Store API is explicitly out of scope. `contracts/hedge-store-v2.schema.json` and `HedgeApiClient` preserve a fail-closed integration boundary without guessing the unavailable contract.
+Real HEDGE Store v1 integration is pending. Its supplied answers, observed API,
+dependencies, and implementation order are recorded in the
+[integration baseline](integration-baseline.md). `contracts/hedge-store-v2.schema.json`
+is a synthetic fixture contract; `HedgeApiClient` still has provisional routes
+and validation and does not implement Store v1 authentication or mapping.
+Existing local evidence does not establish real integration or production readiness.

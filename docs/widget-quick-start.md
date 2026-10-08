@@ -2,7 +2,9 @@
 
 ## Purpose
 
-This is the shortest path to deploying and validating the production HEDGE-ExpertAI widget.
+This is the shortest path to deploying and validating the existing HEDGE-ExpertAI widget artifact.
+Native Store UI integration is pending; see the [integration baseline](integration-baseline.md)
+for HEDGE's preferred Angular pane and the remaining interface decisions.
 
 The shipping surface is:
 
