@@ -6,6 +6,10 @@ dependency, scheduler, live ingestion or public Store result contract. Public
 search/detail/list, indexing operations, rebuilds and outbox creation still default
 to synthetic v2 only. The frozen demo is independent and was not used for testing.
 
+For interactive questions, use the lightweight [manual testing runner](store-v1-manual-testing.md).
+It exercises existing dialogue/recommendation code with sparse sanitized named fixtures,
+and exposes unsupported behavior without changing ranking or public contracts.
+
 ## Explicit offline boundary
 
 For **disposable test resources only**, call the existing Python functions
