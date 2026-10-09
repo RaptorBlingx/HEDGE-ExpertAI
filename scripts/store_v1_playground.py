@@ -19,17 +19,16 @@ from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 STORE = "Manual-Store-Fixture"
-BANNER = """OFFLINE SANITIZED FIXTURES — not a live Store or product-capability demonstration.
-Real: normalization/reconciliation, PostgreSQL, dialogue policy, Valkey sessions,
+BANNER = """OFFLINE AUTHORED FIXTURES — not a live Store or verified product demonstration.
+Real: normalization/reconciliation, PostgreSQL, Store dialogue policy, Valkey sessions,
 recommendation orchestration, RRF and escaped source quotations.
 Replaced: inter-service HTTP calls with local Python bridges.
-Unavailable: Rasa model, dense embeddings/index coverage, Ollama generation.
-The real regex intent fallback runs; lexical fallback is unmodified. No test vectors.
-Returned Apps are retrieval candidates, not answers about capabilities, comparisons,
-prices or guaranteed follow-up resolution. The fixtures assert names only; optional
-metadata stays absent. Inspect effective_query/filters/explanations, including misses.
+Default: regex NLU and lexical fallback; no model or fake-vector simulation.
+Optional real pinned E5: launcher --embeddings. Experimental real Rasa: --rasa.
+Ollama is not used; Store narratives are deterministic supplied-field quotations.
+Details/comparisons resolve current published Apps; absent metadata stays absent.
 Commands: :mode chat | :mode search | :filters JSON | :records | :help | :quit
-Default: chat. 'reset' runs the existing dialogue reset. Filters persist until :filters {}.
+Default: chat. 'reset' clears context. Filters persist until :filters {}.
 """
 EXAMPLES = [
     ("search", 'EdgeConnect OR "Semantic Treehouse"', {}),
@@ -72,13 +71,17 @@ def require_isolation() -> None:
 
 
 class Playground:
-    def __init__(self, chat, recommender, models, records):
+    def __init__(self, chat, recommender, models, records, policy):
         self.chat = chat
         self.recommender = recommender
         self.models = models
         self.records = records
         self.session_id = None
         self.trace = None
+        self.policy = policy
+
+    async def converse(self, request):
+        return await self.chat.run_chat_v2(request, store_dialogue=self.policy)
 
     def recommend(self, query, *, locale, filters):
         result = self.recommender.recommend_v2(
@@ -93,7 +96,7 @@ class Playground:
         filters = self.models.SearchFilters.model_validate(filters).model_dump(mode="json")
         self.trace = None
         if mode == "chat":
-            response = asyncio.run(self.chat.chat_v2(self.models.ChatRequestV2(
+            response = asyncio.run(self.converse(self.models.ChatRequestV2(
                 session_id=self.session_id, message=message, locale="en", filters=filters,
             )))
             self.session_id = response["session_id"]
@@ -131,13 +134,14 @@ def offline_playground():
     recommend = load_service("manual_store_expert", "expert-recommend")("recommender")
     chat = load_service("manual_store_chat", "chat-intent")("routes")
     with ExitStack() as stack:
-        stack.enter_context(patch.dict(os.environ, {"RASA_ENABLED": "false"}))
         # Explicit model unavailability exercises the real lexical fallback;
         # constant test embeddings would give misleading manual rankings.
         def unavailable(*args, **kwargs):
             raise RuntimeError("Offline models unavailable; no generation or fabricated vectors")
 
-        stack.enter_context(patch.object(discovery("embeddings"), "encode_single", unavailable))
+        real_embeddings = os.getenv("STORE_PLAYGROUND_E5") == "true"
+        if not real_embeddings:
+            stack.enter_context(patch.object(discovery("embeddings"), "encode_single", unavailable))
         searcher = discovery("searcher_v2")
         client = QdrantClient(url=os.environ["HEDGE_TEST_QDRANT_URL"], timeout=3,
                               check_compatibility=False)
@@ -147,6 +151,12 @@ def offline_playground():
             collection, vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE),
         )
         stack.callback(client.delete_collection, collection)
+        if real_embeddings:
+            rows = storage.get_catalogue_apps([r["id"] for r in records], store_id=STORE)
+            discovery("indexer").apply_operations(client, [
+                {"app_id": identity, "revision": row["revision"], "operation": "upsert",
+                 "app": row["payload"]} for identity, row in rows.items()
+            ], store_id=STORE, collection_name=collection)
 
         def search(query, *, locale, filters, limit):
             return searcher.search_apps_v2(
@@ -157,12 +167,27 @@ def offline_playground():
 
         stack.enter_context(patch.object(recommend, "_search_apps_v2", search))
         stack.enter_context(patch.object(recommend, "OllamaClient", unavailable))
-        playground = Playground(chat, recommend, models_v2, records)
+        from hedge_shared.store_v1 import StoreAppMetadata
 
-        async def bridge(*, query, locale, filters):
-            return playground.recommend(query, locale=locale, filters=filters)
+        def resolve(identities):
+            identities = [r["id"] for r in records] if identities is None else identities
+            rows = storage.get_catalogue_apps(identities, store_id=STORE)
+            apps = []
+            for identity in identities:
+                if identity in rows:
+                    app = StoreAppMetadata.model_validate(rows[identity]["payload"])
+                    if app.id == identity and app.store_id == STORE and app.public_eligible:
+                        apps.append(app.recommendation_projection())
+            return apps
 
-        stack.enter_context(patch.object(chat, "_recommend_v2", bridge))
+        async def policy_search(**kwargs):
+            return playground.recommend(**kwargs)
+
+        policy = importlib.import_module(chat.__package__ + ".store_dialogue").StoreDialogue(
+            policy_search, resolve, recommend._recommendation_narrative,
+        )
+        playground = Playground(chat, recommend, models_v2, records, policy)
+
         yield playground
 
 
@@ -171,6 +196,8 @@ def main() -> None:
     parser.add_argument("--examples", action="store_true", help="run a fixed diagnostic conversation")
     args = parser.parse_args()
     print(BANNER)
+    print("Configured models:", {"E5": os.getenv("STORE_PLAYGROUND_E5") == "true",
+                                 "Rasa": os.getenv("RASA_ENABLED") == "true"})
     with offline_playground() as playground:
         if args.examples:
             for mode, question, filters in EXAMPLES:

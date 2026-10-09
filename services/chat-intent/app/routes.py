@@ -6,6 +6,7 @@ import logging
 import os
 import re
 import uuid
+from typing import TYPE_CHECKING
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -34,6 +35,9 @@ from .session import (
     record_feedback,
     update_session,
 )
+
+if TYPE_CHECKING:
+    from .store_dialogue import StoreDialogue
 
 logger = logging.getLogger(__name__)
 
@@ -433,6 +437,11 @@ async def _recommend_v2(
 @v2_router.post("/chat")
 async def chat_v2(req: ChatRequestV2) -> dict:
     """Deterministic application-owned dialogue with durable impressions."""
+    return await run_chat_v2(req)
+
+
+async def run_chat_v2(req: ChatRequestV2, *, store_dialogue: StoreDialogue | None = None) -> dict:
+    """Application-owned dialogue; explicit Store policy is for isolated runners only."""
     session_id, history = get_or_create_session(req.session_id)
     context = _context_for(session_id)
     result = classify(req.message)
@@ -456,9 +465,18 @@ async def chat_v2(req: ChatRequestV2) -> dict:
             "message": message,
             "apps": [],
             "impression_id": None,
+            **({"nlu": {"source": result.source, "intent": result.intent, "confidence": result.confidence}}
+               if store_dialogue else {}),
         }
 
-    if intent in {"greeting", "help", "out_of_scope"}:
+    if store_dialogue and intent not in {"greeting", "help", "out_of_scope"}:
+        recommendation = await store_dialogue.respond(req, intent, context)
+        intent = recommendation["intent"]
+        filters = recommendation["context"].get("filters", {})
+        message = recommendation["message"]
+        apps = recommendation["apps"]
+        timings = recommendation.get("timings", {})
+    elif intent in {"greeting", "help", "out_of_scope"}:
         message = _static_message(intent, req.locale)
         apps: list[dict] = []
         timings: dict = {}
@@ -515,6 +533,14 @@ async def chat_v2(req: ChatRequestV2) -> dict:
     if apps:
         context_update["last_results"] = apps[:5]
         context_update["last_impression_id"] = impression_id
+    if store_dialogue:
+        # Small talk and targeted/unsupported follow-ups must not replace search context.
+        context_update = {**context, "locale": req.locale, "intent": intent,
+                          "turn": int(context.get("turn", 0)) + 1}
+        if intent not in {"greeting", "help", "out_of_scope"}:
+            context_update.update(recommendation["context"])
+        if impression_id:
+            context_update["last_impression_id"] = impression_id
     update_session(session_id, history[-20:], context_update)
     return {
         "schema_version": "2.0",
@@ -524,6 +550,8 @@ async def chat_v2(req: ChatRequestV2) -> dict:
         "apps": apps,
         "impression_id": impression_id,
         "timings": timings,
+        **({"nlu": {"source": result.source, "intent": result.intent, "confidence": result.confidence}}
+           if store_dialogue else {}),
     }
 
 

@@ -7,7 +7,9 @@ Phase 1 metadata/identity, safe source-scoped snapshot reconciliation, and
 tested offline. [Outbox recovery and authoritative retrieval](outbox-retrieval-consistency.md)
 are also implemented and tested offline. The [offline Store recommendation projection](store-v1-offline-recommendations.md)
 now exercises sparse Store Apps through isolated search/recommendation tests, without
-enabling public results or production indexing. See the [Phase 1 notes](store-v1-phase1.md) for mapping,
+enabling public results or production indexing. An [isolated browser evaluation](store-v1-browser-evaluation.md)
+now exercises Store dialogue/cards with authored fixtures; native UI acceptance
+remains pending. See the [Phase 1 notes](store-v1-phase1.md) for mapping,
 persistence and reconciliation. Scheduled Store ingestion and public indexing
 remain disabled; authenticated acceptance and token acquisition remain pending.
 Keep it current as decisions are approved, and link to detailed guides instead

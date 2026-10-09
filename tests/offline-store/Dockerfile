@@ -1,5 +1,7 @@
 # Disposable developer/test runner, with the existing repository locks and CI tools.
-FROM python:3.11.15-slim@sha256:e031123e3d85762b141ad1cbc56452ba69c6e722ebf2f042cc0dc86c47c0d8b3
+ARG BASE_IMAGE=python:3.11.15-slim@sha256:e031123e3d85762b141ad1cbc56452ba69c6e722ebf2f042cc0dc86c47c0d8b3
+FROM ${BASE_IMAGE}
+USER root
 COPY *.lock /locks/
 RUN python -m pip install --no-cache-dir --require-hashes \
     -r /locks/shared.lock -r /locks/chat-intent.lock \

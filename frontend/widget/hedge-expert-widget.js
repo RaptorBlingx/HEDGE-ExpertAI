@@ -218,6 +218,40 @@
       this.lastMessage = "";
 
       this._inject();
+      if (this.config.restoreHistory && this.sessionId) this._restoreHistory();
+    }
+
+    async _restoreHistory() {
+      this._setStreamState("thinking");
+      try {
+        var headers = await this._authHeaders();
+        var response = await fetch(this.config.apiUrl + "/api/v2/sessions/" + encodeURIComponent(this.sessionId), { headers: headers });
+        if (response.status === 404) {
+          this._forgetSession();
+          return;
+        }
+        if (!response.ok) throw new Error("History unavailable");
+        var data = await response.json();
+        this.messagesDiv.innerHTML = "";
+        for (var entry of data.messages || []) {
+          if (entry.role === "user") this._addUserMessage(entry.content);
+          else if (entry.role === "assistant") {
+            var message = document.createElement("div");
+            message.className = "he-msg he-msg--assistant";
+            message.innerHTML = '<div class="he-msg-body"><div class="he-msg-content">' + renderMarkdown(entry.content) + '</div></div>';
+            this.messagesDiv.appendChild(message);
+          }
+        }
+        if (data.apps && data.apps.length) {
+          this.panel.classList.add("he-panel--expanded");
+          this._addAppCards(this.sideContent, data.apps, null);
+        }
+      } catch (_) {
+        this._addErrorMessage("Conversation history could not be restored. Retry or clear the conversation.");
+      } finally {
+        this._setStreamState("idle");
+        this._scrollBottom();
+      }
     }
 
     /* ---------- session persistence ---------- */
@@ -473,11 +507,14 @@
         '</div>' +
         '<div class="he-suggestions" id="he-suggestions"></div>';
 
+      if (this.config.welcomeText) {
+        wrap.querySelector(".he-msg-content").textContent = this.config.welcomeText;
+      }
       this.messagesDiv.appendChild(wrap);
 
       var sugBox = wrap.querySelector("#he-suggestions");
       var self = this;
-      SUGGESTIONS.forEach(function (text) {
+      (this.config.suggestions || SUGGESTIONS).forEach(function (text) {
         var chip = document.createElement("button");
         chip.className = "he-chip";
         chip.textContent = text;
@@ -613,6 +650,8 @@
           var finalSessionId = null;
           var impressionId = null;
           var finalized = false;
+          var completed = false;
+          var failed = false;
 
           function finalizeStream() {
             if (finalized) return;
@@ -620,8 +659,8 @@
             self._clearTimer();
             var finalMs = Date.now() - self.responseStartMs;
             if (timerEl) timerEl.textContent = formatDuration(finalMs);
-            stageEl.textContent = "Complete";
-            stageEl.classList.add("he-stage--complete");
+            stageEl.textContent = failed ? "Request failed" : "Complete";
+            if (!failed) stageEl.classList.add("he-stage--complete");
             contentEl.classList.remove("he-streaming-cursor");
 
             if (accumulated) {
@@ -645,6 +684,7 @@
           function readChunk() {
             return reader.read().then(function (result) {
               if (result.done) {
+                if (!completed && !failed) throw new Error("Incomplete assistant response");
                 finalizeStream();
                 return;
               }
@@ -676,9 +716,11 @@
                     self._addAppCards(self.sideContent, appsData, impressionId);
                   }
                 } else if (evt.type === "complete") {
+                  completed = true;
                   if (evt.session_id) finalSessionId = evt.session_id;
                   impressionId = evt.impression_id || impressionId;
                 } else if (evt.type === "problem") {
+                  failed = true;
                   accumulated = evt.detail || evt.title || "An error occurred.";
                   contentEl.innerHTML = '<span class="he-error-text">' + escapeHtml(accumulated) + '</span>';
                 }
@@ -744,17 +786,18 @@
       for (var i = 0; i < Math.min(apps.length, 5); i++) {
         var result = apps[i];
         var app = result.app || result;
-        var relevance = result.relevance || "medium";
+        var isStore = app.source_profile === "hedge-store-v1";
+        var relevance = isStore ? "Rank " + result.rank : result.relevance || "medium";
         var domainLabel = (app.domains && app.domains[0]) || app.saref_type || app.domain || "";
         var dc = domainColor(domainLabel);
         var desc = (app.description || "").slice(0, 140);
-        var appTitle = localized(app.title, this.config.locale) || "Unknown App";
+        var appTitle = (isStore ? app.name : localized(app.title, this.config.locale)) || (isStore ? "Unnamed App" : "Unknown App");
         var versionValue = (app.lifecycle && app.lifecycle.version) || app.version || "";
-        var publisherValue = (app.publisher && app.publisher.name) || app.publisher || "";
+        var publisherValue = isStore ? app.provider || "" : (app.publisher && app.publisher.name) || app.publisher || "";
         var version = versionValue ? '<span class="he-card-version">v' + escapeHtml(versionValue) + '</span>' : "";
         var publisher = publisherValue ? '<span class="he-card-publisher">' + escapeHtml(publisherValue) + '</span>' : "";
 
-        var hasExternalAppUrl = app.app_url && !isSyntheticAppUrl(app.app_url);
+        var hasExternalAppUrl = !isStore && app.app_url && !isSyntheticAppUrl(app.app_url);
         var card = document.createElement(hasExternalAppUrl ? "a" : "div");
         card.className = "he-card";
         if (hasExternalAppUrl) {
@@ -775,7 +818,8 @@
             (domainLabel ? '<span class="he-card-domain" style="background:' + dc.bg + ';color:' + dc.fg + '">' + escapeHtml(domainLabel) + '</span>' : "") +
             publisher +
             version +
-            '<span class="he-card-id">' + escapeHtml(app.id || "") + '</span>' +
+            '<span class="he-card-id">' + escapeHtml(isStore ? app.store_id + ' / ' + app.app_id : app.id || "") + '</span>' +
+            (isStore ? '<span class="he-card-source">Store v1 · ' + escapeHtml((result.evidence_fields || []).join(', ')) + '</span>' : '') +
           '</div>';
         if (hasExternalAppUrl && impressionId) {
           var self = this;

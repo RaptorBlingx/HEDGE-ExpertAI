@@ -28,6 +28,7 @@ class IntentResult:
     intent: str
     confidence: float
     entities: dict
+    source: str = "regex"
 
 
 # Patterns ordered by priority (first match wins within each intent)
@@ -202,7 +203,7 @@ def _classify_via_rasa(text_clean: str, entities: dict) -> IntentResult:
     }:
         intent_name = "unknown"
 
-    return IntentResult(intent=intent_name, confidence=confidence, entities=merged_entities)
+    return IntentResult(intent=intent_name, confidence=confidence, entities=merged_entities, source="rasa")
 
 
 def _rasa_circuit_open() -> bool:

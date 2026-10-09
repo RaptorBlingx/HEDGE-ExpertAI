@@ -1,14 +1,15 @@
 # Offline Store v1 search and recommendations
 
 This slice exercises Store Apps through existing PostgreSQL, Qdrant, reciprocal-rank
-fusion and recommendation code. It adds no endpoint, environment switch, migration,
+fusion and recommendation code. It adds no production endpoint, environment switch, migration,
 dependency, scheduler, live ingestion or public Store result contract. Public
 search/detail/list, indexing operations, rebuilds and outbox creation still default
 to synthetic v2 only. The frozen demo is independent and was not used for testing.
 
 For interactive questions, use the lightweight [manual testing runner](store-v1-manual-testing.md).
-It exercises existing dialogue/recommendation code with sparse sanitized named fixtures,
-and exposes unsupported behavior without changing ranking or public contracts.
+It shares the [isolated browser Chat Pane](store-v1-browser-evaluation.md), with
+Store-specific identity/context binding and labelled authored fixtures. Ranking and
+public contracts remain unchanged.
 
 ## Explicit offline boundary
 
