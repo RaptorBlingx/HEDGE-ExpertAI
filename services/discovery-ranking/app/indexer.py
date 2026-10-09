@@ -9,6 +9,7 @@ from typing import Any
 
 from hedge_shared.models_v2 import AppMetadataV2
 from hedge_shared.storage import catalogue_index_app, get_catalogue_apps
+from hedge_shared.store_v1 import StoreAppMetadata, validate_offline_store_scope
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import (
     CreateAlias,
@@ -132,11 +133,13 @@ def index_batch(
     return len(points)
 
 
-def delete_app(client: QdrantClient, app_id: str) -> None:
+def delete_app(
+    client: QdrantClient, app_id: str, *, collection_name: str | None = None,
+) -> None:
     """Delete an app from the index."""
     _require_completed(
         client.delete(
-            collection_name=COLLECTION_ALIAS,
+            collection_name=collection_name or COLLECTION_ALIAS,
             points_selector=[_app_id_to_int(app_id)],
             wait=True,
             ordering=WriteOrdering.STRONG,
@@ -149,8 +152,18 @@ def _require_completed(result: Any) -> None:
         raise RuntimeError("Qdrant operation did not complete")
 
 
-def apply_operations(client: QdrantClient, operations: list[dict[str, Any]]) -> int:
-    """Apply only the current synthetic revision under its PostgreSQL row lock."""
+def apply_operations(
+    client: QdrantClient,
+    operations: list[dict[str, Any]],
+    *,
+    store_id: str | None = None,
+    collection_name: str | None = None,
+) -> int:
+    """Apply the current revision; Store access is explicit and disposable-only."""
+    validate_offline_store_scope(store_id, collection_name)
+    target = collection_name or COLLECTION_ALIAS
+    scope = {"store_id": store_id} if store_id is not None else {}
+    profile = "hedge-store-v1" if store_id is not None else "2.0"
     applied = 0
     for operation in operations:
         app_id = str(operation["app_id"])
@@ -161,24 +174,35 @@ def apply_operations(client: QdrantClient, operations: list[dict[str, Any]]) -> 
         app = None
         vector = None
         if kind == "upsert":
-            app = AppMetadataV2.model_validate(operation["app"])
+            app = (
+                StoreAppMetadata.model_validate(operation["app"])
+                if store_id is not None else AppMetadataV2.model_validate(operation["app"])
+            )
+            if store_id is not None and app.store_id != store_id:
+                raise ValueError("App does not belong to the offline Store")
             if app.id != app_id:
                 raise ValueError("operation app_id does not match payload")
-            current = get_catalogue_apps([app_id]).get(app_id)
+            if store_id is not None and not app.to_index_text():
+                continue
+            current = get_catalogue_apps([app_id], **scope).get(app_id)
             if current is None or current["revision"] != revision:
                 continue
             # Model loading/encoding stays outside the lock. The checksum is
             # checked again under the lock before using this vector.
             vector = encode([app.to_index_text("en")])[0].tolist()
         with catalogue_index_app(app_id) as row:
-            if row is None or row["schema_version"] != "2.0" or row["revision"] != revision:
+            if row is None or row["schema_version"] != profile or row["revision"] != revision:
                 continue
+            if store_id is not None:
+                authoritative = StoreAppMetadata.model_validate(row["payload"])
+                if authoritative.store_id != store_id or authoritative.id != app_id:
+                    continue
             if kind == "delete":
                 if row["active"]:
                     continue
-                delete_app(client, app_id)
+                delete_app(client, app_id, collection_name=target)
             else:
-                if not row["active"]:
+                if not row["active"] or (store_id is not None and not authoritative.public_eligible):
                     continue
                 if app.checksum != row["checksum"]:
                     raise ValueError("operation payload does not match authoritative revision")
@@ -186,7 +210,8 @@ def apply_operations(client: QdrantClient, operations: list[dict[str, Any]]) -> 
                     id=_app_id_to_int(app_id),
                     vector=vector,
                     payload={
-                        **row["payload"],
+                        **(authoritative.recommendation_projection()
+                           if store_id is not None else row["payload"]),
                         "_index_revision": revision,
                         "_index_model": os.getenv(
                             "EMBEDDING_MODEL", "intfloat/multilingual-e5-small"
@@ -196,7 +221,7 @@ def apply_operations(client: QdrantClient, operations: list[dict[str, Any]]) -> 
                 )
                 _require_completed(
                     client.upsert(
-                        collection_name=COLLECTION_ALIAS,
+                        collection_name=target,
                         points=[point],
                         wait=True,
                         ordering=WriteOrdering.STRONG,

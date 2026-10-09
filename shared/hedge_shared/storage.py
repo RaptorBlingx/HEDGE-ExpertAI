@@ -504,15 +504,25 @@ def catalogue_index_app(app_id: str) -> Iterator[dict[str, Any] | None]:
         yield cursor.fetchone()
 
 
-def get_catalogue_apps(app_ids: list[str]) -> dict[str, dict[str, Any]]:
-    """Resolve candidates in one authoritative read, excluding withdrawn/source-only Apps."""
+def get_catalogue_apps(
+    app_ids: list[str], *, store_id: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Resolve eligible candidates; synthetic by default, with optional native Store scope."""
     if not app_ids:
         return {}
+    scope = "schema_version = '2.0'"
+    params: list[Any] = [app_ids]
+    if store_id is not None:
+        scope = (
+            "schema_version = 'hedge-store-v1' AND source_store_id = %s "
+            "AND payload->'active' = 'true'::jsonb AND payload->'visible' = 'true'::jsonb"
+        )
+        params.append(store_id)
     with connection() as conn, conn.cursor() as cursor:
         cursor.execute(
             "SELECT id, revision, payload FROM catalog_apps "
-            "WHERE id = ANY(%s) AND active = true AND schema_version = '2.0'",
-            (app_ids,),
+            f"WHERE id = ANY(%s) AND active = true AND {scope}",
+            params,
         )
         return {row["id"]: row for row in cursor.fetchall()}
 
@@ -523,6 +533,7 @@ def lexical_search(
     locale: str,
     filters: SearchFilters,
     limit: int,
+    store_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return an independent PostgreSQL full-text candidate ranking."""
     # The simple dictionary is deliberate: it is deterministic across all
@@ -574,17 +585,36 @@ def lexical_search(
         )
         filter_params.append(filters.data_classifications)
 
+    document = "search_document"
+    if store_id is not None:
+        # No supported taxonomy/language/license assertions exist in Store Apps.
+        if any(value for key, value in filters.model_dump().items() if key != "publisher"):
+            return []
+        where = [
+            "active = true", "schema_version = 'hedge-store-v1'", "source_store_id = %s",
+            "payload->'active' = 'true'::jsonb", "payload->'visible' = 'true'::jsonb",
+        ]
+        filter_params = [store_id]
+        if filters.publisher:
+            where.append("payload->>'provider' ILIKE %s")
+            filter_params.append(f"%{filters.publisher}%")
+        # Derive this text from current supported fields, even for older stored documents.
+        document = (
+            "concat_ws(' . ', payload->>'name', payload->>'description', "
+            "payload->>'provider')"
+        )
+
     del locale  # Reserved for future language-specific PostgreSQL dictionaries.
     sql = f"""
         SELECT id, revision, payload,
                ts_rank_cd(
-                   to_tsvector('simple', search_document),
+                   to_tsvector('simple', {document}),
                    websearch_to_tsquery('simple', %s),
                    32
                ) AS lexical_score
         FROM catalog_apps
         WHERE {" AND ".join(where)}
-          AND to_tsvector('simple', search_document)
+          AND to_tsvector('simple', {document})
               @@ websearch_to_tsquery('simple', %s)
         ORDER BY lexical_score DESC, id
         LIMIT %s

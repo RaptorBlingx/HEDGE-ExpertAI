@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import logging
 import os
@@ -161,6 +162,17 @@ def _evidence_explanations(
     explanations = []
     for result in results:
         app = result.get("app", result)
+        if app.get("source_profile") == "hedge-store-v1":
+            fields = [field for field in ("name", "description", "provider") if app.get(field)]
+            explanations.append({
+                "app_id": app["id"], "source_profile": app["source_profile"],
+                "store_id": app["store_id"], "source_app_id": app["app_id"],
+                "text": " ".join(
+                    f'{field}: "{_quoted_store_text(app[field])}"' for field in fields
+                ) or "The Store supplied no descriptive metadata.",
+                "evidence_fields": fields,
+            })
+            continue
         summary = app.get("summary") or {}
         localized_summary = (
             summary.get(locale) or summary.get("en")
@@ -198,6 +210,36 @@ def _all_results_mentioned_in_order(
     return True
 
 
+def _quoted_store_text(value: str) -> str:
+    """Bound untrusted source quotations and escape HTML/Markdown, never execute them."""
+    text = " ".join(value.split())[:1200]
+    return re.sub(r"([\\`*_{}\[\]()])", r"\\\1", html.escape(text))
+
+
+def _recommendation_narrative(query: str, results: list[dict[str, Any]], locale: str) -> str:
+    if any(result["app"].get("source_profile") == "hedge-store-v1" for result in results):
+        # A title-order check cannot validate LLM factual grounding. Store text
+        # remains quoted evidence, with no generated capabilities or translations.
+        explanations = _evidence_explanations(results, locale)
+        return "\n".join(
+            f'- App {result["rank"]}: {explanation["text"]}'
+            for result, explanation in zip(results, explanations, strict=True)
+        )
+    messages = build_recommendation_messages(query, results, locale=locale)
+    try:
+        generated = OllamaClient().chat(messages)
+    except Exception:
+        logger.exception("V2 LLM generation failed")
+        generated = ""
+    if not (
+        generated
+        and _is_ranking_consistent(generated, results)
+        and _all_results_mentioned_in_order(generated, results, locale)
+    ):
+        generated = _build_ranked_fallback(results, locale)
+    return generated
+
+
 def recommend_v2(
     *,
     query: str,
@@ -222,19 +264,7 @@ def recommend_v2(
             "timings": {"search_seconds": search_elapsed},
         }
 
-    messages = build_recommendation_messages(query, results, locale=locale)
-    try:
-        generated = OllamaClient().chat(messages)
-    except Exception:
-        logger.exception("V2 LLM generation failed")
-        generated = ""
-
-    if not (
-        generated
-        and _is_ranking_consistent(generated, results)
-        and _all_results_mentioned_in_order(generated, results, locale)
-    ):
-        generated = _build_ranked_fallback(results, locale)
+    generated = _recommendation_narrative(query, results, locale)
 
     return {
         "message": generated,
@@ -272,18 +302,7 @@ def recommend_v2_stream(
     if not results:
         generated = "No supported catalogue match was found."
     else:
-        messages = build_recommendation_messages(query, results, locale=locale)
-        try:
-            generated = OllamaClient().chat(messages)
-        except Exception:
-            logger.exception("V2 LLM generation failed")
-            generated = ""
-        if not (
-            generated
-            and _is_ranking_consistent(generated, results)
-            and _all_results_mentioned_in_order(generated, results, locale)
-        ):
-            generated = _build_ranked_fallback(results, locale)
+        generated = _recommendation_narrative(query, results, locale)
 
     for offset in range(0, len(generated), 120):
         yield {

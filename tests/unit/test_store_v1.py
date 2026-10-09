@@ -59,7 +59,8 @@ def test_rich_record_maps_evidence_without_inferred_versions_or_links() -> None:
     assert str(app.openapi_url) == RECORDS[1]["openAPIURL"]
     assert app.registration_date.isoformat() == "2026-10-01T12:00:00+00:00"
     assert [v.version for v in app.versions] == ["2.0", "1.0"]
-    assert "Meter readings" in app.to_index_text("pt")
+    assert app.description in app.to_index_text("pt")
+    assert app.readme not in app.to_index_text("pt")
     assert "futureField" not in app.model_dump()
     assert "Unverified asset join" not in app.to_index_text()
 
@@ -200,3 +201,30 @@ def test_integer_dates_always_use_milliseconds(milliseconds, expected) -> None:
 def test_registry_locations_are_preserved_as_strings(registry) -> None:
     app = normalize({**RECORDS[0], "registryBaseURL": registry})
     assert type(app.registry_base_url) is str and app.registry_base_url == registry
+
+
+@pytest.mark.parametrize(("store_id", "collection"), [
+    ("Store", None), (None, "hedge_store_offline_" + "a" * 32),
+    ("", "hedge_store_offline_" + "a" * 32),
+    (" Store", "hedge_store_offline_" + "a" * 32),
+    ("Store", "hedge_apps_current"), ("Store", "hedge_apps_v2"),
+    ("Store", "hedge_store_offline_invalid"),
+])
+def test_offline_store_scope_cannot_target_public_collection(store_id, collection):
+    from hedge_shared.store_v1 import validate_offline_store_scope
+
+    with pytest.raises(ValueError, match="disposable collection"):
+        validate_offline_store_scope(store_id, collection)
+
+
+def test_offline_scope_is_not_a_public_search_request_option():
+    from hedge_shared.models_v2 import SearchRequestV2
+    from hedge_shared.store_v1 import validate_offline_store_scope
+
+    validate_offline_store_scope(None, None)
+    validate_offline_store_scope("Store", "hedge_store_offline_" + "a" * 32)
+    with pytest.raises(ValidationError):
+        SearchRequestV2.model_validate({
+            "query": "energy", "store_id": "Store",
+            "collection_name": "hedge_store_offline_" + "a" * 32,
+        })

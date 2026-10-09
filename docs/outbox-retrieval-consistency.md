@@ -56,8 +56,10 @@ only registered, active synthetic v2 Apps and uses the same revisioned boundary;
 legacy search/detail routes also resolve current PostgreSQL metadata. Rebuilds
 write actual catalogue revisions instead of inventing revision 1.
 
-Store source rows remain excluded by profile from the outbox, public reads,
-lexical retrieval, index operations and rebuilds. Their future public model and
+Store source rows remain excluded by default from the outbox, public reads,
+lexical retrieval, index operations and rebuilds. Explicit Python-only, Store-scoped
+[offline tests](store-v1-offline-recommendations.md) use a disposable collection and
+current PostgreSQL authority; no public handler enables that scope. Their future public model and
 publication contract still require the gates in the [baseline](integration-baseline.md).
 
 ## Retrieval during lag or failure

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     AfterValidator,
@@ -129,6 +130,32 @@ class StoreAppMetadata(BaseModel):
         ).hexdigest()
 
     def to_index_text(self, locale: str = "en") -> str:
-        """Use only supplied text, with no assertion about its language."""
+        """Index supplied App text without README HTML, embedded data or language claims."""
         del locale
-        return " . ".join(value for value in (self.name, self.description, self.readme) if value)
+        return " . ".join(value for value in (self.name, self.description, self.provider) if value)
+
+    def recommendation_projection(self) -> dict[str, Any]:
+        """Sparse source facts; no synthetic fields, HTML README or inferred navigation."""
+        return self.model_dump(
+            mode="json",
+            include={
+                "id", "source_profile", "store_id", "app_id", "name", "description",
+                "provider", "active", "visible", "public_eligible",
+            },
+        )
+
+
+def validate_offline_store_scope(store_id: str | None, collection_name: str | None) -> None:
+    """Explicit Python-only scope; public routes never provide these arguments."""
+    if store_id is None and collection_name is None:
+        return
+    if (
+        not isinstance(store_id, str)
+        or not store_id.strip()
+        or store_id != store_id.strip()
+        or not isinstance(collection_name, str)
+        or not re.fullmatch(r"hedge_store_offline_[a-f0-9]{32}", collection_name)
+    ):
+        raise ValueError(
+            "Offline Store access requires a native Store ID and disposable collection"
+        )

@@ -14,6 +14,7 @@ from hedge_shared.models_v2 import (
     SearchFilters,
 )
 from hedge_shared.storage import get_catalogue_apps, lexical_search
+from hedge_shared.store_v1 import StoreAppMetadata, validate_offline_store_scope
 from qdrant_client import QdrantClient
 
 from .embeddings import encode_single
@@ -39,6 +40,12 @@ def _cache() -> redis.Redis:
 
 def _matches_filters(payload: dict[str, Any], filters: SearchFilters) -> bool:
     """Apply the same typed filters to dense candidates."""
+    if payload.get("source_profile") == "hedge-store-v1":
+        if any(value for key, value in filters.model_dump().items() if key != "publisher"):
+            return False
+        return not filters.publisher or filters.publisher.casefold() in str(
+            payload.get("provider") or ""
+        ).casefold()
     publisher = payload.get("publisher") or {}
     lifecycle = payload.get("lifecycle") or {}
     trust = payload.get("trust") or {}
@@ -92,9 +99,11 @@ def _dense_candidates(
     *,
     filters: SearchFilters,
     limit: int,
+    store_id: str | None = None,
+    collection_name: str | None = None,
 ) -> list[dict[str, Any]]:
     response = client.query_points(
-        collection_name=COLLECTION_ALIAS,
+        collection_name=collection_name or COLLECTION_ALIAS,
         query=encode_single(query),
         limit=min(max(limit * 8, 40), 160),
         with_payload=True,
@@ -102,8 +111,12 @@ def _dense_candidates(
     candidates = []
     for point in response.points:
         payload = point.payload or {}
+        profile_matches = (
+            payload.get("source_profile") == "hedge-store-v1" and payload.get("store_id") == store_id
+            if store_id is not None else payload.get("schema_version") == "2.0"
+        )
         if (
-            payload.get("schema_version") != "2.0"
+            not profile_matches
             or not isinstance(payload.get("id"), str)
             or type(payload.get("_index_revision")) is not int
         ):
@@ -179,6 +192,16 @@ def reciprocal_rank_fusion(
             if rank <= 5
             else RelevanceBand.LOW
         )
+        if public_payload.get("source_profile") == "hedge-store-v1":
+            app = StoreAppMetadata.model_validate(
+                {key: value for key, value in public_payload.items()
+                 if key not in {"id", "public_eligible", "checksum"}}
+            )
+            results.append({
+                "app": app.recommendation_projection(), "rank": rank,
+                "evidence_fields": row["sources"],
+            })
+            continue
         results.append(
             {
                 "app": AppMetadataV2.model_validate(public_payload).model_dump(
@@ -194,7 +217,8 @@ def reciprocal_rank_fusion(
 
 
 def _resolve_rankings(
-    rankings: dict[str, list[dict[str, Any]]], filters: SearchFilters
+    rankings: dict[str, list[dict[str, Any]]], filters: SearchFilters,
+    *, store_id: str | None = None,
 ) -> tuple[dict[str, list[dict[str, Any]]], bool]:
     """Treat vectors/cache as ranked references, never publication or metadata authority."""
     if set(rankings) != {"dense", "lexical"}:
@@ -209,7 +233,24 @@ def _resolve_rankings(
                 or type(item.get("revision")) is not int
             ):
                 raise ValueError("Invalid candidate identity/revision")
-    rows = get_catalogue_apps([item["id"] for items in rankings.values() for item in items])
+    scope = {"store_id": store_id} if store_id is not None else {}
+    rows = get_catalogue_apps(
+        [item["id"] for items in rankings.values() for item in items], **scope
+    )
+    if store_id is not None:
+        for key, row in list(rows.items()):
+            try:
+                app = StoreAppMetadata.model_validate(row["payload"])
+            except ValueError:
+                del rows[key]
+                continue
+            if (
+                app.store_id != store_id or app.id != key
+                or not app.public_eligible or not app.to_index_text()
+            ):
+                del rows[key]
+            else:
+                row["payload"] = app.recommendation_projection()
     resolved = {"dense": [], "lexical": []}
     changed = False
     for source, candidates in rankings.items():
@@ -237,8 +278,13 @@ def search_apps_v2(
     filters: SearchFilters,
     limit: int,
     catalogue_revision: str = "current",
+    store_id: str | None = None,
+    collection_name: str | None = None,
 ) -> list[dict[str, Any]]:
     """Fuse ranked references using current PostgreSQL eligibility and payloads."""
+    validate_offline_store_scope(store_id, collection_name)
+    scope = {"store_id": store_id} if store_id is not None else {}
+    vector_scope = {**scope, "collection_name": collection_name} if scope else {}
     cache_key = "hedge:search:v3:" + json.dumps(
         {
             "q": query.casefold().strip(),
@@ -251,7 +297,7 @@ def search_apps_v2(
         separators=(",", ":"),
     )
     try:
-        cached = _cache().get(cache_key)
+        cached = _cache().get(cache_key) if store_id is None else None
         rankings = json.loads(cached) if cached else None
     except Exception:
         logger.warning("Search cache unavailable; continuing without cache")
@@ -265,10 +311,10 @@ def search_apps_v2(
             if not changed:
                 return reciprocal_rank_fusion(**resolved, filters=filters, limit=limit)
 
-    lexical = lexical_search(query, locale=locale, filters=filters, limit=min(limit * 8, 160))
+    lexical = lexical_search(query, locale=locale, filters=filters, limit=min(limit * 8, 160), **scope)
     vector_ok = True
     try:
-        dense = _dense_candidates(client, query, filters=filters, limit=min(limit * 8, 160))
+        dense = _dense_candidates(client, query, filters=filters, limit=min(limit * 8, 160), **vector_scope)
     except Exception:
         logger.warning("Vector retrieval unavailable; using PostgreSQL lexical candidates")
         dense = []
@@ -277,10 +323,10 @@ def search_apps_v2(
         "dense": dense,
         "lexical": [{"id": row["id"], "revision": row["revision"]} for row in lexical],
     }
-    resolved, changed = _resolve_rankings(rankings, filters)
+    resolved, changed = _resolve_rankings(rankings, filters, **scope)
     results = reciprocal_rank_fusion(**resolved, filters=filters, limit=limit)
     # Do not freeze degraded or outdated rankings while the vector index recovers.
-    if vector_ok and not changed and results:
+    if store_id is None and vector_ok and not changed and results:
         try:
             _cache().setex(cache_key, CACHE_TTL, json.dumps(rankings))
         except Exception:
