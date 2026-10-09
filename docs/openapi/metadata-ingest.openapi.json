@@ -25,7 +25,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
       }
     },
     "/api/v1/ingest/trigger": {
@@ -48,7 +53,12 @@
               }
             }
           }
-        }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ]
       }
     },
     "/api/v2/ingestion/outbox/replay": {
@@ -56,6 +66,11 @@
         "summary": "Replay Outbox",
         "description": "Replay due work, or explicitly release one exhausted operation.",
         "operationId": "replay_outbox_api_v2_ingestion_outbox_replay_post",
+        "security": [
+          {
+            "APIKeyHeader": []
+          }
+        ],
         "parameters": [
           {
             "name": "outbox_id",
@@ -381,6 +396,13 @@
           "type"
         ],
         "title": "ValidationError"
+      }
+    },
+    "securitySchemes": {
+      "APIKeyHeader": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key"
       }
     }
   }

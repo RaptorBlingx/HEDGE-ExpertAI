@@ -59,7 +59,7 @@ pull-model:
 
 # Seed mock data by triggering ingestion
 seed:
-	curl -s -X POST http://localhost:8004/api/v2/ingestion/runs | python3 -m json.tool
+	bash ./scripts/seed-data.sh
 
 # Check health of all services
 health:

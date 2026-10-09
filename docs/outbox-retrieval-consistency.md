@@ -26,6 +26,14 @@ was added. It does not enable Store v1 ingestion, public indexing, or retrieval.
   only due/reclaimable work. Explicit recovery resets its retry budget but keeps
   its payload/error until successful delivery; timestamp fencing survives resets.
 
+Recovery HTTP access is always administrative, including with RBAC disabled.
+Use an admin-role Bearer token or `X-API-Key` at the gateway. The existing
+`GATEWAY_API_KEY` must also be provisioned to metadata-ingest for the internal
+hop; direct ingestion/replay requests require that key. An empty key disables
+these HTTP mutations with 503. Keep metadata-ingest private (the production
+overlay removes its host port) and treat the shared key as an administrative
+credential. Scheduled Celery recovery remains independent of HTTP authentication.
+
 Delivery is at least once. A completed Qdrant write followed by worker loss or
 lost acknowledgement is replayed. A successful HTTP status alone is insufficient:
 only an integer `applied` acknowledgement of 0 or 1 completes the single operation.

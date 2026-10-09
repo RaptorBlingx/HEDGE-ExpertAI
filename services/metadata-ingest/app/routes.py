@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Path, Query
+import hmac
+import os
+
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Security
+from fastapi.security import APIKeyHeader
 from hedge_shared.storage import (
     get_ingestion_run,
     latest_ingestion_run,
@@ -14,17 +18,31 @@ from hedge_shared.storage import (
 from .tasks.ingest import deliver_outbox_task, ingest_all
 
 router = APIRouter()
+_admin_key = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-@router.post("/api/v1/ingest/trigger")
-@router.post("/api/v2/ingestion/runs", status_code=202)
+def _require_admin_key(api_key: str | None = Security(_admin_key)) -> None:
+    """Reuse the gateway's administrative key at the internal HTTP boundary."""
+    expected = os.getenv("GATEWAY_API_KEY", "")
+    if not expected:
+        raise HTTPException(
+            status_code=503, detail="Ingestion administrative access is not configured."
+        )
+    if api_key is None or not hmac.compare_digest(api_key.encode(), expected.encode()):
+        raise HTTPException(status_code=401, detail="Invalid or missing administrative API key.")
+
+
+@router.post("/api/v1/ingest/trigger", dependencies=[Depends(_require_admin_key)])
+@router.post("/api/v2/ingestion/runs", status_code=202, dependencies=[Depends(_require_admin_key)])
 def trigger_ingest() -> dict[str, str]:
     """Queue a complete catalogue ingestion run."""
     task = ingest_all.delay()
     return {"status": "queued", "task_id": task.id}
 
 
-@router.post("/api/v2/ingestion/outbox/replay", status_code=202)
+@router.post(
+    "/api/v2/ingestion/outbox/replay", status_code=202, dependencies=[Depends(_require_admin_key)]
+)
 def replay_outbox(outbox_id: int | None = Query(default=None, ge=1)) -> dict[str, str]:
     """Replay due work, or explicitly release one exhausted operation."""
     if outbox_id is not None and not retry_outbox_item(outbox_id):

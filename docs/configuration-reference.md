@@ -100,17 +100,28 @@ database or index access. ExpertAI API v2 is independent of Store API v1.
 | `OAUTH_JWKS_URL` | empty | HTTPS JWKS required |
 | `OAUTH_SHARED_SECRET` | empty | Test-only and forbidden in production |
 | `RBAC_ADMIN_ROLES` | `admin,administrator` | Ingestion/reindex authority |
+| `GATEWAY_API_KEY` | empty | Non-default administrative credential required; shared with metadata-ingest via existing `env_file` wiring |
 | `RBAC_ANALYST_ROLES` | `analyst,admin` | Analytics/quarantine authority |
 
 Anonymous chat, search, catalogue detail, event submission, and session deletion
-remain public and rate-limited. Ingestion, reindex, quarantine, and analytics are
-role protected. Browser query-string API keys are not supported.
+remain public and rate-limited. Ingestion and reindex are always administrative;
+quarantine and analytics enforce roles when RBAC is enabled. Browser query-string
+API keys are not supported.
+Gateway administrative mutations always require a validated admin-role Bearer
+token or the configured administrative API key, even when `ENABLE_RBAC=false`.
+The key grants administrative authority; do not issue it to general clients or
+include it in frontend configuration. Gateway ingestion/replay calls use that
+key for the internal hop, not the caller's Bearer token. Direct metadata-ingest
+replay and both ingestion-trigger routes require `X-API-Key`; missing configuration
+returns 503 and missing/incorrect keys return 401 before database or queue work.
+Celery scheduling and worker recovery do not use these HTTP routes and are unchanged.
 
 ## Production validation
 
 At gateway startup, `APP_ENV=production` rejects default passwords, permissive
 origins, disabled HSTS/RBAC/OIDC/rate limiting, non-HTTPS issuer/JWKS URLs, and
-shared-secret JWT verification. Validate both Compose files before rollout:
+shared-secret JWT verification, and a missing/default administrative API key.
+Validate both Compose files before rollout:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.production.yml config --quiet

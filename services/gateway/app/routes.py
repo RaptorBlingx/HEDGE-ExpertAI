@@ -46,8 +46,10 @@ def _env_roles(name: str, default: str) -> set[str]:
     return {item.strip() for item in raw.split(",") if item.strip()}
 
 
-def _require_roles(request: Request, allowed_roles: set[str]) -> None:
-    if not _env_flag("ENABLE_RBAC"):
+def _require_roles(
+    request: Request, allowed_roles: set[str], *, required: bool = False
+) -> None:
+    if not required and not _env_flag("ENABLE_RBAC"):
         return
     if getattr(request.state, "api_key_authenticated", False):
         return
@@ -62,7 +64,16 @@ def _require_roles(request: Request, allowed_roles: set[str]) -> None:
 
 
 def _require_admin(request: Request) -> None:
-    _require_roles(request, _env_roles("RBAC_ADMIN_ROLES", "admin,administrator"))
+    _require_roles(request, _env_roles("RBAC_ADMIN_ROLES", "admin,administrator"), required=True)
+
+
+def _ingestion_admin_headers() -> dict[str, str]:
+    key = os.getenv("GATEWAY_API_KEY", "")
+    if not key:
+        raise HTTPException(
+            status_code=503, detail="Ingestion administrative access is not configured."
+        )
+    return {"X-API-Key": key}
 
 
 def _require_analyst(request: Request) -> None:
@@ -102,10 +113,17 @@ def _json_upstream(response: httpx.Response, service: str) -> JSONResponse:
     )
 
 
-async def _post_json(url: str, payload: dict, service: str, timeout: float) -> JSONResponse:
+async def _post_json(
+    url: str,
+    payload: dict,
+    service: str,
+    timeout: float,
+    *,
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=payload, timeout=timeout)
+            response = await client.post(url, json=payload, timeout=timeout, headers=headers)
         return _json_upstream(response, service)
     except Exception:
         logger.exception("%s request failed", service)
@@ -293,6 +311,7 @@ async def proxy_ingestion_run_v2(request: Request):
         {},
         "Ingestion service",
         30.0,
+        headers=_ingestion_admin_headers(),
     )
 
 
@@ -356,6 +375,7 @@ async def proxy_ingestion_outbox_replay_v2(
         {},
         "Ingestion service",
         30.0,
+        headers=_ingestion_admin_headers(),
     )
 
 
@@ -534,11 +554,13 @@ async def proxy_get_app(app_id: str):
 async def proxy_ingest_trigger(request: Request):
     """Proxy ingest trigger to metadata-ingest service."""
     _require_admin(request)
+    headers = _ingestion_admin_headers()
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 f"{METADATA_INGEST_URL}/api/v1/ingest/trigger",
                 timeout=30.0,
+                headers=headers,
             )
         return JSONResponse(status_code=resp.status_code, content=resp.json())
     except Exception:

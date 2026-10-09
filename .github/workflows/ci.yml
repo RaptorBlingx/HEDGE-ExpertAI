@@ -135,6 +135,15 @@ jobs:
       - name: Start deterministic production-path stack
         run: |
           cp .env.example .env
+          python3 - <<'PY'
+          import os
+          import secrets
+          key = secrets.token_urlsafe(32)
+          print("::add-mask::" + key)
+          for path in (".env", os.environ["GITHUB_ENV"]):
+              with open(path, "a", encoding="utf-8") as handle:
+                  handle.write("\nGATEWAY_API_KEY=" + key + "\n")
+          PY
           docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build \
             postgres valkey-cache valkey-queue qdrant mock-api discovery-ranking \
             metadata-ingest metadata-worker metadata-scheduler expert-recommend \

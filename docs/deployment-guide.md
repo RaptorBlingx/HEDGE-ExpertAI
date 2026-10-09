@@ -21,11 +21,13 @@ and soak gates on the actual target node before changing those limits.
 
 ```bash
 cp .env.example .env
+# Securely provision GATEWAY_API_KEY in .env and the invoking shell environment.
+# Use a dedicated disposable stack on the preserved-demo host; see AGENTS.md.
 docker compose config --quiet
 docker compose build
 docker compose up -d
 docker compose exec ollama ollama pull qwen3.5:2b
-curl -X POST http://127.0.0.1:8004/api/v2/ingestion/runs
+make seed
 docker compose ps
 ```
 
