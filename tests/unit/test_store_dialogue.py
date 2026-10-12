@@ -91,3 +91,74 @@ def test_named_new_search_uses_names_but_keeps_ranking(dialogue):
     result = ask(dialogue, "Show me EdgeConnect and Semantic Treehouse", "search")
     assert dialogue[2].await_args.kwargs["query"] == '"EdgeConnect" OR "Semantic Treehouse"'
     assert len(result["context"]["last_results"]) == 2
+
+
+@pytest.mark.parametrize("message", [
+    "Show me all available applications", "List apps", "Browse the catalogue",
+    "Could you show me available Apps?", "Please display all published applications.",
+    "What applications are currently available?", "Which apps are in the Store?",
+    "Show all the available applications in the HEDGE Store", "What apps do you have?",
+])
+def test_browsing_lists_authoritative_entities_without_search_terms(dialogue, message):
+    result = ask(dialogue, message, "search")
+    assert result["intent"] == "browse"
+    assert [r["app"]["app_id"] for r in result["apps"]] == ["native-edge", "native-tree"]
+    assert all(r["evidence_fields"] == ["catalogue"] and "score" not in r for r in result["apps"])
+    assert "snapshot may be incomplete" in result["message"]
+    assert "coverage of the entire HEDGE catalogue is not established" in result["message"]
+    assert result["context"]["last_query"] == ""
+    assert result["context"]["last_results"] == result["apps"]
+    dialogue[2].assert_not_awaited()
+
+
+@pytest.mark.parametrize("message", [
+    "Show me all applications for sensor readings", "List applications about semantic data",
+    "Find apps without cloud processing", "Show me apps that monitor energy",
+])
+def test_constrained_searches_are_not_reclassified_as_catalogue_browsing(dialogue, message):
+    result = ask(dialogue, message, "search")
+    assert result["intent"] == "search"
+    dialogue[2].assert_awaited_once()
+
+
+def test_browsing_is_bounded_stable_and_filters_before_limit(dialogue):
+    dialogue[1].extend({"id": f"local-{i}", "app_id": f"native-{i}", "name": None,
+                       "provider": "Provider"} for i in range(10))
+    result = ask(dialogue, "List available applications", "search", {"publisher": "provider"})
+    assert len(result["apps"]) == 5
+    assert [r["app"]["app_id"] for r in result["apps"]] == [f"native-{i}" for i in range(5)]
+    assert all(r["app"]["provider"] == "Provider" for r in result["apps"])
+
+
+def test_empty_browse_clears_old_references_without_claiming_empty_store(dialogue):
+    dialogue[1].clear()
+    result = ask(dialogue, "List applications", "search")
+    assert result["apps"] == []
+    assert result["context"]["last_results"] == []
+    assert result["context"]["focused_ids"] == []
+    assert "Showing 0" in result["message"]
+    assert "snapshot may be incomplete" in result["message"]
+    dialogue[2].assert_not_awaited()
+
+
+def test_unavailable_authoritative_browse_never_falls_back_to_cached_results(dialogue):
+    def unavailable(ids):
+        raise ConnectionError("PostgreSQL unavailable")
+    dialogue[0].resolve = unavailable
+    with pytest.raises(ConnectionError):
+        ask(dialogue, "Show me all applications", "search")
+    dialogue[2].assert_not_awaited()
+
+
+def test_unsupported_browse_requests_remain_limited(dialogue):
+    assert ask(dialogue, "List all free applications", "search")["apps"] == []
+    assert ask(dialogue, "List applications", "search", {"capabilities": ["MQTT"]})["apps"] == []
+    dialogue[2].assert_not_awaited()
+
+
+def test_generic_browse_words_do_not_bind_to_an_app_named_store(dialogue):
+    dialogue[1].append({"id": "local-store", "app_id": "native-store", "name": "Store", "provider": None})
+    result = ask(dialogue, "Show all available applications in the Store", "search")
+    assert result["intent"] == "browse"
+    assert len(result["apps"]) == 3
+    dialogue[2].assert_not_awaited()

@@ -11,6 +11,7 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 import psycopg
 import pytest
 from hedge_shared import storage
+from hedge_shared.store_v1 import StoreAppMetadata
 from psycopg import sql
 
 from scripts.store_v1_playground import offline_playground
@@ -67,6 +68,48 @@ def test_import_reuses_scoped_dialogue_and_never_recommends_unpublished_apps(iso
                 assert run == {"status": "partial", "deleted_count": 0}
                 assert conn.execute("SELECT count(*) AS n FROM indexing_outbox").fetchone()["n"] == 0
                 assert conn.execute("SELECT count(*) AS n FROM catalog_apps").fetchone()["n"] == 3
+        finally:
+            if evaluation.session_id:
+                evaluation.chat.delete_session(evaluation.session_id)
+
+
+def test_browse_rehydrates_publication_metadata_and_reappearance(isolated_input):
+    with offline_playground() as evaluation:
+        try:
+            initial = evaluation.ask("Show me all available applications", "chat", {})["result"]
+            assert initial["intent"] == "browse"
+            assert len(initial["apps"]) == 2
+            assert "snapshot may be incomplete" in initial["message"]
+            app_id = initial["apps"][0]["app"]["id"]
+            row = storage.get_catalogue_apps([app_id], store_id="Different-Evaluation-Store")[app_id]
+            current = StoreAppMetadata.model_validate(row["payload"])
+            run_id = storage.create_ingestion_run("isolated-evaluation")
+            changed = current.model_copy(update={"description": "Current authoritative browse description"})
+            storage.upsert_catalogue_app(run_id, changed)
+            result = evaluation.ask("List Apps", "chat", {})["result"]
+            assert "Current authoritative browse description" in result["message"]
+            storage.upsert_catalogue_app(run_id, changed.model_copy(update={"visible": False}))
+            storage.upsert_catalogue_app(run_id, StoreAppMetadata(
+                store_id="Another-Store", app_id=current.app_id, name="Wrong Store", active=True, visible=True))
+            published = StoreAppMetadata(store_id="Different-Evaluation-Store", app_id="unpublished-sentinel",
+                                         name="Reappeared source App", active=True, visible=True)
+            storage.upsert_catalogue_app(run_id, published)
+            result = evaluation.ask("What applications are available?", "chat", {})["result"]
+            assert len(result["apps"]) == 2
+            assert app_id not in [r["app"]["id"] for r in result["apps"]]
+            assert published.id in [r["app"]["id"] for r in result["apps"]]
+            assert all(r["app"]["store_id"] == "Different-Evaluation-Store" for r in result["apps"])
+            native = result["apps"][1]["app"]["app_id"]
+            assert evaluation.ask("Tell me about the second app", "chat", {})["result"]["apps"][0]["app"]["app_id"] == native
+            storage.upsert_catalogue_app(run_id, published.model_copy(update={"active": False}))
+            storage.upsert_catalogue_app(run_id, current.model_copy(update={"active": False}))
+            remaining = [r for r in evaluation.records if r["id"] != current.id][0]
+            row = storage.get_catalogue_apps([remaining["id"]], store_id="Different-Evaluation-Store")[remaining["id"]]
+            storage.upsert_catalogue_app(run_id, StoreAppMetadata.model_validate(row["payload"]).model_copy(update={"visible": False}))
+            result = evaluation.ask("Browse applications", "chat", {})["result"]
+            assert result["apps"] == []
+            assert "Showing 0" in result["message"]
+            assert evaluation.ask("Tell me about the first app", "chat", {})["result"]["apps"] == []
         finally:
             if evaluation.session_id:
                 evaluation.chat.delete_session(evaluation.session_id)

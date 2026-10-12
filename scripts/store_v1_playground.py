@@ -132,8 +132,9 @@ def offline_playground():
     )
     if ingested["quarantined"]:
         raise ValueError("Evaluation input failed normalization")
-    records = [app.recommendation_projection() for row in raw
-               if (app := normalize(row, store_id=store_id)).public_eligible]
+    normalized = [normalize(row, store_id=store_id) for row in raw]
+    snapshot_ids = [app.id for app in normalized]
+    records = [app.recommendation_projection() for app in normalized if app.public_eligible]
     discovery = load_service("manual_store_discovery", "discovery-ranking")
     recommend = load_service("manual_store_expert", "expert-recommend")("recommender")
     chat = load_service("manual_store_chat", "chat-intent")("routes")
@@ -174,7 +175,7 @@ def offline_playground():
         from hedge_shared.store_v1 import StoreAppMetadata
 
         def resolve(identities):
-            identities = [r["id"] for r in records] if identities is None else identities
+            identities = snapshot_ids if identities is None else identities
             rows = storage.get_catalogue_apps(identities, store_id=store_id)
             apps = []
             for identity in identities:

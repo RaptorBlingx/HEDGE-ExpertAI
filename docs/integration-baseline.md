@@ -13,7 +13,9 @@ remains pending. [Authorized snapshot evaluation](store-v1-authorized-evaluation
 can test a manually supplied short-lived access token or private JSON input in the
 same disposable pipeline, without a new authentication subsystem. See the [Phase 1 notes](store-v1-phase1.md) for mapping,
 persistence and reconciliation. Scheduled Store ingestion and public indexing
-remain disabled; authenticated acceptance and token acquisition remain pending.
+remain disabled. A first user-reported authenticated two-App smoke test is
+recorded in [authorized evaluation](store-v1-authorized-evaluation.md); production
+authenticated acceptance and service-token acquisition remain pending.
 Keep it current as decisions are approved, and link to detailed guides instead
 of copying them here.
 

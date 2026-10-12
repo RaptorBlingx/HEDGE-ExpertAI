@@ -125,7 +125,7 @@ removed. Delete your private token/JSON manually when no longer needed. For an
 abandoned run, use the existing [narrow cleanup procedure](store-v1-browser-evaluation.md);
 do not stop another evaluation, the frozen demo, or prune resources broadly.
 
-## Verification boundary (2026-10-12)
+## Initial preparation evidence (2026-10-12, `df073c1`)
 
 From this development host, unauthenticated GET of OpenAPI returned **200** and
 `getAllApps` returned **401**. The current public specification still declares
@@ -137,8 +137,8 @@ Ruff, shell/JavaScript syntax, whitespace and documentation-link checks passed.
 Offline regressions
 exercise the unchanged HTTPS client with a fake file token, success/401/403,
 detail 404, source-field reduction and conservative completeness. These mocked
-responses do not establish that a real user token is accepted. The user has not supplied a token yet; **no authenticated Store requests were
-made**. Authenticated execution requires the locally supplied token; record only
+responses do not establish that a real user token is accepted. At that preparation checkpoint the user had not supplied a token; **no
+authenticated Store requests were made by the agent**. Authenticated execution requires the locally supplied token; record only
 statuses/counts and the tested mode, never tokens or raw responses. No
 authenticated success is claimed without running it.
 
@@ -146,3 +146,74 @@ Dedicated HEDGE backend credentials remain necessary for unattended operation,
 renewal/rotation, approved visibility scope and operational ownership. Snapshot
 completeness/public corpus rights, native Angular integration and proposal KPI
 acceptance remain separate gates in the [baseline](integration-baseline.md).
+
+
+## First authorized snapshot and browsing (2026-10-12)
+
+The user reports successful `getAllApps` and `getApp` **HTTP 200**, with two real,
+eligible Apps and working named details/source comparisons. Inspection of the
+existing isolated run confirms `authorized-api-snapshot`, two eligible records
+and lexical-only retrieval. This is an account-scoped smoke test, not complete
+catalogue, production service-credential or native UI acceptance.
+
+Catalogue requests such as `Show me all available applications`, `List Apps`,
+`Browse the catalogue` and `What applications are available?` now use the existing
+Store-only PostgreSQL resolver rather than searching generic catalogue words.
+Results retain native Store/App identity, are bounded to **five**, ordered stably
+by native App ID, and labelled `catalogue` rather than dense/lexical relevance.
+The response always states that the snapshot may be incomplete. Prices and
+unsupported filters remain limited; requests containing domain constraints or
+negation stay on the existing search path. Browsing uses a small compositional
+English grammar, not a new global classifier or multilingual acceptance claim.
+
+Every browse rereads current PostgreSQL publication and metadata for identities
+present in this isolated snapshot, including initially unpublished Apps that
+later become eligible locally. Withdrawn/inactive Apps and other Stores cannot
+enter results. Returned order becomes conversation context for ordinal details,
+comparisons and reload; empty lists clear old references. This represents current
+**local** snapshot eligibility, not ongoing live Store freshness.
+
+Real pinned E5 was verified against that same private authorized snapshot in a
+**separate JSON-import run**, without reading the token or repeating Store requests:
+
+| Check | Observed result |
+|---|---|
+| Catalogue browsing | 2 currently eligible Apps; `catalogue` evidence, incomplete-snapshot caveat |
+| Named-App search | 2 results, each with actual `dense` and `lexical` retrieval evidence |
+| Conceptual query (`organizing semantic information`) | 2 `dense` candidates, 0 lexical matches; actual vector retrieval, not lexical fallback |
+| Follow-ups | Ordinal detail, source comparison, reload/context and missing-price limitation passed through Chromium |
+
+No private record contents, native IDs, screenshots, traces or tokens were retained
+in browser artifacts. The two-record corpus and existing tokenizer-regex warning
+still prevent retrieval-quality/model-compatibility acceptance; nearest neighbours
+are candidates, not proven relevant recommendations. Generation remains source
+quotations, with no Ollama/LLM changes.
+
+The check exposed a developer-image permission defect: private-input runs use the
+host UID, while saved E5 weights were mode 0600 under the image UID. The launcher
+now makes **only the public pinned model artifact** readable across those UIDs.
+Token/snapshot permissions remain private. Neither the model pin nor dependencies
+or retrieval algorithm changed.
+
+Regression evidence: **497 unit tests**, **54 focused isolated PostgreSQL/Qdrant
+checks**, and sanitized Chromium multi-turn regressions passed (shared branch
+coverage **92.46%**). Browsing tests include bounded results, domain-search
+separation, current metadata, withdrawal/reappearance, another Store, empty
+publication and conversation references. Ruff, Bash/JavaScript syntax and
+whitespace/link checks passed.
+
+For a private snapshot that has already been fetched, start without another Store
+request using the original run's mounted input path (inspect only that mount):
+
+```sh
+snapshot_path=$(docker inspect "hedge-store-cli-tmp.<your-run>-runner" \
+  --format '{{range .Mounts}}{{if eq .Destination "/input/apps.json"}}{{.Source}}{{end}}{{end}}')
+bash scripts/store-v1-playground.sh --browser --embeddings --port 8094 \
+  --apps-json "$snapshot_path" --store-id 56779afa-bdcc-4abe-a8b0-d306dc07bed1
+```
+
+Use an unused loopback port; the original run stays independent. A running Python
+process needs restart to load policy changes. Stop/restart only your own evaluation
+when desired, never the frozen demo. If E5 resources are unavailable, omit
+`--embeddings`; catalogue browsing does not need vectors and the lexical path
+remains available. The launcher cleans only its unique disposable resources.

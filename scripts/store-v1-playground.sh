@@ -111,7 +111,8 @@ MODEL
     # /tmp is a runtime tmpfs, so keep the built model outside it.
     cat >> "$work/Dockerfile" <<'MODEL'
 USER root
-RUN mv /tmp/e5-model /opt/e5-model && rm -rf /tmp/e5-cache
+# Private-input runs use the host UID; public model weights must be readable by it.
+RUN mv /tmp/e5-model /opt/e5-model && chmod -R a+rX /opt/e5-model && rm -rf /tmp/e5-cache
 ENV EMBEDDING_MODEL=/opt/e5-model
 USER 10001
 MODEL

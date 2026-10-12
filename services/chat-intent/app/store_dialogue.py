@@ -11,6 +11,16 @@ from .routes import _ORDINALS
 
 _PRICE = re.compile(r"\b(price|prices|pricing|cost|costs|cheapest|cheaper|free|paid|budget)\b", re.I)
 _UNSUPPORTED_METADATA = re.compile(r"\b(supports?|capabilit\w*|compatible|protocols?|mqtt|opc[- ]?ua|versions?|licen[cs]es?|prices?|categories|translations?|certifi\w*|ratings?)\b", re.I)
+# A closed browsing grammar: domain constraints/negation remain search terms.
+# Compose verbs, catalogue nouns and availability qualifiers, not exact questions.
+_BROWSE = re.compile(
+    r"(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?"
+    r"(?:show(?:\s+me)?|list|browse|display|what|which)"
+    r"(?:\s+(?:all|the|available|published|currently|store|hedge))*"
+    r"\s+(?:apps?|applications?|catalog(?:ue)?)"
+    r"(?:\s+(?:are|do|you|have|available|published|currently|in|the|store|hedge|catalog(?:ue)?))*[?!.]*",
+    re.I,
+)
 _REFERENCE = re.compile(r"\b(it|that app|this app|both|them|these apps|those apps)\b", re.I)
 
 
@@ -58,6 +68,23 @@ class StoreDialogue:
                 "or the requested filter. I cannot confirm support, cost, or suitability. "
                 "Ask for an App's supplied description or compare its source fields.", [], intent, context,
             )
+        if _BROWSE.fullmatch(message.strip()):
+            apps = current
+            if filters.get("publisher"):
+                apps = [a for a in apps if filters["publisher"].casefold() in (a.get("provider") or "").casefold()]
+            # Stable listing order, no similarity score or claim of full Store coverage.
+            apps = sorted(apps, key=lambda app: app["app_id"])[:5]
+            results = [{"app": app, "rank": i + 1, "evidence_fields": ["catalogue"]}
+                       for i, app in enumerate(apps)]
+            text = (f"Showing {len(apps)} currently eligible Apps from this isolated snapshot (up to 5). "
+                    "This snapshot may be incomplete; coverage of the entire HEDGE catalogue is not established. "
+                    "Listing order is not a relevance ranking.")
+            if results:
+                text += "\n" + self.describe(message, results, req.locale)
+            next_context = {"last_query": "", "filters": filters, "last_results": results,
+                            "focused_ids": [apps[0]["id"]] if len(apps) == 1 else []}
+            return self._response(text, results, "browse", next_context)
+
         if selected or targeted:
             apps = self.resolve(selected)
             if filters.get("publisher"):
