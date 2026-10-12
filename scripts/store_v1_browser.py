@@ -15,7 +15,7 @@ from scripts.store_v1_playground import ROOT, offline_playground
 
 
 def create_app(playground):
-    app = FastAPI(title="Offline sanitized Store evaluation", docs_url=None, redoc_url=None, openapi_url=None)
+    app = FastAPI(title="Isolated Store evaluation", docs_url=None, redoc_url=None, openapi_url=None)
     # A single evaluation process serializes turns, including streams. This
     # avoids lost Valkey updates without adding a production locking subsystem.
     turn_lock = asyncio.Lock()
@@ -40,7 +40,11 @@ def create_app(playground):
     def status():
         import os
 
-        return {"catalogue": "Authored sanitized evaluation fixtures; not live HEDGE data",
+        return {"source": getattr(playground, "source", "authored-fixtures"),
+                "catalogue": ("Authored sanitized evaluation fixtures; not live HEDGE data"
+                              if getattr(playground, "source", "authored-fixtures") == "authored-fixtures"
+                              else "Private Store snapshot; potentially incomplete, no ongoing Store access"),
+                "snapshot_complete": False,
                 "embeddings": "real pinned E5" if os.getenv("STORE_PLAYGROUND_E5") == "true" else "unavailable; lexical fallback",
                 "intent": "real Rasa with confidence/health regex fallback" if os.getenv("RASA_ENABLED") == "true" else "regex fallback; Rasa unavailable",
                 "generation": "Deterministic source quotations; Ollama not used",

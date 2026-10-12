@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Manual offline Store pipeline harness; use store-v1-playground.sh for isolation."""
+"""Manual isolated Store pipeline harness; use store-v1-playground.sh for isolation."""
 
 from __future__ import annotations
 
@@ -79,6 +79,7 @@ class Playground:
         self.session_id = None
         self.trace = None
         self.policy = policy
+        self.source = os.getenv("STORE_PLAYGROUND_SOURCE", "authored-fixtures")
 
     async def converse(self, request):
         return await self.chat.run_chat_v2(request, store_dialogue=self.policy)
@@ -123,13 +124,16 @@ def offline_playground():
     migrate.main()
     ingest = load_service("manual_store_ingest", "metadata-ingest")
     normalize = ingest("client").normalize_store_v1_app
-    raw = json.loads((ROOT / "tests/fixtures/store-v1/manual-apps.json").read_text())
+    store_id = os.getenv("STORE_PLAYGROUND_ID", STORE)
+    input_path = os.getenv("STORE_PLAYGROUND_INPUT")
+    raw = json.loads((Path(input_path) if input_path else ROOT / "tests/fixtures/store-v1/manual-apps.json").read_text())
     ingested = ingest("snapshot").reconcile_catalogue_snapshot(
-        "sanitized-manual-fixtures", lambda: raw, store_id=STORE,
+        "isolated-evaluation", lambda: raw, store_id=store_id, snapshot_complete=False,
     )
     if ingested["quarantined"]:
-        raise ValueError("Manual fixtures failed normalization")
-    records = [normalize(row).recommendation_projection() for row in raw]
+        raise ValueError("Evaluation input failed normalization")
+    records = [app.recommendation_projection() for row in raw
+               if (app := normalize(row, store_id=store_id)).public_eligible]
     discovery = load_service("manual_store_discovery", "discovery-ranking")
     recommend = load_service("manual_store_expert", "expert-recommend")("recommender")
     chat = load_service("manual_store_chat", "chat-intent")("routes")
@@ -152,17 +156,17 @@ def offline_playground():
         )
         stack.callback(client.delete_collection, collection)
         if real_embeddings:
-            rows = storage.get_catalogue_apps([r["id"] for r in records], store_id=STORE)
+            rows = storage.get_catalogue_apps([r["id"] for r in records], store_id=store_id)
             discovery("indexer").apply_operations(client, [
                 {"app_id": identity, "revision": row["revision"], "operation": "upsert",
                  "app": row["payload"]} for identity, row in rows.items()
-            ], store_id=STORE, collection_name=collection)
+            ], store_id=store_id, collection_name=collection)
 
         def search(query, *, locale, filters, limit):
             return searcher.search_apps_v2(
                 client, query=query, locale=locale,
                 filters=models_v2.SearchFilters.model_validate(filters), limit=limit,
-                store_id=STORE, collection_name=collection,
+                store_id=store_id, collection_name=collection,
             )
 
         stack.enter_context(patch.object(recommend, "_search_apps_v2", search))
@@ -171,12 +175,12 @@ def offline_playground():
 
         def resolve(identities):
             identities = [r["id"] for r in records] if identities is None else identities
-            rows = storage.get_catalogue_apps(identities, store_id=STORE)
+            rows = storage.get_catalogue_apps(identities, store_id=store_id)
             apps = []
             for identity in identities:
                 if identity in rows:
                     app = StoreAppMetadata.model_validate(rows[identity]["payload"])
-                    if app.id == identity and app.store_id == STORE and app.public_eligible:
+                    if app.id == identity and app.store_id == store_id and app.public_eligible:
                         apps.append(app.recommendation_projection())
             return apps
 
@@ -195,7 +199,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--examples", action="store_true", help="run a fixed diagnostic conversation")
     args = parser.parse_args()
-    print(BANNER)
+    banner = (BANNER if not os.getenv("STORE_PLAYGROUND_INPUT") else
+              "PRIVATE STORE SNAPSHOT — incomplete, isolated, no further Store calls.\n"
+              "Actual PostgreSQL/dialogue/retrieval; source quotations, no Ollama generation.")
+    print(banner)
     print("Configured models:", {"E5": os.getenv("STORE_PLAYGROUND_E5") == "true",
                                  "Rasa": os.getenv("RASA_ENABLED") == "true"})
     with offline_playground() as playground:
@@ -218,7 +225,7 @@ def main() -> None:
                 if line in {":mode chat", ":mode search"}:
                     mode = line.split()[-1]
                 elif line == ":help":
-                    print(BANNER)
+                    print(banner)
                 elif line == ":records":
                     print(json.dumps(playground.records, indent=2, ensure_ascii=False))
                 elif line.startswith(":filters "):

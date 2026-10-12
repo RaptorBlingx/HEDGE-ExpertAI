@@ -61,3 +61,20 @@ def test_overlapping_browser_turns_are_serialized():
             responses = list(pool.map(lambda _: client.post("/api/v2/chat/stream", json={"message": "question"}), range(2)))
         assert all("complete" in response.text for response in responses)
         assert peak == 1
+
+
+def test_private_snapshot_status_labels_source_and_blocks_private_input_download():
+    async def unused(request):
+        return {}
+
+    evaluation = playground(unused)
+    evaluation.source = "authorized-api-snapshot"
+    evaluation.records = [{"app_id": "published", "active": True, "visible": True}]
+    with TestClient(create_app(evaluation), base_url="http://127.0.0.1:8091") as client:
+        status = client.get("/api/v2/status").json()
+        assert status["source"] == "authorized-api-snapshot"
+        assert status["snapshot_complete"] is False
+        assert "potentially incomplete" in status["catalogue"]
+        assert "Ollama not used" in status["generation"]
+        assert status["records"] == evaluation.records
+        assert client.get("/input/apps.json").status_code == 404

@@ -3,7 +3,9 @@
 This is a local evaluation adapter, not an approved native Store UI or a production
 endpoint. It reuses the standalone widget and existing Python dialogue/recommendation
 pipeline. Store transport, scheduling, public indexing and gateway contracts remain
-unchanged. No credentials or private authenticated responses are used.
+unchanged. The default uses no credentials or private responses. For a manually supplied
+short-lived access token or private JSON snapshot, use the same runner via
+[authorized evaluation](store-v1-authorized-evaluation.md); those inputs stay private.
 
 ## Start and access
 
@@ -40,7 +42,8 @@ is a separate resource cost, and model mode should be run one session at a time.
 
 Database, vector collection and sessions are disposable and isolated on an internal
 network. Only the runner also joins a separate browser network and publishes a
-loopback port. It has no Store transport configuration or tokens. Source is mounted
+loopback port. The chat runner has no Store transport configuration or tokens, including when
+using a private snapshot input. Source is mounted
 read-only; the server exposes only widget/evaluation static directories, not the
 repository. Host/origin checks reject browser cross-origin writes and DNS rebinding.
 This local boundary is not a production authentication design.

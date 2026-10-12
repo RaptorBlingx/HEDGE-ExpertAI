@@ -48,7 +48,9 @@ its representation or sanitized errors.
 
 - TLS verification stays enabled; redirects and ambient proxy configuration
   are disabled. Credentials go only in the Authorization header, never URLs,
-  frontend configuration or reused user credentials.
+  frontend configuration. An explicitly authorized, manually supplied user access
+  token can be tested through the [isolated evaluation](store-v1-authorized-evaluation.md);
+  it does not establish a production backend credential or renewal contract.
 - 401/403 stop immediately without retry/refresh. Detail 404 is local to that
   request; it authorizes no catalogue retirement. Other terminal statuses,
   including redirects, 204 and partial-content 206, fail closed.

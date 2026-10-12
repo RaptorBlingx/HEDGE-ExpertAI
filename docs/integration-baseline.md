@@ -9,7 +9,9 @@ are also implemented and tested offline. The [offline Store recommendation proje
 now exercises sparse Store Apps through isolated search/recommendation tests, without
 enabling public results or production indexing. An [isolated browser evaluation](store-v1-browser-evaluation.md)
 now exercises Store dialogue/cards with authored fixtures; native UI acceptance
-remains pending. See the [Phase 1 notes](store-v1-phase1.md) for mapping,
+remains pending. [Authorized snapshot evaluation](store-v1-authorized-evaluation.md)
+can test a manually supplied short-lived access token or private JSON input in the
+same disposable pipeline, without a new authentication subsystem. See the [Phase 1 notes](store-v1-phase1.md) for mapping,
 persistence and reconciliation. Scheduled Store ingestion and public indexing
 remain disabled; authenticated acceptance and token acquisition remain pending.
 Keep it current as decisions are approved, and link to detailed guides instead
@@ -89,6 +91,52 @@ has now been implemented together with focused recovery/consistency tests.
 | 3 — implemented and tested offline; production validation pending | [Outbox recovery and authoritative retrieval](outbox-retrieval-consistency.md) reclaim interrupted claims, retain/expose exhausted retries for explicit recovery, serialize current-revision index writes, and resolve vector/cache candidates against PostgreSQL. Lexical retrieval remains available during vector lag/failure. | Isolated PostgreSQL/Qdrant crash/replay/concurrency and stale-candidate regressions pass. Store public indexing remains disabled; production alerting, operational recovery and load/quality acceptance still need retained target-environment evidence. |
 | 4 — offline projection implemented; native UI pending | [Offline Store projection](store-v1-offline-recommendations.md) reuses current search and recommendation code without fabricated v2 metadata. Agree one public UI surface and request/result/navigation contract; reuse gateway and dialogue flows. Specify native IDs, ordering, grounded explanations, terminal errors, and telemetry semantics. | Dummy-Store flow through Angular UI → gateway → current catalogue; browser/auth/CORS and error-path checks. SSE only if agreed; widget checks do not establish native UI acceptance. |
 | 5 — hardening/validation | Validate the chosen host and production profile, secrets, TLS, monitoring, recovery, real models, and bounded load. Align corpus rights and evaluation protocols. | Retained target-environment evidence and reviewed acceptance results, linked from traceability; deterministic E2E and health checks alone are insufficient. |
+
+## Proposal completion priorities (reviewed 2026-10-12)
+
+Reviewed the tracked proposal (objectives 1–6, methodology, impact and deliverables)
+and the supplied original proposal DOCX. These commitments remain outstanding on
+real Store data; the named prototype stacks are design examples, not a reason to
+replace working PostgreSQL/Qdrant/FastAPI components. Current Store responses are
+deterministic quotations, not the committed expert LLM layer; real Rasa's observed
+Store-name misclassification and two-record E5 tests establish no quality KPI.
+
+| Next slice | Concrete remaining requirement and evidence |
+|---|---|
+| 1 — establish usable source evidence | Test the unchanged client using an authorized short-lived token; retain only safe status/count evidence. Inspect supported App fields and approved read scope. Private JSON import is the fallback. No refresh subsystem, Asset join, schedule or public indexing. |
+| 2 — real LLM grounding (objective 4) | Reuse the existing Ollama client and grounding validation for Store projections, with a small approved corpus of App fields/public HEDGE documentation. Generate concise per-App rationales and contextual limited comparisons, preserving IDs/order, source citations and abstention. Verify actual model output, injection/error/timeouts and missing-fact cases; retain claim-to-evidence human reviews. Proposal wording includes a corpus-trained expert layer but methodology specifies prompt/domain adaptation: agree whether curated prompts suffice before adding fine-tuning/training machinery. Deterministic quotations remain a safe fallback, never proof of LLM reasoning. |
+| 3 — multilingual dialogue (objectives 1, 4; methodology) | Validate current Rasa against real names/native IDs and held-out multi-turn searches, references, comparisons and unsupported requests in agreed languages. Adapt training/policy only for demonstrated errors, preserve context and user language. Audit English-centric Store reference/limitation logic and localized source quoting; E5 language support alone does not establish multilingual dialogue. Confirm required languages; never fabricate translated metadata. |
+| 4 — retrieval quality (objectives 1, 3) | Jointly label at least 50 representative HEDGE queries with relevant App IDs, including sparse metadata and no-match requests. Retain raw rankings and corpus/model revisions, report HitRate@2, precision, recall and MRR (nDCG supplemental). Address weak dense neighbours/no-match handling only from held-out evidence; test lexical fallback/vector lag and current publication eligibility. Use SAREF only when supplied and approved; no dependency on universal Asset enrichment. |
+| 5 — native integration and freshness (objectives 2, 5) | Agree the existing Angular pane's typed request/result/navigation contract; wire the gateway, failure/stream semantics and verified recommendation events. Approve public corpus scope and dedicated backend credential/operations before scheduled ingestion/index enablement. Measure publication-to-search delay with real timestamps; solve the daily-polling versus two-hour objective conflict explicitly. Widget/loopback checks are preparatory, not native acceptance. |
+| 6 — retained acceptance and release (objective 6, tasks 1–4) | Run target-host real-model latency, fault/load/privacy/security/accessibility and recovery acceptance. Finish reproducible prompts/model configs, quick-start/demo video, changelog cadence, permissive release and reviewed toolkit. Retain evidence and update traceability rather than marking historical deliverable files accepted. |
+
+Acceptance targets from the proposal, **none newly claimed achieved**:
+
+- **Objectives:** HitRate@2 ≥70%; ≥50 jointly defined retrieval queries; average
+  response <5 s; publication-to-search ≤2 h; ≥70% of pilot sessions with ≥1
+  accepted recommendation (verified click/follow); ≥80% reviewed explanations
+  contextually accurate; ≥10 complete recorded interaction sessions.
+- **Summary/task/impact targets:** median response <5 s and ≤24 h catalogue
+  refresh coexist with the stricter objective targets; record average and median
+  separately and seek agreement on freshness rather than silently relaxing it.
+  Impact also promises 25% fewer manual maintenance actions, ≥30% faster
+  discovery, ≥60% of Apps with a qualified assistant-originated visit, ≥1 retained
+  FTE and ≥3 external uptake/demo events. These require defined denominators,
+  pilot/before-after evidence and business ownership, not synthetic event totals.
+- **Engineering/release:** ≥80% core test coverage (shared-package coverage is
+  only part of this evidence), anonymized ≥50-query reproducible test set by M6,
+  public repository/docs/OpenAPI/configs, changelog at least bi-weekly, demo video
+  and quick-start by M5, open technical report, ≥1 workshop/conference submission,
+  Apache-2.0 toolkit and reviewed TRL 5→8 progression. Approval, publication rights,
+  privacy-minimized records and target environment evidence remain required.
+
+Deliverable checkpoints: **D1.1** management/IPR handbook and **D2.1** approved
+architecture (M1); **D2.2** real functional core/mid-term report (M3 prototype);
+**D3.1** validated sandbox deployment/test report (T3/M5 stable integration);
+**D4.1** final report/open integration toolkit and **D4.2** consortium workshop
+presentation (M6 final review). Keep the existing architecture, traceability and
+evaluation guide as the detailed sources; track acceptance links there. Do not
+implement the remaining features in the access-testing slice.
 
 ## Questions still requiring HEDGE coordination
 
