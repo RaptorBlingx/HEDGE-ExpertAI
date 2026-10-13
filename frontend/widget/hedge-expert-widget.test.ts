@@ -24,6 +24,24 @@ beforeEach(() => {
 
 describe("untrusted assistant Markdown", () => {
   it.each([
+    ["*Outer **bold** tail*", '<em>Outer <strong>bold</strong> tail</em>'],
+    ["> *quote **bold***", '<div class="he-blockquote"><em>quote <strong>bold</strong></em></div>'],
+    ["**Outer *italic* tail**", '<strong>Outer <em>italic</em> tail</strong>'],
+    ["`first\nsecond`", '<code class="he-code-inline">first<br>second</code>'],
+    ["Before `first\nsecond` after", 'Before <code class="he-code-inline">first<br>second</code> after'],
+  ])("preserves baseline history rendering for %s", async (text, baselineHTML) => {
+    expect((await restore(text)).innerHTML).toBe(baselineHTML);
+  });
+
+  it("keeps hostile multiline code literal", async () => {
+    const content = await restore('`<img src=x onerror=attack>\n[open](javascript:attack) **literal**`');
+    expect(content.querySelectorAll("code")).toHaveLength(1);
+    expect(content.querySelectorAll("code br")).toHaveLength(1);
+    expect(content.querySelectorAll("img,a,strong,script")).toHaveLength(0);
+    expect(content.querySelector("code")?.textContent).toContain("<img src=x onerror=attack>");
+  });
+
+  it.each([
     '[open](https://example.invalid/" onpointerenter="window.audit=1)',
     '[open](https://example.invalid/" style="color:red" autofocus="true)',
     "[open](https://example.invalid/' onfocus='window.audit=1)",

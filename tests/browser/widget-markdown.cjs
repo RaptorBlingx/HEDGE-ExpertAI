@@ -66,13 +66,31 @@ const { chromium } = require("playwright");
         inlineCode: content.querySelector("code").textContent,
         blockCode: content.querySelector("pre").textContent,
       };
+      // These exact DOM shapes were retained from pre-change commit a8cab8f.
+      const compatibility = [
+        ["*Outer **bold** tail*", '<em>Outer <strong>bold</strong> tail</em>'],
+        ["> *quote **bold***", '<div class="he-blockquote"><em>quote <strong>bold</strong></em></div>'],
+        ["**Outer *italic* tail**", '<strong>Outer <em>italic</em> tail</strong>'],
+        ["`first\nsecond`", '<code class="he-code-inline">first<br>second</code>'],
+        ["Before `first\nsecond` after", 'Before <code class="he-code-inline">first<br>second</code> after'],
+      ];
+      for (const [text, expectedHTML] of compatibility) {
+        await restore(text);
+        if (widget.messagesDiv.querySelector(".he-msg-content").innerHTML !== expectedHTML) throw new Error("History formatting regression: " + text);
+      }
       // Exercise the real stream-update and final-render paths, with split deltas.
       const observer = new MutationObserver(() => {
         for (const body of widget.messagesDiv.querySelectorAll(".he-msg-content")) check(body);
+        const body = [...widget.messagesDiv.querySelectorAll(".he-msg-content")].at(-1);
+        if (widget.isStreaming && compatibility.every(([, html]) => body.innerHTML.includes(html))) {
+          window.markdownReview.compatibilityDuringStreaming = true;
+        }
       });
       observer.observe(widget.messagesDiv, { childList: true, subtree: true });
       window.fetch = async () => {
-        const events = [...(attack + "\n[Docs](https://example.invalid/)")].map(content => ({ type: "explanation_delta", content }));
+        const text = attack + "\n[Docs](https://example.invalid/)\n" + compatibility.map(([text]) => text).join("\n")
+          + '\n`<img src=x onerror="window.audit=1">\n[open](javascript:attack) **literal**`';
+        const events = [...text].map(content => ({ type: "explanation_delta", content }));
         events.push({ type: "complete" });
         let index = 0;
         return new Response(new ReadableStream({
@@ -85,17 +103,27 @@ const { chromium } = require("playwright");
       window.widget = widget;
       widget.textarea.value = "Test safe rendering";
       widget._send();
-      window.markdownReview = { violations, legitimateResult, payloads: payloads.length, prefixes: attack.length + 1, observer };
-      return { legitimateResult, payloads: payloads.length, prefixes: attack.length + 1 };
+      window.markdownReview = { violations, legitimateResult, payloads: payloads.length, prefixes: attack.length + 1, observer, compatibility, compatibilityDuringStreaming: false };
+      return { legitimateResult, payloads: payloads.length, prefixes: attack.length + 1, compatibilityCases: compatibility.length };
     });
     await page.waitForFunction(() => !window.widget.isStreaming);
     const state = await page.evaluate(() => {
       window.markdownReview.observer.disconnect();
-      return { violations: window.markdownReview.violations, executed: window.audit, stage: window.widget.messagesDiv.querySelector(".he-stage").textContent };
+      const body = [...window.widget.messagesDiv.querySelectorAll(".he-msg-content")].at(-1);
+      return {
+        violations: window.markdownReview.violations, executed: window.audit,
+        stage: window.widget.messagesDiv.querySelector(".he-stage").textContent,
+        compatibilityDuringStreaming: window.markdownReview.compatibilityDuringStreaming,
+        compatibilityAfterCompletion: window.markdownReview.compatibility.every(([, html]) => body.innerHTML.includes(html)),
+        literalCode: [...body.querySelectorAll("code")].at(-1).textContent,
+      };
     });
     assert.deepEqual(state.violations, []);
     assert.equal(state.executed, undefined);
     assert.equal(state.stage, "Complete");
+    assert.equal(state.compatibilityDuringStreaming, true);
+    assert.equal(state.compatibilityAfterCompletion, true);
+    assert.equal(state.literalCode, '<img src=x onerror="window.audit=1">[open](javascript:attack) **literal**');
     assert.equal(result.legitimateResult.links, 1);
     assert.equal(result.legitimateResult.href, "https://example.invalid/?a=1&b=2");
     assert.equal(result.legitimateResult.label, "Docs");

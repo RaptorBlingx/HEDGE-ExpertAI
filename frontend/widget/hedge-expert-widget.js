@@ -173,7 +173,9 @@
       fragment.appendChild(document.createTextNode(raw));
       return fragment;
     }
-    var tokens = /`([^`]+)`|\[([^\]]+)\]\(([^)\n]*)\)|\*\*(.+?)\*\*|\*([^*\n]+)\*/g;
+    // A bold span is one atom inside italic, rather than its first star closing
+    // the outer emphasis. Bold atoms stop at the next double-star delimiter.
+    var tokens = /`([^`]+)`|\[([^\]]+)\]\(([^)\n]*)\)|\*\*(.+?)\*\*|\*((?:\*\*(?:(?!\*\*)[^\n])+\*\*|[^*\n])+)\*/g;
     var offset = 0;
     var match;
     while ((match = tokens.exec(raw)) !== null) {
@@ -182,7 +184,10 @@
       if (match[1] !== undefined) {
         node = document.createElement("code");
         node.className = "he-code-inline";
-        node.textContent = match[1];
+        match[1].split("\n").forEach(function (line, index) {
+          if (index > 0) node.appendChild(document.createElement("br"));
+          node.appendChild(document.createTextNode(line));
+        });
       } else if (match[2] !== undefined) {
         var href = allowLinks && markdownUrl(match[3]);
         if (!href) {
@@ -208,7 +213,18 @@
 
   function markdownLines(raw) {
     var fragment = document.createDocumentFragment();
-    var lines = raw.split("\n");
+    // Preserve complete inline-code spans before applying line-based blocks.
+    var lines = [];
+    var boundaries = /`[^`]+`|\n/g;
+    var offset = 0;
+    var boundary;
+    while ((boundary = boundaries.exec(raw)) !== null) {
+      if (boundary[0] === "\n") {
+        lines.push(raw.slice(offset, boundary.index));
+        offset = boundaries.lastIndex;
+      }
+    }
+    lines.push(raw.slice(offset));
     for (var i = 0; i < lines.length; i++) {
       if (i > 0) fragment.appendChild(document.createElement("br"));
       var line = lines[i];

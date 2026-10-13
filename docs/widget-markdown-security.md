@@ -30,6 +30,12 @@ code, line breaks, and web links with inline-formatted labels. Code content stay
 literal, and URL punctuation is not interpreted as emphasis. Nesting is bounded;
 unrecognized syntax stays text. This is not a full CommonMark parser.
 
+The review corrections preserve the `a8cab8f` DOM shapes for bold nested inside
+italic (including blockquotes), italic inside bold, and inline-code spans across
+newlines. Bold delimiters are consumed as a complete span inside italic. Complete
+code spans are retained before line-based parsing; their newlines become explicit
+DOM `br` elements inside `code`, matching the baseline's visible line breaks.
+
 History restoration, incremental streaming and final rendering all consume the
 same DOM renderer. Gateway CSP remains an additional host protection, rather
 than the basis for this renderer's safety. HTTP(S) links can still lead to
@@ -42,11 +48,14 @@ The default frontend test command includes
 breakout, raw HTML/SVG, unsafe schemes, malformed destinations and controls;
 legitimate cases cover the supported Markdown, code, query strings, Unicode,
 formatting in labels and literal URL punctuation.
+Exact baseline compatibility fixtures cover both review findings in history.
 
 The standalone browser check uses an isolated synthetic host, mocked fetch and
 no CSP. It checks malicious messages, every prefix of the reported attack,
 real history restoration, incremental stream updates and final rendering, while
-dispatching events to detect execution. It starts no server or application stack:
+dispatching events to detect execution. The browser assertions also check those
+fixtures during incremental streaming and after final rendering, including
+hostile text inside multiline code. It starts no server or application stack:
 
 ```bash
 node tests/browser/widget-markdown.cjs
