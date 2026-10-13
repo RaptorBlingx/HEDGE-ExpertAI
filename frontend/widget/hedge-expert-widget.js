@@ -153,42 +153,113 @@
     return "evt-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
   }
 
-  /** Lightweight markdown → HTML (no external library). */
-  function renderMarkdown(raw) {
-    var html = escapeHtml(raw);
+  function markdownUrl(raw) {
+    // Absolute web URLs only. Do not let browser normalization hide controls,
+    // credentials, backslashes, or attribute-like syntax in a destination.
+    if (!/^https?:\/\//i.test(raw) || /[\u0000-\u0020\u007f"<>\\]/.test(raw)) return null;
+    try {
+      var url = new URL(raw);
+      return /^(http|https):$/.test(url.protocol) && url.hostname && !url.username && !url.password
+        ? url.href : null;
+    } catch (_) {
+      return null;
+    }
+  }
 
-    // Code blocks ``` … ```
-    html = html.replace(/```([\s\S]*?)```/g, '<pre class="he-code-block">$1</pre>');
-    // Inline code
-    html = html.replace(/`([^`]+)`/g, '<code class="he-code-inline">$1</code>');
-    // Headings (### … )
-    html = html.replace(/^#{3,}\s+(.+)$/gm, '<strong class="he-heading">$1</strong>');
-    // Bold
-    html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-    // Italic
-    html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
-    // Blockquotes
-    html = html.replace(/^&gt;\s?(.+)$/gm, '<div class="he-blockquote">$1</div>');
-    // Links — sanitise href (only http/https)
-    html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener noreferrer" class="he-link">$1</a>');
-    // Unordered lists (lines starting with "- ")
-    html = html.replace(/(?:^|\n)((?:- .+(?:\n|$))+)/g, function (_, block) {
-      var items = block.trim().split("\n").map(function (l) {
-        return "<li>" + l.replace(/^- /, "") + "</li>";
-      }).join("");
-      return '<ul class="he-list">' + items + "</ul>";
-    });
-    // Ordered lists (lines starting with "1. ", "2. " etc.)
-    html = html.replace(/(?:^|\n)((?:\d+\. .+(?:\n|$))+)/g, function (_, block) {
-      var items = block.trim().split("\n").map(function (l) {
-        return "<li>" + l.replace(/^\d+\.\s/, "") + "</li>";
-      }).join("");
-      return '<ol class="he-list">' + items + "</ol>";
-    });
-    // Line breaks (but not inside lists / pre)
-    html = html.replace(/\n/g, "<br>");
-    return html;
+  function markdownInline(raw, depth, allowLinks) {
+    var fragment = document.createDocumentFragment();
+    // Bound nesting, and never interpret formatting inside code or URLs.
+    if (depth >= 16) {
+      fragment.appendChild(document.createTextNode(raw));
+      return fragment;
+    }
+    var tokens = /`([^`]+)`|\[([^\]]+)\]\(([^)\n]*)\)|\*\*(.+?)\*\*|\*([^*\n]+)\*/g;
+    var offset = 0;
+    var match;
+    while ((match = tokens.exec(raw)) !== null) {
+      fragment.appendChild(document.createTextNode(raw.slice(offset, match.index)));
+      var node;
+      if (match[1] !== undefined) {
+        node = document.createElement("code");
+        node.className = "he-code-inline";
+        node.textContent = match[1];
+      } else if (match[2] !== undefined) {
+        var href = allowLinks && markdownUrl(match[3]);
+        if (!href) {
+          node = document.createTextNode(match[0]);
+        } else {
+          node = document.createElement("a");
+          node.href = href;
+          node.target = "_blank";
+          node.rel = "noopener noreferrer";
+          node.className = "he-link";
+          node.appendChild(markdownInline(match[2], depth + 1, false));
+        }
+      } else {
+        node = document.createElement(match[4] !== undefined ? "strong" : "em");
+        node.appendChild(markdownInline(match[4] !== undefined ? match[4] : match[5], depth + 1, allowLinks));
+      }
+      fragment.appendChild(node);
+      offset = tokens.lastIndex;
+    }
+    fragment.appendChild(document.createTextNode(raw.slice(offset)));
+    return fragment;
+  }
+
+  function markdownLines(raw) {
+    var fragment = document.createDocumentFragment();
+    var lines = raw.split("\n");
+    for (var i = 0; i < lines.length; i++) {
+      if (i > 0) fragment.appendChild(document.createElement("br"));
+      var line = lines[i];
+      var list = line.match(/^(- |\d+\.\s)(.+)$/);
+      var node;
+      if (list) {
+        var ordered = list[1] !== "- ";
+        var pattern = ordered ? /^\d+\.\s(.+)$/ : /^- (.+)$/;
+        node = document.createElement(ordered ? "ol" : "ul");
+        node.className = "he-list";
+        var item;
+        while (i < lines.length && (item = lines[i].match(pattern))) {
+          var li = document.createElement("li");
+          li.appendChild(markdownInline(item[1], 0, true));
+          node.appendChild(li);
+          i++;
+        }
+        i--;
+      } else {
+        var heading = line.match(/^#{3,}\s+(.+)$/);
+        var quote = line.match(/^>\s?(.+)$/);
+        if (heading || quote) {
+          node = document.createElement(heading ? "strong" : "div");
+          node.className = heading ? "he-heading" : "he-blockquote";
+          node.appendChild(markdownInline((heading || quote)[1], 0, true));
+        } else {
+          node = markdownInline(line, 0, true);
+        }
+      }
+      fragment.appendChild(node);
+    }
+    return fragment;
+  }
+
+  /** Supported Markdown -> DOM; assistant text never enters an HTML parser. */
+  function renderMarkdown(raw) {
+    var fragment = document.createDocumentFragment();
+    var text = String(raw == null ? "" : raw).replace(/\r\n?/g, "\n");
+    var fences = /```([\s\S]*?)```/g;
+    var offset = 0;
+    var match;
+    while ((match = fences.exec(text)) !== null) {
+      fragment.appendChild(markdownLines(text.slice(offset, match.index)));
+      var pre = document.createElement("pre");
+      pre.className = "he-code-block";
+      pre.textContent = match[1];
+      fragment.appendChild(pre);
+      offset = fences.lastIndex;
+    }
+    fragment.appendChild(markdownLines(text.slice(offset)));
+    return fragment;
   }
 
   /* ------------------------------------------------------------------ */
@@ -238,7 +309,8 @@
           else if (entry.role === "assistant") {
             var message = document.createElement("div");
             message.className = "he-msg he-msg--assistant";
-            message.innerHTML = '<div class="he-msg-body"><div class="he-msg-content">' + renderMarkdown(entry.content) + '</div></div>';
+            message.innerHTML = '<div class="he-msg-body"><div class="he-msg-content"></div></div>';
+            message.querySelector(".he-msg-content").appendChild(renderMarkdown(entry.content));
             this.messagesDiv.appendChild(message);
           }
         }
@@ -664,7 +736,7 @@
             contentEl.classList.remove("he-streaming-cursor");
 
             if (accumulated) {
-              contentEl.innerHTML = renderMarkdown(accumulated);
+              contentEl.replaceChildren(renderMarkdown(accumulated));
               self._addCopyButton(msgWrap, accumulated);
             }
             if (appsData.length > 0 && !self.sideContent.querySelector(".he-cards")) {
@@ -704,7 +776,7 @@
                 } else if (evt.type === "explanation_delta") {
                   accumulated += evt.content || "";
                   contentEl.style.display = "";
-                  contentEl.innerHTML = renderMarkdown(accumulated);
+                  contentEl.replaceChildren(renderMarkdown(accumulated));
                   self._setStreamState("streaming");
                   self._scrollBottom();
                 } else if (evt.type === "recommendations") {
