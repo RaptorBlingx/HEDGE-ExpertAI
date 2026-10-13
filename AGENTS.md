@@ -2,11 +2,19 @@
 
 ## Scope and sources
 
-- Respect the task's scope. Preserve unrelated tracked changes and untracked working materials. Deployment, pushing, and changes to production data require task authorization.
-- On this host, reserve the `hedge` Docker project, fixed containers/ports/volumes, and local recovery guards for the [preserved demo](docs/demo-preservation.md). Use offline/disposable integration tests; `-p` alone does not isolate fixed names or ports.
+- Respect the task's scope. Preserve unrelated tracked changes and untracked working materials; their presence alone does not block scoped work on a clean tracked tree. Keep secrets and private Store snapshots out of Git. Changes to production data require task authorization.
+- Never modify, recreate, restart, or otherwise interfere with `/home/ubuntu/hedge-demo` or its containers, networks, ports, volumes, runtime resources, and recovery guards. Reserve the `hedge` Docker project for the [preserved demo](docs/demo-preservation.md). Use offline/disposable integration tests; `-p` alone does not isolate fixed names or ports.
 - Start integration work with [docs/integration-baseline.md](docs/integration-baseline.md). It separates HEDGE-confirmed facts, observed Store v1 contracts, and pending implementation decisions.
 - The [proposal](docs/proposals/HEDGE-IoT-OC1-Proposal-HedgeExpertAI.md) defines commitments; it is not the Store API specification. Use current code, Git history, [architecture](docs/architecture.md), [configuration](docs/configuration-reference.md), and [traceability](docs/traceability-matrix.md) to establish implementation status. Dated reports and deliverables describe their own snapshots.
 - Do not claim production readiness or proposal KPIs without retained, reviewed evidence. Synthetic catalogue tests and deterministic E2E generation do not establish real Store integration or live-model quality.
+
+## Jira workflow
+
+- Use a dedicated branch for each independently reviewable Jira issue, based on the appropriate integration branch (currently `feat/hedge-store-v1-integration`).
+- Run relevant verification and inspect the exact diff before committing. Stage only issue files; commit and push verified work to the existing Forgejo issue branch when safe, preserving unrelated work.
+- Never force-push, commit to or merge into `main`, deploy, or alter protected history without explicit approval.
+- Report the Jira issue reference, branch, commit, verification performed, and push status; identify blockers and do not invent an issue reference.
+- Treat the [2026-10-13 Astra audit](docs/audits/HEDGE-ExpertAI-Astra-Independent-Audit-2026-10-13.md) as investigative evidence. Reproduce findings against current code before implementing fixes; distinguish reported findings from current verification.
 
 ## Current architecture
 
