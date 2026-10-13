@@ -47,7 +47,7 @@ def create_app(playground):
                 "snapshot_complete": False,
                 "embeddings": "real pinned E5" if os.getenv("STORE_PLAYGROUND_E5") == "true" else "unavailable; lexical fallback",
                 "intent": "real Rasa with confidence/health regex fallback" if os.getenv("RASA_ENABLED") == "true" else "regex fallback; Rasa unavailable",
-                "generation": "Deterministic source quotations; Ollama not used",
+                "generation": "Ollama enabled; validated excerpts or deterministic fallback per turn" if os.getenv("STORE_PLAYGROUND_OLLAMA") == "true" else "Deterministic source quotations; Ollama not used",
                 "records": playground.records}
 
     @app.post("/api/v2/chat")
@@ -76,15 +76,15 @@ def create_app(playground):
                 except Exception:
                     yield 'data: {"type":"problem","title":"Offline retrieval unavailable","status":503}\n\n'
                     return
-                # Store narratives are validated deterministic quotations, not
-                # live LLM tokens. Buffer the completed turn before delivery.
+                # Buffer the completed, source-validated response before delivery;
+                # never stream unvalidated model tokens.
                 payloads = [
                     {"type": "recommendations", "apps": result["apps"],
                      "impression_id": result["impression_id"]},
                     {"type": "stage", "stage": "explanation"},
                     {"type": "explanation_delta", "content": result["message"]},
                     {"type": "complete", "session_id": result["session_id"],
-                     "intent": result["intent"], "nlu": result.get("nlu"), "impression_id": result["impression_id"]},
+                     "intent": result["intent"], "nlu": result.get("nlu"), "generation": result.get("generation"), "impression_id": result["impression_id"]},
                 ]
                 for payload in payloads:
                     yield "data: " + json.dumps(payload) + "\n\n"

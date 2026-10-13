@@ -550,7 +550,8 @@ async def run_chat_v2(req: ChatRequestV2, *, store_dialogue: StoreDialogue | Non
         "apps": apps,
         "impression_id": impression_id,
         "timings": timings,
-        **({"nlu": {"source": result.source, "intent": result.intent, "confidence": result.confidence}}
+        **({"nlu": {"source": result.source, "intent": result.intent, "confidence": result.confidence},
+            **({"generation": recommendation["generation"]} if intent not in {"greeting", "help", "out_of_scope"} and recommendation.get("generation") else {})}
            if store_dialogue else {}),
     }
 

@@ -6,6 +6,9 @@ repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 browser=false
 real_embeddings=false
 real_rasa=false
+real_ollama=false
+ollama_runtime=/home/ubuntu/.cache/hedge-store-ollama/0.32.0
+ollama_model=qwen3.5:2b
 port=8091
 input_file=""
 input_kind=""
@@ -15,6 +18,9 @@ while [[ $# -gt 0 ]]; do
         --browser) browser=true; shift ;;
         --embeddings) real_embeddings=true; shift ;;
         --rasa) real_rasa=true; shift ;;
+        --ollama) real_ollama=true; shift ;;
+        --ollama-model) ollama_model="${2:?Specify the model tag}"; shift 2 ;;
+        --ollama-runtime) ollama_runtime="${2:?Specify private CPU runtime directory}"; shift 2 ;;
         --store-token-file|--apps-json)
             if [[ -n "$input_kind" ]]; then echo 'Choose one private input' >&2; exit 1; fi
             input_kind="$1"; input_file="${2:?Specify an absolute private input path}"; shift 2 ;;
@@ -27,7 +33,7 @@ if ! [[ "$port" =~ ^[0-9]{4,5}$ ]] || ((port < 1024 || port > 65535)); then
     echo 'Choose a nonprivileged loopback port' >&2; exit 1
 fi
 if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
-    echo "Launcher: --browser [--port 8091] [--embeddings] [--rasa]; CLI: [--examples]; input: --store-token-file /private/token OR --apps-json /private/apps.json, with --store-id ID"
+    echo "Launcher: --browser [--port 8091] [--embeddings] [--rasa] [--ollama]; CLI: [--examples]; input: --store-token-file /private/token OR --apps-json /private/apps.json, with --store-id ID"
     python3 "$repo/scripts/store_v1_playground.py" --help
     exit 0
 fi
@@ -51,9 +57,17 @@ PRIVATE
 elif [[ -n "$store_id" ]]; then
     echo '--store-id requires a private input' >&2; exit 1
 fi
-if $real_embeddings || $real_rasa; then
+if $real_ollama; then
+    if $real_rasa; then echo 'Run Rasa diagnostics separately from CPU generation on this host' >&2; exit 1; fi
+    if [[ ! -x "$ollama_runtime/bin/ollama" ]]; then
+        echo 'Prepare the pinned CPU runtime per docs/store-v1-ollama-evaluation.md' >&2; exit 1
+    fi
+fi
+if $real_embeddings || $real_rasa || $real_ollama; then
     required_mib=1800
     if $real_embeddings && $real_rasa; then required_mib=2600; fi
+    if $real_ollama; then required_mib=3200; fi
+    if $real_ollama && $real_embeddings; then required_mib=3800; fi
     available_mib=$(awk '/^MemAvailable:/ {print int($2 / 1024)}' /proc/meminfo)
     if ((available_mib < required_mib)); then
         echo "Need at least $required_mib MiB available for requested model mode; use lexical mode or stop only your own evaluation run" >&2
@@ -183,6 +197,18 @@ if $real_embeddings; then
         -e EMBEDDING_MODEL_REVISION=614241f622f53c4eeff9890bdc4f31cfecc418b3 \
         -e OMP_NUM_THREADS=1 -e MKL_NUM_THREADS=1 -e TOKENIZERS_PARALLELISM=false)
 fi
+ollama_mounts=()
+if $real_ollama; then
+    install -d -m 700 /home/ubuntu/.cache/hedge-store-ollama/models
+    ollama_mounts=(--user "$(id -u):$(id -g)" \
+        --mount "type=bind,source=$ollama_runtime,target=/opt/ollama,readonly" \
+        --mount "type=bind,source=/home/ubuntu/.cache/hedge-store-ollama/models,target=/ollama-models" \
+        --tmpfs "/.ollama:rw,size=16m,mode=700,uid=$(id -u),gid=$(id -g)")
+    model_env+=(-e STORE_PLAYGROUND_OLLAMA=true -e "OLLAMA_MODEL=$ollama_model" \
+        -e OLLAMA_MODELS=/ollama-models -e OLLAMA_HOST=127.0.0.1:11434 \
+        -e OLLAMA_BASE_URL=http://127.0.0.1:11434 -e OLLAMA_NUM_PARALLEL=1 \
+        -e OLLAMA_MAX_LOADED_MODELS=1 -e OLLAMA_NO_CLOUD=true -e OLLAMA_DEBUG=false)
+fi
 terminal=()
 if [[ -t 0 && -t 1 ]]; then terminal=(-t); fi
 command=(scripts/store_v1_playground.py "$@")
@@ -194,11 +220,16 @@ if $browser; then
     ports=(--network "${network}-ui" -p "127.0.0.1:$port:8091")
     echo "Isolated Chat Pane: http://127.0.0.1:$port (Ctrl-C stops and removes only this run)"
 fi
+if $real_ollama; then
+    command=(scripts/store_v1_ollama.py "${command[@]}")
+    memory=2560m
+    if $real_embeddings; then memory=3072m; fi
+fi
 docker run --rm -i "${terminal[@]}" --name "$runner" --network "$network" \
-    --memory "$memory" --cpus 1 --read-only --tmpfs /tmp:rw,size=64m "${ports[@]}" \
+    --memory "$memory" --memory-swap "$memory" --cpus 1 --read-only --tmpfs /tmp:rw,size=64m "${ports[@]}" \
     --mount "type=bind,source=$repo,target=/repo,readonly" \
     -e DATABASE_URL=postgresql://postgres@database/hedge_phase1_test \
     -e HEDGE_TEST_DATABASE_URL=postgresql://postgres@database/hedge_phase1_test \
     -e HEDGE_TEST_QDRANT_URL=http://vectors:6333 \
     -e VALKEY_SESSION_URL=redis://sessions:6379/0 \
-    "${model_env[@]}" "${input_env[@]}" "${input_mounts[@]}" "$image" "${command[@]}"
+    "${model_env[@]}" "${input_env[@]}" "${input_mounts[@]}" "${ollama_mounts[@]}" "$image" "${command[@]}"

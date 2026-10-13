@@ -234,3 +234,29 @@ class TestIsHealthy:
         client = OllamaClient(base_url="http://test:11434")
         with patch("httpx.get", side_effect=Exception("fail")):
             assert client.is_healthy() is False
+
+
+def test_structured_store_call_is_single_attempt_no_continuation_and_fixed_budget():
+    response=MagicMock()
+    response.json.return_value={'done':True,'done_reason':'stop','message':{'content':'{"apps":[]}'}}
+    with patch.object(_mod.httpx,'Client') as factory:
+        factory.return_value.__enter__.return_value.post.return_value=response
+        result=OllamaClient().chat_structured([{'role':'user','content':'untrusted'}],{'type':'object'})
+        assert result=='{"apps":[]}'
+        payload=factory.return_value.__enter__.return_value.post.call_args.kwargs['json']
+        assert payload['think'] is False and payload['stream'] is False
+        assert payload['format']=={'type':'object'}
+        assert payload['options']['num_thread']==1
+        assert payload['options']['num_ctx']==2048
+        assert factory.call_args.kwargs['trust_env'] is False
+        factory.return_value.__enter__.return_value.post.assert_called_once()
+
+
+def test_structured_store_truncation_is_rejected_without_continuation():
+    response=MagicMock()
+    response.json.return_value={'done':True,'done_reason':'length','message':{'content':'{"apps":[]}'}}
+    with patch.object(_mod.httpx,'Client') as factory:
+        factory.return_value.__enter__.return_value.post.return_value=response
+        with pytest.raises(ValueError,match='Incomplete'):
+            OllamaClient().chat_structured([], {})
+        factory.return_value.__enter__.return_value.post.assert_called_once()

@@ -113,3 +113,36 @@ def test_browse_rehydrates_publication_metadata_and_reappearance(isolated_input)
         finally:
             if evaluation.session_id:
                 evaluation.chat.delete_session(evaluation.session_id)
+
+
+def test_grounded_reply_is_saved_in_history_and_rechecks_late_publication(isolated_input, monkeypatch):
+    from types import SimpleNamespace
+
+    from scripts.store_v1_playground import load_service
+    monkeypatch.setenv('STORE_PLAYGROUND_OLLAMA','true')
+    recommend=load_service('manual_store_expert','expert-recommend')('recommender')
+    withdraw=False
+
+    def generate(messages, schema):
+        sources=json.loads(messages[1]['content'])['untrusted_source_fields']
+        if withdraw:
+            with storage.connection() as conn:
+                conn.execute("UPDATE catalog_apps SET active=false")  # Only this test's guarded schema.
+        return json.dumps({'apps':[{'rank':r['rank'],'evidence':[
+            {'field':'description','quote':r['description'][0]}]} for r in sources]})
+
+    monkeypatch.setattr(recommend,'OllamaClient',lambda:SimpleNamespace(model='offline-validator-fixture',chat_structured=generate))
+    with offline_playground() as evaluation:
+        try:
+            result=evaluation.ask('List applications','chat',{})['result']
+            assert result['generation']['source']=='ollama'
+            assert 'Validated Ollama source excerpts' in result['message']
+            assert evaluation.chat.get_session(evaluation.session_id)['messages'][-1]['content']==result['message']
+            withdraw=True
+            result=evaluation.ask('Compare both','chat',{})['result']
+            assert result['apps']==[]
+            assert result['generation']['reason']=='catalogue_changed'
+            assert 'snapshot changed' in result['message']
+        finally:
+            if evaluation.session_id:
+                evaluation.chat.delete_session(evaluation.session_id)

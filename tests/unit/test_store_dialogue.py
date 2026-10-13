@@ -162,3 +162,22 @@ def test_generic_browse_words_do_not_bind_to_an_app_named_store(dialogue):
     assert result["intent"] == "browse"
     assert len(result["apps"]) == 3
     dialogue[2].assert_not_awaited()
+
+
+def test_model_delay_cannot_return_withdrawn_or_changed_apps(dialogue):
+    def generate(*args):
+        dialogue[1].pop()
+        return {'message':'generated old facts','generation':{'source':'ollama'}}
+    dialogue[0].generate=generate
+    result=ask(dialogue,'Compare both','compare')
+    assert result['apps']==[]
+    assert 'old facts' not in result['message']
+    assert result['context']['last_results']==[]
+    assert result['generation']['reason']=='catalogue_changed'
+
+
+def test_generator_cannot_replace_authoritative_app_results(dialogue):
+    dialogue[0].generate=lambda *args:{'message':'source excerpts','generation':{'source':'ollama'},
+                                      'apps':[{'app':{'id':'fabricated'}}]}
+    result=ask(dialogue,'Compare both','compare')
+    assert [r['app']['id'] for r in result['apps']]==['local-edge','local-tree']

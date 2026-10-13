@@ -25,7 +25,7 @@ recommendation orchestration, RRF and escaped source quotations.
 Replaced: inter-service HTTP calls with local Python bridges.
 Default: regex NLU and lexical fallback; no model or fake-vector simulation.
 Optional real pinned E5: launcher --embeddings. Experimental real Rasa: --rasa.
-Ollama is not used; Store narratives are deterministic supplied-field quotations.
+Default narratives: deterministic quotations. Optional --ollama: validated model-selected source sentences.
 Details/comparisons resolve current published Apps; absent metadata stays absent.
 Commands: :mode chat | :mode search | :filters JSON | :records | :help | :quit
 Default: chat. 'reset' clears context. Filters persist until :filters {}.
@@ -171,7 +171,8 @@ def offline_playground():
             )
 
         stack.enter_context(patch.object(recommend, "_search_apps_v2", search))
-        stack.enter_context(patch.object(recommend, "OllamaClient", unavailable))
+        if os.getenv("STORE_PLAYGROUND_OLLAMA") != "true":
+            stack.enter_context(patch.object(recommend, "OllamaClient", unavailable))
         from hedge_shared.store_v1 import StoreAppMetadata
 
         def resolve(identities):
@@ -190,6 +191,7 @@ def offline_playground():
 
         policy = importlib.import_module(chat.__package__ + ".store_dialogue").StoreDialogue(
             policy_search, resolve, recommend._recommendation_narrative,
+            generate=recommend.grounded_store_response if os.getenv("STORE_PLAYGROUND_OLLAMA") == "true" else None,
         )
         playground = Playground(chat, recommend, models_v2, records, policy)
 
@@ -202,7 +204,7 @@ def main() -> None:
     args = parser.parse_args()
     banner = (BANNER if not os.getenv("STORE_PLAYGROUND_INPUT") else
               "PRIVATE STORE SNAPSHOT — incomplete, isolated, no further Store calls.\n"
-              "Actual PostgreSQL/dialogue/retrieval; source quotations, no Ollama generation.")
+              "Actual PostgreSQL/dialogue/retrieval; source grounding, optional --ollama generation.")
     print(banner)
     print("Configured models:", {"E5": os.getenv("STORE_PLAYGROUND_E5") == "true",
                                  "Rasa": os.getenv("RASA_ENABLED") == "true"})

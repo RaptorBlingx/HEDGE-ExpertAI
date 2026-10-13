@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import Awaitable, Callable
 
@@ -29,12 +30,32 @@ class StoreDialogue:
 
     def __init__(self, recommend: Callable[..., Awaitable[dict]],
                  resolve: Callable[[list[str] | None], list[dict]],
-                 describe: Callable[[str, list[dict], str], str]):
+                 describe: Callable[[str, list[dict], str], str],
+                 generate: Callable[..., dict] | None = None):
         self.recommend = recommend
         self.resolve = resolve
         self.describe = describe
+        self.generate = generate
 
     async def respond(self, req: ChatRequestV2, intent: str, context: dict) -> dict:
+        response = await self._respond(req, intent, context)
+        if self.generate:
+            rendered = await asyncio.to_thread(self.generate, req.message, response["apps"],
+                                               req.locale, response["intent"], response["message"])
+            # A slow model must not expose facts from a withdrawn/changed App.
+            fresh = {app["id"]: app for app in self.resolve([r["app"]["id"] for r in response["apps"]])}
+            if any(fresh.get(r["app"]["id"]) != r["app"] for r in response["apps"]):
+                response.update(message="The local snapshot changed while preparing this reply. Please search again.", apps=[])
+                response["context"].update(last_results=[], focused_ids=[])
+                response["generation"] = {"source": "deterministic", "reason": "catalogue_changed"}
+            else:
+                response.update(message=rendered["message"], generation=rendered["generation"])
+                label = ("Validated Ollama source excerpts" if rendered["generation"]["source"] == "ollama"
+                         else "Deterministic source fallback")
+                response["message"] = f"*{label}.*\n" + response["message"]
+        return response
+
+    async def _respond(self, req: ChatRequestV2, intent: str, context: dict) -> dict:
         current = self.resolve(None)
         message = req.message
         previous = [item.get("app", item)["id"] for item in context.get("last_results", [])]
@@ -63,11 +84,12 @@ class StoreDialogue:
                        **{k: v for k, v in filters.items() if v not in (None, [], "")}}
         invalid_filters = any(v not in (None, [], "") for k, v in filters.items() if k != "publisher")
         if unsupported or invalid_filters:
-            return self._response(
-                "The supported Store projection does not provide verified prices, structured capabilities, or the requested metadata, "
-                "or the requested filter. I cannot confirm support, cost, or suitability. "
-                "Ask for an App's supplied description or compare its source fields.", [], intent, context,
-            )
+            limitation = ("This snapshot has no verified price information. I cannot confirm what it costs. "
+                          if _PRICE.search(message) else
+                          "The supplied Store fields do not verify that capability, metadata or filter. "
+                          "I cannot confirm support or suitability. ")
+            return self._response(limitation + "I can describe an App's supplied fields or compare the source descriptions.",
+                                  [], intent, context)
         if _BROWSE.fullmatch(message.strip()):
             apps = current
             if filters.get("publisher"):

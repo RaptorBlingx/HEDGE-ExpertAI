@@ -140,6 +140,11 @@ presentation (M6 final review). Keep the existing architecture, traceability and
 evaluation guide as the detailed sources; track acceptance links there. Do not
 implement the remaining features in the access-testing slice.
 
+The opt-in [Ollama evaluation](store-v1-ollama-evaluation.md) adds validated
+extractive source selection and deterministic recovery within the isolated runner.
+This is preparatory grounding work, not acceptance of free-form expert reasoning,
+multilingual dialogue, training or proposal KPIs.
+
 ## Questions still requiring HEDGE coordination
 
 1. Provision the backend client: token endpoint, issuer/audience/scopes, lifetime,
