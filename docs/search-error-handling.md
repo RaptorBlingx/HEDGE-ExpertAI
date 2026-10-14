@@ -53,9 +53,12 @@ Coverage includes the 501- and 2,000-character success boundaries, empty/2,001-
 character validation, derived refinement overflow, genuine no-match, normal
 nonempty results/impressions, unavailable connections, HTTP 503/504, transport
 timeouts, rejected input, malformed result envelopes, catalogue failure/recovery,
-vector fallback, truncated SSE and retry recovery. Both JSON and SSE paths are
-checked, including public gateway forwarding. Timeouts are injected HTTPX
-transport exceptions, not live network latency measurements.
+vector fallback, partial-output terminal errors, truncated SSE and retry recovery.
+Both JSON and SSE paths are checked, including public gateway forwarding.
+Partial-stream failure tests use
+the real session read/update functions with an in-memory Valkey adapter and
+assert unchanged existing messages/context and no session writes. Timeouts are
+injected HTTPX transport exceptions, not live network latency measurements.
 
 For formal QA, use an approved isolated environment with controlled dependency
 faults. Verify a long search is accepted; a genuine zero-result query succeeds;
@@ -64,5 +67,55 @@ a disabled Discovery or catalogue dependency yields an error; a timeout yields
 and confirm failures do not appear as saved no-match answers. Do not fault the
 preserved stakeholder demo or the running SCRUM-27 synthetic widget preview.
 Real infrastructure/load behavior and search relevance remain outside this
-retained offline evidence. Internal review and Tolga's formal QA are pending;
-this document does not mark acceptance or close the Jira issue.
+retained offline evidence. The implementation passed internal technical review;
+Tolga's formal QA is pending. This document does not mark acceptance or close the
+Jira issue.
+
+## Independent QA handoff (offline, no server access)
+
+Tolga and the requester can independently run the retained scenario checks on
+separate laptops or disposable checkouts of the final integration commit. Record
+`git rev-parse HEAD` and use Python 3.11 (verified with 3.11.15). These checks
+exercise actual service routes, synthetic catalogue/dependency responses and
+in-memory session state. They open no listening port, require no SSH/VPN, and
+contact no runtime services. This is API/session QA, not browser or live fault QA.
+
+From a disposable checkout, use a fresh virtual environment outside the checkout
+(example for a POSIX shell):
+
+```sh
+qa_env_dir="$(mktemp -d -t scrum28-qa-XXXXXX)"
+python3.11 -m venv "$qa_env_dir/venv"
+"$qa_env_dir/venv/bin/python" -m pip install --require-hashes \
+  -r shared/requirements.lock \
+  -r services/chat-intent/requirements.lock \
+  -r services/discovery-ranking/requirements.lock \
+  -r services/expert-recommend/requirements.lock \
+  -r services/gateway/requirements.lock
+"$qa_env_dir/venv/bin/python" -m pip install pytest==8.4.1
+PYTHONPATH=shared "$qa_env_dir/venv/bin/python" -m pytest \
+  tests/unit/test_search_error_boundaries.py -v -p no:cacheprovider \
+  --junitxml="$qa_env_dir/scrum28-qa.xml"
+```
+
+Package installation requires access to the package registry, not the HEDGE
+server. Existing pinned CI dependencies can be used instead. Retain the commit,
+Python version, full test output and JUnit report for each reviewer's run. All
+checks must pass; pytest returns a nonzero exit code on failed expectations.
+To inspect one scenario, append `-k NAME` to the pytest command above:
+
+| Scenario / test name | What to verify |
+|---|---|
+| `genuine_zero_results` | Successful empty retrieval: 200, no-match text, no impression; SSE ends in `complete`, not `problem`. |
+| `invalid_inputs` and `refinement_overflow` | Empty/2,001-character inputs and oversized derived refinements return 422; no search is issued for rejected queries. |
+| `501_characters` and `2000_character` | Long accepted searches reach Discovery intact; existing lexical fallback still succeeds. |
+| `failures_never_claim_no_match` | Connection/HTTP 503 produce 503; transport timeout/HTTP 504 produce 504; downstream input rejection produces 422. No failure claims no-match; next healthy request recovers. |
+| `public_gateway` | Gateway preserves normal HTTP statuses and terminal SSE error status instead of converting errors to success. |
+| `partial_stream_failure` | After recommendations and partial text, 422/503/504 or unexpected EOF yields terminal `problem` with no `complete`. Existing history/context stay identical; no successful answer is saved. Early-result impressions retain existing behavior. |
+
+For later manual browser/live fault QA, an approved disposable full-service
+setup is still required, with synthetic Apps, separate sessions/storage and
+controlled dependency faults. Confirm UI failure display and history restoration
+there. Do not reuse the SCRUM-27 renderer-only preview: it cannot validate backend
+search errors. No live infrastructure, browser or latency acceptance is claimed
+by this handoff; no Jira transition or closure is implied.

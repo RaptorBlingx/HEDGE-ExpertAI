@@ -269,20 +269,54 @@ def test_authoritative_service_recovers_on_next_request(chain, monkeypatch, stre
         assert events(recovered)[-1]["type"] == "complete"
 
 
-def test_truncated_upstream_stream_does_not_complete_or_save_history(chain, monkeypatch):
+@pytest.mark.parametrize("status", [422, 503, 504, None])
+def test_partial_stream_failure_preserves_session_without_completion(chain, monkeypatch, status):
+    session = importlib.import_module(chain.chat.__package__ + ".session")
+    initial = {
+        "messages": [{"role": "assistant", "content": "Existing answer"}],
+        "context": {"last_query": "old", "turn": 3},
+    }
+    stored = {"hedge:session:qa-session": json.dumps(initial)}
+    redis = Mock()
+    redis.get.side_effect = stored.get
+    redis.setex.side_effect = lambda key, ttl, value: stored.__setitem__(key, value)
+    monkeypatch.setattr(session, "_get_redis", lambda: redis)
+    monkeypatch.setattr(chain.chat, "get_or_create_session", session.get_or_create_session)
+    monkeypatch.setattr(chain.chat, "get_session", session.get_session)
+    update = Mock(wraps=session.update_session)
+    monkeypatch.setattr(chain.chat, "update_session", update)
+    payloads = [
+        {"type": "recommendations", "apps": [{"app": {"id": "app-001"}, "rank": 1}]},
+        {"type": "explanation_delta", "content": "Partial explanation"},
+    ]
+    if status is not None:
+        payloads.append({"type": "problem", "status": status, "title": "upstream internal detail"})
+
     async def respond(request):
-        return httpx.Response(200, text='data: {"type": "stage", "stage": "retrieval"}\n\n')
+        return httpx.Response(
+            200, text="".join("data: " + json.dumps(payload) + "\n\n" for payload in payloads)
+        )
 
     monkeypatch.setattr(
         chain.chat.httpx,
         "AsyncClient",
         lambda: httpx.AsyncClient(transport=httpx.MockTransport(respond)),
     )
-    payloads = events(chain.cc.post("/api/v2/chat/stream", json={"message": "energy"}))
-    assert payloads[-1]["type"] == "problem"
-    assert payloads[-1]["status"] == 503
-    assert not any(e["type"] == "complete" for e in payloads)
-    chain.updates.assert_not_called()
+    response = chain.gc.post(
+        "/api/v2/chat/stream", json={"message": "energy", "session_id": "qa-session"}
+    )
+    received = events(response)
+    assert any(event["type"] == "recommendations" for event in received)
+    assert any(event["type"] == "explanation_delta" for event in received)
+    assert received[-1]["type"] == "problem"
+    assert received[-1]["status"] == (503 if status is None else status)
+    assert not any(event["type"] == "complete" for event in received)
+    assert "upstream internal detail" not in response.text
+    update.assert_not_called()
+    redis.setex.assert_not_called()
+    assert json.loads(stored["hedge:session:qa-session"]) == initial
+    # Preserve the existing impression for ranked results already delivered.
+    chain.chat.create_impression.assert_called_once()
 
 
 @pytest.mark.parametrize("stream", [False, True])
