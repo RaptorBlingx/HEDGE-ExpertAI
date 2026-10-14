@@ -140,6 +140,12 @@
               }
             }
           },
+          "503": {
+            "description": "Catalogue search unavailable"
+          },
+          "504": {
+            "description": "Catalogue search timed out"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -156,7 +162,7 @@
     "/api/v2/recommend/stream": {
       "post": {
         "summary": "Stream Recommendations V2",
-        "description": "SSE contract that only streams explanations after validation.",
+        "description": "Validated explanations; retrieval failures terminate with a problem event.",
         "operationId": "stream_recommendations_v2_api_v2_recommend_stream_post",
         "requestBody": {
           "content": {

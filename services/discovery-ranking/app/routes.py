@@ -132,18 +132,25 @@ def get_app(app_id: str):
 v2_router = APIRouter(prefix="/api/v2")
 
 
-@v2_router.post("/apps/search")
+@v2_router.post(
+    "/apps/search",
+    responses={503: {"description": "Catalogue search unavailable"}},
+)
 def search_apps_v2_route(req: SearchRequestV2) -> dict[str, Any]:
     """Search independent lexical and dense rankings and fuse with RRF."""
-    client = get_client()
-    results = search_apps_v2(
-        client,
-        query=req.query,
-        locale=req.locale,
-        filters=req.filters,
-        limit=req.limit,
-        catalogue_revision=current_catalogue_revision(),
-    )
+    try:
+        client = get_client()
+        results = search_apps_v2(
+            client,
+            query=req.query,
+            locale=req.locale,
+            filters=req.filters,
+            limit=req.limit,
+            catalogue_revision=current_catalogue_revision(),
+        )
+    except Exception as exc:
+        logger.exception("Catalogue search unavailable")
+        raise HTTPException(status_code=503, detail="Catalogue search unavailable") from exc
     return {
         "schema_version": "2.0",
         "query": req.query,

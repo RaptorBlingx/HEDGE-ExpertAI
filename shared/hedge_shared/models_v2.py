@@ -298,10 +298,13 @@ class SearchFilters(StrictModel):
     data_classifications: list[str] = Field(default_factory=list, max_length=10)
 
 
+MAX_SEARCH_QUERY_LENGTH = 2000
+
+
 class SearchRequestV2(StrictModel):
     """Versioned search request."""
 
-    query: str = Field(min_length=1, max_length=500)
+    query: str = Field(min_length=1, max_length=MAX_SEARCH_QUERY_LENGTH)
     locale: Locale = "en"
     filters: SearchFilters = Field(default_factory=SearchFilters)
     limit: int = Field(default=5, ge=1, le=20)
@@ -329,7 +332,7 @@ class ChatRequestV2(StrictModel):
     """Versioned conversational search request."""
 
     session_id: str | None = Field(default=None, max_length=100)
-    message: str = Field(min_length=1, max_length=2000)
+    message: str = Field(min_length=1, max_length=MAX_SEARCH_QUERY_LENGTH)
     locale: Locale = "en"
     filters: SearchFilters = Field(default_factory=SearchFilters)
 

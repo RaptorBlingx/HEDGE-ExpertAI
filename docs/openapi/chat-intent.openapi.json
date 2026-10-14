@@ -350,6 +350,12 @@
               }
             }
           },
+          "503": {
+            "description": "Recommendation or catalogue search unavailable"
+          },
+          "504": {
+            "description": "Recommendation or catalogue search timed out"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -366,7 +372,7 @@
     "/api/v2/chat/stream": {
       "post": {
         "summary": "Chat Stream V2",
-        "description": "Versioned SSE with early ranked results and validated explanation text.",
+        "description": "Ranked results and validated text; failures terminate with a problem event.",
         "operationId": "chat_stream_v2_api_v2_chat_stream_post",
         "requestBody": {
           "content": {

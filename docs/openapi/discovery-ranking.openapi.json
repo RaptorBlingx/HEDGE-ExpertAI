@@ -145,6 +145,9 @@
               }
             }
           },
+          "503": {
+            "description": "Catalogue search unavailable"
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -749,7 +752,7 @@
         "properties": {
           "query": {
             "type": "string",
-            "maxLength": 500,
+            "maxLength": 2000,
             "minLength": 1,
             "title": "Query"
           },

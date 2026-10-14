@@ -419,22 +419,44 @@ async def _recommend_v2(
     locale: str,
     filters: dict,
 ) -> dict:
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{EXPERT_RECOMMEND_URL}/api/v2/recommend",
-            json={
-                "query": query,
-                "locale": locale,
-                "filters": filters,
-                "limit": 5,
-            },
-            timeout=180.0,
-        )
-    response.raise_for_status()
-    return response.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{EXPERT_RECOMMEND_URL}/api/v2/recommend",
+                json={
+                    "query": query,
+                    "locale": locale,
+                    "filters": filters,
+                    "limit": 5,
+                },
+                timeout=180.0,
+            )
+        response.raise_for_status()
+        return response.json()
+    except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+        raise _recommendation_failure(exc) from exc
 
 
-@v2_router.post("/chat")
+def _recommendation_failure(exc: Exception) -> HTTPException:
+    """Preserve input rejection/timeouts; other upstream errors mean unavailable."""
+    if isinstance(exc, httpx.TimeoutException):
+        return HTTPException(status_code=504, detail="Recommendation service timed out")
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        if status == 422:
+            return HTTPException(status_code=422, detail="Invalid catalogue search input")
+        if status == 504:
+            return HTTPException(status_code=504, detail="Catalogue search timed out")
+    return HTTPException(status_code=503, detail="Recommendation service unavailable")
+
+
+@v2_router.post(
+    "/chat",
+    responses={
+        503: {"description": "Recommendation or catalogue search unavailable"},
+        504: {"description": "Recommendation or catalogue search timed out"},
+    },
+)
 async def chat_v2(req: ChatRequestV2) -> dict:
     """Deterministic application-owned dialogue with durable impressions."""
     return await run_chat_v2(req)
@@ -568,7 +590,7 @@ def _sse_v2(event_id: str, data: dict) -> str:
     responses={200: {"content": {"text/event-stream": {}}}},
 )
 async def chat_stream_v2(req: ChatRequestV2):
-    """Versioned SSE with early ranked results and validated explanation text."""
+    """Ranked results and validated text; failures terminate with a problem event."""
 
     async def generate():
         import json
@@ -654,6 +676,7 @@ async def chat_stream_v2(req: ChatRequestV2):
         full_text = ""
         timings: dict = {}
         impression_id = None
+        completed = False
         try:
             async with httpx.AsyncClient() as client:
                 async with client.stream(
@@ -703,15 +726,30 @@ async def chat_stream_v2(req: ChatRequestV2):
                             content = str(upstream.get("content", ""))
                             full_text += content
                             yield event({"type": "explanation_delta", "content": content})
+                        elif upstream_type == "problem":
+                            status = upstream.get("status")
+                            status = status if status in {422, 503, 504} else 503
+                            title = {
+                                422: "Invalid catalogue search input",
+                                503: "Catalogue search unavailable",
+                                504: "Catalogue search timed out",
+                            }[status]
+                            yield event({"type": "problem", "title": title, "status": status})
+                            return
                         elif upstream_type == "complete":
+                            completed = True
                             timings.update(upstream.get("timings", {}))
-        except Exception:
+            if not completed:
+                yield event({"type": "problem", "title": "Incomplete recommendation stream", "status": 503})
+                return
+        except Exception as exc:
             logger.exception("V2 streaming dialogue failed")
+            failure = _recommendation_failure(exc)
             yield event(
                 {
                     "type": "problem",
-                    "title": "Recommendation service unavailable",
-                    "status": 503,
+                    "title": failure.detail,
+                    "status": failure.status_code,
                 }
             )
             return

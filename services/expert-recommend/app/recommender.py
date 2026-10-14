@@ -11,6 +11,7 @@ import time
 from typing import Any, Literal
 
 import httpx
+from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 
 from .llm_client import OllamaClient
@@ -150,10 +151,24 @@ def _search_apps_v2(
             timeout=30.0,
         )
         response.raise_for_status()
-        return response.json().get("results", [])
-    except Exception:
-        logger.exception("Failed to search v2 catalogue")
-        return []
+        results = response.json()["results"]
+        if not isinstance(results, list) or any(
+            not isinstance(item, dict) or not isinstance(item.get("app"), dict)
+            for item in results
+        ):
+            raise ValueError("Invalid Discovery results")
+        return results
+    except httpx.TimeoutException as exc:
+        raise HTTPException(status_code=504, detail="Catalogue search timed out") from exc
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 422:
+            raise HTTPException(status_code=422, detail="Invalid catalogue search input") from exc
+        if exc.response.status_code == 504:
+            raise HTTPException(status_code=504, detail="Catalogue search timed out") from exc
+        raise HTTPException(status_code=503, detail="Catalogue search unavailable") from exc
+    except (httpx.RequestError, ValueError, KeyError, TypeError) as exc:
+        logger.warning("Catalogue search unavailable (%s)", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Catalogue search unavailable") from exc
 
 
 def _evidence_explanations(
