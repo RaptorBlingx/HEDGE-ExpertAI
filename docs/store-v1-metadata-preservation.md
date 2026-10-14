@@ -123,7 +123,7 @@ optional types, malformed/deep/duplicate embedded JSON, active HTML, size bounds
 legacy document refresh, version order, stale vectors/current metadata, withdrawal
 and public-source separation. Test fixtures are authored and contain no private data.
 
-Final verification on the issue branch using the existing locked Python 3.11.15
+Initial verification at `9c56692` using the existing locked Python 3.11.15
 developer image: **656 unit tests** passed with **93.32% shared branch coverage**
 (80% gate); **76 focused disposable PostgreSQL/Qdrant integration tests** passed.
 Ruff and whitespace checks passed. All six regenerated public OpenAPI files were
@@ -137,3 +137,43 @@ Existing publication/access/completeness and unattended credential decisions rem
 open. Code can be reviewed with unknown semantics retained; enabling protected or
 anonymous use requires those decisions. No merge or Jira transition is authorized
 by this delivery.
+
+
+## Review corrections — bounded quotations and extraction limits
+
+Both P2 findings were reproduced against `9c56692`: a 1,254-character README
+lost its simulation-only qualification at character 1,200; a 16,001-character
+README was marked `too_large` but described as absent. Permanent regressions
+failed against that commit before the correction.
+
+The quotation helper now returns only complete whitespace-normalized source
+values of at most 1,200 characters, with the existing HTML/Markdown escaping.
+Longer values are omitted from prose in their entirety and labelled by original
+source path: `complete quotation omitted (exceeds 1,200 characters)`. The full
+projected evidence remains available in the App result. No arbitrary prefix,
+selected tail or guessed qualification is presented as a complete quotation.
+Valid short quotations are unchanged. The extractive model's validated quotations
+remain bounded to 400 characters; oversized display names use the existing result
+rank as a neutral label, retaining App identity in the structured result.
+
+Narratives report README/embedded extraction limitations, including when other
+source fields can still be quoted. They assert missing descriptive metadata only
+when the supported fields are absent and both extraction statuses explicitly say
+`missing`. Limited extraction, oversized retained fields and older projections
+without those statuses receive `No descriptive source text could be extracted or
+projected`, with supplied processing statuses where available. Human-readable
+status labels in prose do not replace the unchanged structured status codes.
+
+The follow-up changes are confined to recommendation rendering, tests and these
+notes. Normalization, persistence, checksums, retrieval, source evidence, publication,
+ranking, dialogue and model selection remain unchanged. Regressions cover 1,199 /
+1,200 / 1,201 / 1,254 / 16,000 / 16,001 character cases, malformed/unsupported
+embedded statuses, absent/legacy metadata, escaping, valid extractive responses,
+source identity and matching normal/streamed output. Disposable service tests also
+verify retained PostgreSQL README values, revisions, indexing and withdrawal.
+
+Follow-up verification: **677 unit tests** passed with **93.58% shared branch
+coverage**; **78 focused disposable PostgreSQL/Qdrant integration tests** passed.
+Ruff and whitespace checks passed; all six generated public OpenAPI documents
+remain byte-identical. These checks establish the rendering corrections and
+source/persistence behavior, not live Store or model acceptance.

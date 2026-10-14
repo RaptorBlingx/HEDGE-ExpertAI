@@ -360,3 +360,43 @@ def test_store_metadata_survives_transport_persistence_index_and_recommendation(
     assert not any(row["app_id"] == app.id for row in rows("indexing_outbox"))
     save(changed.model_copy(update={"visible": False}))
     assert search("MQTT") == []
+
+
+@pytest.mark.parametrize("length", [1254, 16001])
+def test_readme_output_limits_preserve_current_store_metadata_and_streaming(offline, length):
+    start = "Specification notes: "
+    end = " MQTT is supported only in simulation; production does not support MQTT."
+    readme = start + "x" * (length - len(start) - len(end)) + end
+    app = client_module.normalize_store_v1_app({
+        "appId": "Output-Limit-App", "fkAppStoreId": STORE, "name": "Boundary evidence",
+        "description": "Shows supplied telemetry.", "readme": readme,
+        "active": True, "visible": True,
+    })
+    save(app)
+    stored = storage.get_catalogue_apps([app.id], store_id=STORE)[app.id]
+    assert stored["payload"]["readme"] == readme
+    assert stored["revision"] == 1
+    assert apply(offline, operation(app)) == 1
+    result = recommender.recommend_v2(query="telemetry", locale="en", filters={}, limit=5)
+    row = next(row for row in result["apps"] if row["app"]["id"] == app.id)
+    assert row["app"]["store_id"] == STORE and row["app"]["app_id"] == app.app_id
+    explanation = next(e for e in result["explanations"] if e["app_id"] == app.id)
+    assert 'description: "Shows supplied telemetry."' in explanation["text"]
+    assert "MQTT is supported" not in explanation["text"]
+    assert "supplied no descriptive metadata" not in explanation["text"]
+    if length == 1254:
+        assert row["app"]["source_evidence"]["readme"] == readme
+        assert "readme: complete quotation omitted" in explanation["text"]
+    else:
+        assert row["app"]["readme_status"] == "too_large"
+        assert "readme" not in row["app"]["source_evidence"]
+        assert "too large" in explanation["text"]
+    events = list(recommender.recommend_v2_stream(query="telemetry", locale="en", filters={}, limit=5))
+    assert events[0]["apps"] == result["apps"]
+    assert "".join(e["content"] for e in events if e["type"] == "explanation_delta") == result["message"]
+    assert events[-1]["explanations"] == result["explanations"]
+    assert not any(row["app_id"] == app.id for row in rows("indexing_outbox"))
+    save(app.model_copy(update={"visible": False}))
+    assert app.id not in {row["app"]["id"] for row in recommender.recommend_v2(
+        query="telemetry", locale="en", filters={}, limit=5,
+    )["apps"]}

@@ -190,12 +190,35 @@ def _evidence_explanations(
         if app.get("source_profile") == "hedge-store-v1":
             evidence = _store_evidence(app)
             fields = list(evidence)
+            parts = []
+            for field, value in evidence.items():
+                quoted = _quoted_store_text(value)
+                parts.append(
+                    f'{field}: "{quoted}"' if quoted is not None else
+                    f"{field}: complete quotation omitted (exceeds 1,200 characters)."
+                )
+            statuses = {
+                "readme": app.get("readme_status"),
+                "dataspaceAppDescription": app.get("dataspace_description_status"),
+            }
+            if not parts:
+                # A sparse projection alone cannot establish that the source was empty.
+                supplied = any(app.get(field) for field in (
+                    "name", "description", "provider", "built_for_connector",
+                    "connector_version", "app_type", "readme", "dataspace_app_description",
+                    "versions",
+                ))
+                missing = not supplied and all(status == "missing" for status in statuses.values())
+                parts.append("The Store supplied no descriptive metadata." if missing else
+                             "No descriptive source text could be extracted or projected.")
+            for field, status in statuses.items():
+                if status not in (None, "missing", "extracted"):
+                    safe_status = _quoted_store_text(str(status).replace("_", " ")) or "status unavailable"
+                    parts.append(f"{field}: source text was not projected ({safe_status}).")
             explanations.append({
                 "app_id": app["id"], "source_profile": app["source_profile"],
                 "store_id": app["store_id"], "source_app_id": app["app_id"],
-                "text": " ".join(
-                    f'{field}: "{_quoted_store_text(evidence[field])}"' for field in fields
-                ) or "The Store supplied no descriptive metadata.",
+                "text": " ".join(parts),
                 "evidence_fields": fields,
             })
             continue
@@ -236,9 +259,11 @@ def _all_results_mentioned_in_order(
     return True
 
 
-def _quoted_store_text(value: str) -> str:
-    """Bound untrusted source quotations and escape HTML/Markdown, never execute them."""
-    text = " ".join(value.split())[:1200]
+def _quoted_store_text(value: str) -> str | None:
+    """Escape a complete bounded quotation; never cut a material qualification."""
+    text = " ".join(value.split())
+    if len(text) > 1200:
+        return None
     return re.sub(r"([\\`*_{}\[\]()])", r"\\\1", html.escape(text))
 
 
@@ -334,7 +359,8 @@ def grounded_store_response(query: str, results: list[dict], locale: str,
                 if evidence.field in fields or not value or evidence.quote not in value:
                     raise ValueError("Unsupported source claim")
                 fields.add(evidence.field)
-            name = _quoted_store_text(result["app"].get("name") or result["app"]["app_id"])
+            name = (_quoted_store_text(result["app"].get("name") or result["app"]["app_id"])
+                    or f"App {result['rank']}")
             facts = " ".join(("The Store describes it as " if e.field == "description"
                               else "The supplied provider is " if e.field == "provider"
                               else "The Store supplies ")
