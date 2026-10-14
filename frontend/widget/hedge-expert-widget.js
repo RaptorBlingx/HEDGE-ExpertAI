@@ -875,7 +875,7 @@
         var result = apps[i];
         var app = result.app || result;
         var isStore = app.source_profile === "hedge-store-v1";
-        var relevance = isStore ? "Rank " + result.rank : result.relevance || "medium";
+        var relevance = result.suitability ? (result.suitability.status === "source_supported" ? "Source evidence" : "Unverified candidate") : (isStore ? "Rank " + result.rank : result.relevance || "medium");
         var domainLabel = (app.domains && app.domains[0]) || app.saref_type || app.domain || "";
         var dc = domainColor(domainLabel);
         var desc = (app.description || "").slice(0, 140);

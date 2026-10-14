@@ -43,15 +43,31 @@ class StoreDialogue:
             rendered = await asyncio.to_thread(self.generate, req.message, response["apps"],
                                                req.locale, response["intent"], response["message"])
             # A slow model must not expose facts from a withdrawn/changed App.
-            fresh = {app["id"]: app for app in self.resolve([r["app"]["id"] for r in response["apps"]])}
-            if any(fresh.get(r["app"]["id"]) != r["app"] for r in response["apps"]):
-                response.update(message="The local snapshot changed while preparing this reply. Please search again.", apps=[])
+            visible_rows = [*response["apps"], *response.get("candidates", [])]
+            fresh = {app["id"]: app for app in self.resolve([r["app"]["id"] for r in visible_rows])}
+            if any(fresh.get(r["app"]["id"]) != r["app"] for r in visible_rows):
+                response.update(message="The local snapshot changed while preparing this reply. Please search again.", apps=[], candidates=[])
                 response["context"].update(last_results=[], focused_ids=[])
                 response["generation"] = {"source": "deterministic", "reason": "catalogue_changed"}
+                response["decision"] = {"outcome": "abstained", "reason": "catalogue_changed"}
             else:
-                response.update(message=rendered["message"], generation=rendered["generation"])
+                prior_candidates = response.get("candidates", [])
+                if rendered.get("abstained") and response["intent"] in {"search", "refine"}:
+                    response["candidates"] = [*response.get("candidates", []),
+                        *[{**row, "suitability": {**row.get("suitability", {}), "status": "uncertain", "reason": "model_declined"}}
+                          for row in response["apps"]]]
+                    response["apps"] = []
+                    response["context"].update(last_results=[], focused_ids=[])
+                    response["decision"] = {"outcome": "abstained", "reason": "model_abstention"}
+                message = rendered["message"]
+                if prior_candidates and rendered["generation"]["source"] == "ollama":
+                    message += "\nUnverified retrieval candidates; they are not confirmed matches:\n"
+                    message += self.describe(req.message, prior_candidates, req.locale)
+                response.update(message=message, generation=rendered["generation"])
                 label = ("Validated Ollama source excerpts" if rendered["generation"]["source"] == "ollama"
                          else "Deterministic source fallback")
+                if rendered["generation"].get("reason") == "model_abstention":
+                    label = "Validated model abstention"
                 response["message"] = f"*{label}.*\n" + response["message"]
         return response
 
@@ -130,7 +146,15 @@ class StoreDialogue:
         # retrieval (when available) still receives the remaining natural query.
         query = re.sub(r"^(?:please\s+)?(?:find|search for|show me|recommend|i need|i am looking for)\s+", "", message, flags=re.I)
         query = re.sub(r"^(?:an?\s+)?(?:apps?|applications?)\s+(?:for|to|about|that)\s+", "", query, flags=re.I)
-        if named:
+        # Preserve capability constraints when a request also mentions an App name.
+        # Only a query consisting of names/connectors is an identity lookup.
+        remainder = query
+        for app in named_apps:
+            for value in (app.get("name"), app["app_id"]):
+                if value:
+                    remainder = re.sub(rf"(?<!\w){re.escape(value)}(?!\w)", "", remainder, flags=re.I)
+        identity_only = not re.sub(r'\b(?:and|or)\b|[\s,\"\']', "", remainder, flags=re.I)
+        if named and identity_only:
             names = [(app["name"] or app["app_id"]).replace('"', " ") for app in named_apps]
             query = " OR ".join('"' + name + '"' for name in names)
         if intent == "refine" and context.get("last_query"):

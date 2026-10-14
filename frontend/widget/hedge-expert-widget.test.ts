@@ -99,3 +99,15 @@ describe("untrusted assistant Markdown", () => {
     expect(content.textContent).toContain("&lt;img onerror=attack&gt;");
   });
 });
+
+
+it("labels recommendation cards by evidence rather than a high retrieval band", () => {
+  const WidgetClass = (window as unknown as { HedgeExpertWidget: new (config: object) => {
+    _addAppCards(parent: HTMLElement, apps: object[], impressionId: string | null): void;
+  } }).HedgeExpertWidget;
+  const widget = new WidgetClass({ apiUrl: "https://widget-test.invalid" });
+  const parent = document.createElement("div");
+  widget._addAppCards(parent, [{ app: { id: "qa", title: "Warning App", description: "Earthquake warnings." },
+    rank: 1, relevance: "high", suitability: { status: "source_supported" } }], null);
+  expect(parent.querySelector(".he-card-score")?.textContent).toBe("Source evidence");
+});

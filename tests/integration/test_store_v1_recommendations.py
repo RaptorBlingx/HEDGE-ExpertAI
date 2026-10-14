@@ -108,8 +108,10 @@ def test_offline_pipeline_keeps_native_identity_sparse_facts_and_grounded_explan
     client, collection, app, search, llm = offline
     assert apply(offline, operation(app)) == 1
     result = recommender.recommend_v2(query="energy", locale="pt", filters={}, limit=10)
-    assert len(result["apps"]) == 2
-    by_native = {r["app"]["app_id"]: r for r in result["apps"]}
+    assert len(result["apps"]) == 1 and len(result["candidates"]) == 1
+    assert result["apps"][0]["app"]["app_id"] == "Sparse-App"
+    assert result["candidates"][0]["app"]["app_id"] == "Shared-App"
+    by_native = {r["app"]["app_id"]: r for r in [*result["apps"], *result["candidates"]]}
     returned = by_native[app.app_id]
     assert returned["app"]["id"] == app.id and returned["app"]["store_id"] == STORE
     assert returned["app"]["public_eligible"] is True
@@ -117,12 +119,12 @@ def test_offline_pipeline_keeps_native_identity_sparse_facts_and_grounded_explan
     assert sparse["name"] is sparse["provider"] is None
     assert sparse["description"] == "Energy readings."
     assert "Empty-App" not in by_native
-    for row in result["apps"]:
+    for row in [*result["apps"], *result["candidates"]]:
         assert not {"score", "relevance"} & row.keys()
         assert not {"title", "summary", "capabilities", "categories", "supported_languages",
                     "semantic_annotations", "readme", "dataspaceAppDescription",
                     "registry_base_url", "ui_url"} & row["app"].keys()
-    explanation = next(e for e in result["explanations"] if e["app_id"] == app.id)
+    explanation = recommender._evidence_explanations([returned], "pt")[0]
     assert explanation["store_id"] == STORE and explanation["source_app_id"] == app.app_id
     assert explanation["evidence_fields"] == ["name", "description", "provider",
                                              "dataspaceAppDescription.properties.description"]
@@ -338,11 +340,14 @@ def test_store_metadata_survives_transport_persistence_index_and_recommendation(
     _, _, _, search, _ = offline
     for query in ("MQTT", "forecasting", "prediction", "ExampleConnector"):
         result = recommender.recommend_v2(query=query, locale="en", filters={}, limit=5)
-        found = next(r["app"] for r in result["apps"] if r["app"]["id"] == app.id)
+        found_row = next(r for r in [*result["apps"], *result["candidates"]] if r["app"]["id"] == app.id)
+        found = found_row["app"]
+        assert (found_row in result["apps"]) is (query != "ExampleConnector")
+        # Connector association remains retrievable, never a capability guarantee.
         assert found["billable"] is False and found["price"] == 0
         assert found["versions"][0]["version"] == "2.0"
         assert "source_evidence" in found and "readme" not in found
-        explanation = next(e for e in result["explanations"] if e["app_id"] == app.id)
+        explanation = recommender._evidence_explanations([found_row], "en")[0]
         assert "readme" in explanation["evidence_fields"]
         assert "dataspaceAppDescription.properties.featureList[0]" in explanation["evidence_fields"]
         assert 'billable: "false"' in explanation["text"]
@@ -400,3 +405,41 @@ def test_readme_output_limits_preserve_current_store_metadata_and_streaming(offl
     assert app.id not in {row["app"]["id"] for row in recommender.recommend_v2(
         query="telemetry", locale="en", filters={}, limit=5,
     )["apps"]}
+
+
+@pytest.mark.parametrize("description", ["Earthquake warnings.", "Earthquake warnings only in simulation."])
+def test_disposable_store_pipeline_separates_dense_neighbours_from_source_supported_apps(offline, description):
+    water = client_module.normalize_store_v1_app({
+        "appId": "Water-Meter", "fkAppStoreId": STORE, "name": "Water Meter",
+        "description": "Displays water readings.", "active": True, "visible": True,
+    })
+    warning = client_module.normalize_store_v1_app({
+        "appId": "Warning-App", "fkAppStoreId": STORE,
+        "description": description, "active": True, "visible": True,
+    })
+    for app in (water, warning):
+        save(app)
+        assert apply(offline, operation(app)) == 1
+    result = recommender.recommend_v2(query="earthquake warnings", locale="en", filters={}, limit=10)
+    supported = "simulation" not in description
+    assert [r["app"]["id"] for r in result["apps"]] == ([warning.id] if supported else [])
+    by_id = {r["app"]["id"]: r for r in result["candidates"]}
+    assert by_id[water.id]["evidence_fields"] == ["dense"]
+    assert by_id[water.id]["suitability"]["status"] == "uncertain"
+    assert result["decision"]["outcome"] == ("recommended" if supported else "abstained")
+    assert "highest-ranked" not in result["message"] and "Start with" not in result["message"]
+    assert water.description in result["message"]
+    all_rows = [*result["apps"], *result["candidates"]]
+    returned = next(r for r in all_rows if r["app"]["id"] == warning.id)
+    assert returned["app"]["store_id"] == STORE and returned["app"]["app_id"] == warning.app_id
+    assert returned["app"]["source_evidence"]["description"] == description
+    assert storage.get_catalogue_apps([warning.id], store_id=STORE)[warning.id]["revision"] == 1
+    events = list(recommender.recommend_v2_stream(query="earthquake warnings", locale="en", filters={}, limit=10))
+    assert events[0]["apps"] == result["apps"] and events[0]["candidates"] == result["candidates"]
+    assert "".join(e["content"] for e in events if e["type"] == "explanation_delta") == result["message"]
+    # Current PostgreSQL visibility remains authoritative over stale vector evidence.
+    save(warning.model_copy(update={"visible": False}))
+    withdrawn = recommender.recommend_v2(query="earthquake warnings", locale="en", filters={}, limit=10)
+    assert withdrawn["apps"] == []
+    assert warning.id not in {r["app"]["id"] for r in withdrawn["candidates"]}
+    assert payload(offline, warning)["_index_revision"] == 1

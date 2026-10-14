@@ -80,10 +80,12 @@ def create_app(playground):
                 # never stream unvalidated model tokens.
                 payloads = [
                     {"type": "recommendations", "apps": result["apps"],
+                     **{key: result[key] for key in ("decision", "candidates") if key in result},
                      "impression_id": result["impression_id"]},
                     {"type": "stage", "stage": "explanation"},
                     {"type": "explanation_delta", "content": result["message"]},
                     {"type": "complete", "session_id": result["session_id"],
+                     **({"decision": result["decision"]} if "decision" in result else {}),
                      "intent": result["intent"], "nlu": result.get("nlu"), "generation": result.get("generation"), "impression_id": result["impression_id"]},
                 ]
                 for payload in payloads:

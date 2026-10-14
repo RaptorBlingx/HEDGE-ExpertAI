@@ -10,9 +10,9 @@ from scripts.store_v1_playground import load_service
 
 recommend = load_service('unit_store_grounded_expert', 'expert-recommend')('recommender')
 RESULTS = [
-    {'app': {'source_profile':'hedge-store-v1', 'id':'one', 'app_id':'native-one', 'name':'One',
+    {'app': {'source_profile':'hedge-store-v1', 'store_id':'Test-Store', 'id':'one', 'app_id':'native-one', 'name':'One',
              'description':'Collects sensor readings. It does not support MQTT.', 'provider':None}, 'rank':1},
-    {'app': {'source_profile':'hedge-store-v1', 'id':'two', 'app_id':'native-two', 'name':'Two',
+    {'app': {'source_profile':'hedge-store-v1', 'store_id':'Test-Store', 'id':'two', 'app_id':'native-two', 'name':'Two',
              'description':'Organizes semantic models.', 'provider':'Example'}, 'rank':2},
 ]
 VALID = {'apps':[
@@ -115,3 +115,12 @@ def test_new_source_paths_are_available_to_extraction_without_inferred_claims(mo
     unsupported = {'apps':[{'rank':1, 'evidence':[{'field':'currency', 'quote':'EUR'}]}]}
     result, _ = generate(monkeypatch, unsupported, results=results)
     assert result['message'] == 'safe fallback'
+
+
+def test_valid_search_abstention_is_not_replaced_with_forced_source_recommendations(monkeypatch):
+    result, call = generate(monkeypatch, {'apps':[]}, intent='search')
+    assert result['abstained'] is True
+    assert result['generation']['reason'] == 'model_abstention'
+    assert 'cannot confirm a recommendation' in result['message']
+    assert 'Unverified retrieval candidates' in result['message']
+    call.assert_called_once()

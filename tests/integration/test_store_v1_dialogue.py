@@ -54,7 +54,7 @@ def conversation(offline, monkeypatch):
 
 
 def test_real_dialogue_details_comparison_smalltalk_and_unsupported_context(conversation):
-    initial = conversation("energy")
+    initial = conversation("readings")
     assert len(initial["apps"]) == 2
     ids = [a["app"]["id"] for a in initial["apps"]]
     detail = conversation("Tell me more about the second app")

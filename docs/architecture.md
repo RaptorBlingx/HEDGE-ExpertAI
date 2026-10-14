@@ -39,13 +39,13 @@ local fallback. The fallback is not counted as multilingual KPI evidence.
 
 PostgreSQL full-text search and Qdrant dense search retrieve candidates independently. Ranked vector/cache references are checked against current PostgreSQL eligibility, revision, metadata and filters before fusion; vector failure leaves lexical retrieval usable. See [outbox and retrieval consistency](outbox-retrieval-consistency.md). Weighted reciprocal-rank fusion combines ranks, avoiding the false assumption that lexical and cosine scores are probabilities. Typed filters apply to both branches; semantic boosts are bounded and provenance-aware. Public responses expose only `high`, `medium` or `low` relevance.
 
-The E5 model uses `query:` and `passage:` prefixes and is pinned to an audited repository revision. The explanation layer receives only ordered retrieval results. It treats the query and metadata as untrusted delimited data, removes hidden-reasoning tags across stream chunks, verifies all titles and ordering, and falls back to deterministic localized evidence text on any validation failure.
+The E5 model uses `query:` and `passage:` prefixes and is pinned to an audited repository revision. Recommendation assessment is separate from retrieval: direct functional source evidence admits Apps; unresolved candidates remain explicitly unverified. Optional structured model selection can decline admitted Apps, including all of them, but cannot promote unsupported candidates or supply served factual prose. Code renders escaped, complete source quotations and retains source paths. Store extractive generation also permits search/refine abstention. See [recommendation suitability](recommendation-suitability.md) for the conservative textual boundary and acceptance limits.
 
 ## Conversation and streaming
 
 Rasa is NLU-only. Application code owns deterministic policy and authoritative state: locale, intent, concepts, filters, recent impression/results and turn number. Refinements merge filters; new searches and resets clear prior topic context intentionally.
 
-SSE v2 events are `stage`, `recommendations`, `explanation_delta`, `complete` and `problem`. Ranked results are emitted immediately after retrieval. Explanation deltas begin only after the full narrative has passed grounding validation; no chain of thought or fabricated client stage is emitted.
+SSE v2 events are `stage`, `recommendations`, `explanation_delta`, `complete` and `problem`. Recommendation events are emitted after the evidence decision, with admitted `apps`, unverified `candidates` and the `decision`. Explanation deltas contain the completed source-rendered response; no unvalidated model prose or chain of thought is emitted. Retrieval failures remain terminal problem events, distinct from abstention.
 
 ## Deployment profiles
 

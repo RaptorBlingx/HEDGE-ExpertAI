@@ -78,3 +78,25 @@ def test_private_snapshot_status_labels_source_and_blocks_private_input_download
         assert "Ollama not used" in status["generation"]
         assert status["records"] == evaluation.records
         assert client.get("/input/apps.json").status_code == 404
+
+
+def test_offline_stream_preserves_abstention_and_unverified_candidates():
+    import json
+
+    response = {"apps": [], "candidates": [{"app": {"id": "water"}, "rank": 1}],
+                "message": "I cannot recommend an App from these fields.", "intent": "search",
+                "impression_id": None, "session_id": "local",
+                "decision": {"outcome": "abstained", "reason": "insufficient_evidence"}}
+
+    async def converse(request):
+        return response
+
+    with TestClient(create_app(playground(converse)), base_url="http://127.0.0.1:8091") as client:
+        normal = client.post("/api/v2/chat", json={"message": "earthquake warnings"}).json()
+        stream = client.post("/api/v2/chat/stream", json={"message": "earthquake warnings"})
+        records = [json.loads(line[6:]) for line in stream.text.splitlines() if line.startswith("data: ")]
+        result = next(r for r in records if r["type"] == "recommendations")
+        assert result["apps"] == normal["apps"] == []
+        assert result["candidates"] == normal["candidates"]
+        assert result["decision"] == normal["decision"] == records[-1]["decision"]
+        assert records[-1]["impression_id"] is None
