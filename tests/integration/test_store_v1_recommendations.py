@@ -20,6 +20,7 @@ from urllib.parse import urlparse
 import pytest
 from hedge_shared import storage
 from hedge_shared.models_v2 import SearchFilters
+from hedge_shared.store_v1 import StoreAppMetadata
 from qdrant_client import QdrantClient, models
 
 from .test_catalogue_snapshot import wait_for_blocked_lock
@@ -119,15 +120,16 @@ def test_offline_pipeline_keeps_native_identity_sparse_facts_and_grounded_explan
     for row in result["apps"]:
         assert not {"score", "relevance"} & row.keys()
         assert not {"title", "summary", "capabilities", "categories", "supported_languages",
-                    "semantic_annotations", "readme", "dataspaceAppDescription", "versions",
+                    "semantic_annotations", "readme", "dataspaceAppDescription",
                     "registry_base_url", "ui_url"} & row["app"].keys()
     explanation = next(e for e in result["explanations"] if e["app_id"] == app.id)
     assert explanation["store_id"] == STORE and explanation["source_app_id"] == app.app_id
-    assert explanation["evidence_fields"] == ["name", "description", "provider"]
+    assert explanation["evidence_fields"] == ["name", "description", "provider",
+                                             "dataspaceAppDescription.properties.description"]
     assert 'description: "Shows supplied meter readings."' in explanation["text"]
     sparse_evidence = next(e for e in result["explanations"] if e["source_app_id"] == "Sparse-App")
     assert sparse_evidence["evidence_fields"] == ["description"]
-    assert "fabricatedmagic" not in result["message"] and "assetonlysignal" not in result["message"]
+    assert "fabricatedmagic" not in result["message"] and "assetonlysignal" in result["message"]
     assert payload(offline, app)["store_id"] == STORE
     assert not any(r["app_id"].startswith("store-v1-") for r in rows("indexing_outbox"))
     llm.assert_not_called()
@@ -143,7 +145,7 @@ def test_sparse_empty_app_can_be_indexed_without_inventing_text(offline):
     assert empty.id not in {r["app"]["id"] for r in search()}
 
 
-def test_untrusted_html_markdown_and_embedded_data_are_never_generated_or_rendered(offline):
+def test_untrusted_markup_is_escaped_and_embedded_text_is_source_evidence(offline):
     _, _, app, search, llm = offline
     changed = app.model_copy(update={
         "name": '<img src=x onerror=alert(1)> energy',
@@ -151,10 +153,11 @@ def test_untrusted_html_markdown_and_embedded_data_are_never_generated_or_render
     })
     save(changed)
     result = recommender.recommend_v2(query="energy", locale="en", filters={}, limit=10)
-    assert "<img" not in result["message"] and "&lt;img" in result["message"]
+    assert "<img" not in result["message"] and "onerror" not in result["message"]
     assert r"\[click\]\(" in result["message"] and r"\*\*invent\*\*" in result["message"]
     assert "</untrusted-apps-json>" not in result["message"]
-    assert search("fabricatedmagic") == search("assetonlysignal") == []
+    assert search("fabricatedmagic") == []
+    assert [row["app"]["id"] for row in search("assetonlysignal")] == [app.id]
     llm.assert_not_called()
 
 
@@ -309,3 +312,51 @@ def test_offline_scope_is_required_before_any_database_or_vector_io(offline, mis
             searcher.search_apps_v2(
                 client, query="energy", locale="en", filters=SearchFilters(), limit=10, **args,
             )
+
+
+def test_store_metadata_survives_transport_persistence_index_and_recommendation(offline, monkeypatch):
+    """Exercise the actual Store client and service functions, without private data."""
+    import httpx
+
+    raw = json.loads((ROOT / "tests/fixtures/store-v1/metadata-app.json").read_text())
+    api = client_module.HedgeApiClient(
+        "https://store.invalid/backend/api/v1", store_id=STORE, token="test-only",
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=[raw])),
+    )
+    report = snapshot.reconcile_catalogue_snapshot(
+        "metadata-contract-fixture", api.fetch_all_apps, store_id=STORE,
+        snapshot_complete=api.snapshot_complete,
+    )
+    assert report["quarantined"] == 0
+    app = client_module.normalize_store_v1_app(raw)
+    stored = storage.get_catalogue_apps([app.id], store_id=STORE)[app.id]
+    assert StoreAppMetadata.model_validate(stored["payload"]).checksum == app.checksum
+    assert stored["payload"]["dataspace_app_description"] == raw["dataspaceAppDescription"]
+    assert stored["payload"]["readme"] == raw["readme"]
+    assert apply(offline, operation(app)) == 1
+    assert payload(offline, app)["built_for_connector"] == "ExampleConnector"
+    _, _, _, search, _ = offline
+    for query in ("MQTT", "forecasting", "prediction", "ExampleConnector"):
+        result = recommender.recommend_v2(query=query, locale="en", filters={}, limit=5)
+        found = next(r["app"] for r in result["apps"] if r["app"]["id"] == app.id)
+        assert found["billable"] is False and found["price"] == 0
+        assert found["versions"][0]["version"] == "2.0"
+        assert "source_evidence" in found and "readme" not in found
+        explanation = next(e for e in result["explanations"] if e["app_id"] == app.id)
+        assert "readme" in explanation["evidence_fields"]
+        assert "dataspaceAppDescription.properties.featureList[0]" in explanation["evidence_fields"]
+        assert 'billable: "false"' in explanation["text"]
+        assert "UNVERIFIED" not in result["message"] and "fabricatedmagic" not in result["message"]
+    # New evidence works via PostgreSQL when vectors fail, using current revisions.
+    monkeypatch.setattr(offline[0], "query_points", MagicMock(side_effect=TimeoutError("offline")))
+    assert [row["app"]["id"] for row in search("MQTT")] == [app.id]
+    changed = app.model_copy(update={"built_for_connector": "ReplacementConnector"})
+    assert save(changed) == "updated"
+    assert [row["app"]["built_for_connector"] for row in search("ReplacementConnector")] == [
+        "ReplacementConnector"
+    ]
+    assert search("ExampleConnector") == []
+    assert storage.get_catalogue_app(app.id) is None
+    assert not any(row["app_id"] == app.id for row in rows("indexing_outbox"))
+    save(changed.model_copy(update={"visible": False}))
+    assert search("MQTT") == []

@@ -35,27 +35,24 @@ no production outbox work; tests supply explicit revisioned operations directly.
 
 ## Supported evidence
 
-- Search text uses supplied `name`, `description`, and `provider`; `publisher`
-  filtering matches the supplied provider. Unsupported taxonomy, capabilities,
-  language, lifecycle, licence, protocol, deployment and semantic filters return
-  no match. PostgreSQL derives Store text from those current payload fields so
-  historical search documents containing README cannot expand the evidence.
-- Results carry `source_profile`, local `id`, native `store_id`/`app_id`, original
-  nullable descriptive fields and publication facts. Source profile/native identity
-  preserve attribution to the source App; neither source language nor review status
-  is asserted. Internal RRF orders candidates; the response exposes rank and retrieval
-  channels, with no invented quality score, calibrated relevance band or v2 fields.
-- Missing name/description/provider stay missing. Apps with no searchable text are
-  retained in PostgreSQL but skipped for indexing/recommendations. Versions are not
-  selected or invented. No canonical navigation URL is asserted.
-- README (including HTML), registry paths, and embedded Dataspace descriptions are
-  excluded from search, vector payloads and recommendation results. Name, description
-  and provider remain untrusted strings: explanations bound and escape HTML/Markdown
-  quotations and identify the actual source fields. Both ordinary and streamed v2
-  recommendations use the same deterministic Store narrative, without an LLM call,
-  translation, inferred capability or applicability claim. Synthetic generation and
-  existing synthetic contracts remain unchanged.
-- Store Apps are the entities. No Assets are fetched, joined, enriched or recommended.
+- Search/index text now uses the shared bounded evidence extractor for supplied
+  descriptions, connector/type values, README visible text, supported embedded
+  properties and version/comments. PostgreSQL uses the ingestion-derived document;
+  reingestion refreshes legacy documents. See the
+  [SCRUM-38 field map and upgrade limits](store-v1-metadata-preservation.md).
+- Results retain native identity, nullable source values, versions and publication
+  facts, plus `source_evidence` with original Store paths and extraction statuses.
+  README HTML and raw embedded JSON remain local. Billing values are available as
+  source evidence, with no currency/licensing/compatibility interpretation.
+- Provider filtering remains supported. Other synthetic taxonomy, capability,
+  language, licence, protocol, deployment and semantic filters still fail closed.
+  No ranking/relevance policy, public contract or navigation policy changes.
+- Missing source values stay missing; Apps with no searchable evidence are retained
+  locally but skipped for indexing/recommendations. Source-order versions are not
+  interpreted as current/latest. All text remains untrusted and output quotations
+  are escaped. Normal/streamed Store narratives remain deterministic; the opt-in
+  extractive generation seam can select supported source-path candidates.
+- Store Apps remain the entities. No external Assets are fetched or joined.
 
 ## Verification and remaining gates
 

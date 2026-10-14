@@ -1,5 +1,10 @@
 # Store v1 Phase 1: offline source metadata
 
+Current metadata behavior is extended by [SCRUM-38](store-v1-metadata-preservation.md):
+use its field map for connector/type/billing fields, README/embedded evidence and
+version projections. Earlier exclusion statements below describe prior checkpoints.
+Access/publication gates and historical verification claims remain unchanged.
+
 Implemented locally against `fa06952` and the integration baseline. This phase
 adds source normalization and durable identity support. It does not connect the
 Store, authenticate outbound requests, ingest snapshots, or establish production

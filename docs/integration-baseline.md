@@ -19,6 +19,11 @@ authenticated acceptance and service-token acquisition remain pending.
 Keep it current as decisions are approved, and link to detailed guides instead
 of copying them here.
 
+The [SCRUM-38 metadata correction](store-v1-metadata-preservation.md) retains useful
+App connector/type/billing fields, README evidence, embedded properties and versions
+through the current boundaries. The field map distinguishes declarations/reported
+shapes from unverified live population and meaning; access/publication gates remain.
+
 ## Evidence and authority
 
 - **Project commitments:** [proposal](proposals/HEDGE-IoT-OC1-Proposal-HedgeExpertAI.md), especially objectives 1–5.
@@ -45,7 +50,7 @@ deployed HTTPS origin, and avoid doubling `/api/v1` when composing paths.
 | Topic | Confirmed fact and limit |
 |---|---|
 | Version/identity | HEDGE requests v1 and expects notified minor updates. Native identity is **Store ID + App ID**. Supplied Store ID: `56779afa-bdcc-4abe-a8b0-d306dc07bed1`; make it configuration, not a global identity assumption. |
-| Metadata | `App` exposes `appId`, `fkAppStoreId`, `name`, `description`, `provider`, `readme`, `active`, `visible`, `registrationDate`, URLs, and `appVersionList`. `AssetRequest` has `@id`, `@type`, `@context`, `properties`, and `dataAddress`; properties include categories and features. Neither supplies ExpertAI `schema_version: 2.0`. |
+| Metadata | `App` exposes `appId`, `fkAppStoreId`, `name`, `description`, `provider`, `readme`, `builtForConnector`, `connectorVersion`, `type`, `billable`, `price`, `dataspaceAppDescription`, `active`, `visible`, `registrationDate`, URLs, and `appVersionList`. `AssetRequest` has `@id`, `@type`, `@context`, `properties`, and `dataAddress`; properties include categories and features. Neither supplies ExpertAI `schema_version: 2.0`. |
 | Guarantees | The reply says sections are guaranteed, with extensible asset metadata. OpenAPI declares no required-property lists for these models: confirm usable payloads before enforcing field presence. Do not infer translations, SAREF annotations, licences, canonical detail links, or an App/asset join. `registrationDate` is not a last-update timestamp. |
 | Publication | In HEDGE there is no certification routine; newly created Apps become not-visible until the owner publishes them. Owner-only records must not enter public recommendations. The exact meaning of `active` and service-client visibility still needs confirmation. |
 | Synchronization | No webhooks/update notifications; HEDGE recommends daily polling. A Unix last-update timestamp was **offered**, not confirmed as deployed. No pagination limit or API rate limit was reported in the reply; this is not a throughput guarantee. |

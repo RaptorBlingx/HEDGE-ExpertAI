@@ -241,10 +241,11 @@ def upsert_catalogue_app(
                 UPDATE catalog_apps
                 SET active = %s,
                     last_seen_run_id = %s,
+                    search_document = %s,
                     source_updated_at = COALESCE(%s, source_updated_at)
                 WHERE id = %s
                 """,
-                (active, run_id, source_updated_at, app.id),
+                (active, run_id, search_document, source_updated_at, app.id),
             )
             return "unchanged"
 
@@ -598,11 +599,8 @@ def lexical_search(
         if filters.publisher:
             where.append("payload->>'provider' ILIKE %s")
             filter_params.append(f"%{filters.publisher}%")
-        # Derive this text from current supported fields, even for older stored documents.
-        document = (
-            "concat_ws(' . ', payload->>'name', payload->>'description', "
-            "payload->>'provider')"
-        )
+        # Ingestion derives this document with the shared Store evidence extractor.
+        # Reingesting also refreshes legacy documents when source values are unchanged.
 
     del locale  # Reserved for future language-specific PostgreSQL dictionaries.
     sql = f"""

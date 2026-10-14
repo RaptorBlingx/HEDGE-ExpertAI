@@ -15,7 +15,7 @@ from urllib.parse import quote
 
 import httpx
 from hedge_shared.config import settings
-from hedge_shared.store_v1 import NativeIdentifier, StoreAppMetadata
+from hedge_shared.store_v1 import STORE_APP_FIELDS, NativeIdentifier, StoreAppMetadata
 from pydantic import SecretStr, TypeAdapter
 
 logger = logging.getLogger(__name__)
@@ -34,6 +34,7 @@ def normalize_store_v1_app(raw: object, *, store_id: str | None = None) -> Store
     if store_id is not None and native_store is not None and native_store != store_id:
         raise ValueError("fkAppStoreId conflicts with the requested Store")
     fields = {
+        **STORE_APP_FIELDS,
         "name": "name",
         "description": "description",
         "provider": "provider",

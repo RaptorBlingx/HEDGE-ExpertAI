@@ -33,8 +33,9 @@ def test_authorized_file_uses_existing_client_and_strips_unused_private_fields(t
     assert requests[1].url.path.endswith("/app/" + RAW[0]["appId"])
     assert evidence == {"source": "authorized-api-snapshot", "snapshot_complete": False,
                         "apps": 2, "eligible_apps": 2, "getAllApps_status": 200, "getApp_status": 200}
-    assert records == source.validated_records(RAW, STORE)
-    assert "private" not in json.dumps(records)
+    assert records == source.validated_records([private, RAW[1]], STORE)
+    assert "ownerEmail" not in json.dumps(records)
+    assert records[0]["dataspaceAppDescription"] == "private embedded data"
     assert "ephemeral-test-token" not in json.dumps(evidence)
 
 

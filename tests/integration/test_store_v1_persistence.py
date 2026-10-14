@@ -189,3 +189,28 @@ def test_concurrent_first_insert_is_one_revision(database) -> None:
         results = list(pool.map(lambda _: storage.upsert_catalogue_app(run, app), range(8)))
     assert results.count("created") == 1 and results.count("unchanged") == 7
     assert len([r for r in rows("catalog_app_revisions") if r["app_id"] == app.id]) == 1
+
+
+def test_legacy_source_can_refresh_evidence_without_changing_identity_or_revision(database):
+    from hedge_shared.store_v1 import STORE_APP_FIELDS
+
+    migrate.main()
+    run = storage.create_ingestion_run("legacy-store-fixture")
+    app = StoreAppMetadata(store_id="Legacy-Store", app_id="Legacy-App", name="Legacy",
+                           readme="<p>Telemetry ingestion.</p><script>hiddenmagic</script>",
+                           active=True, visible=True)
+    storage.upsert_catalogue_app(run, app)
+    # A pre-SCRUM-38 payload/document has no new nullable fields or README text.
+    legacy = app.model_dump(mode="json", exclude={"id", "public_eligible", "checksum",
+                                                  *STORE_APP_FIELDS.values()})
+    with storage.connection() as conn:
+        conn.execute("UPDATE catalog_apps SET payload = %s::jsonb, search_document = 'Legacy' "
+                     "WHERE id = %s", (json.dumps(legacy), app.id))
+    assert storage.upsert_catalogue_app(run, app) == "unchanged"
+    result = storage.lexical_search("telemetry", locale="en", filters=SearchFilters(),
+                                    limit=5, store_id=app.store_id)
+    assert result[0]["id"] == app.id and result[0]["revision"] == 1
+    assert StoreAppMetadata.model_validate(result[0]["payload"]).checksum == app.checksum
+    assert storage.lexical_search("hiddenmagic", locale="en", filters=SearchFilters(),
+                                  limit=5, store_id=app.store_id) == []
+    assert len([r for r in rows("catalog_app_revisions") if r["app_id"] == app.id]) == 1

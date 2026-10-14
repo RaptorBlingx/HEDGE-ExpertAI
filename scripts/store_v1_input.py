@@ -9,14 +9,16 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from hedge_shared.store_v1 import STORE_APP_FIELDS
 
 from scripts.store_v1_playground import load_service
 
 client_module = load_service("evaluation_store_input", "metadata-ingest")("client")
 BASE = "https://store.haslab-dataspace.pt/backend/api/v1"
 # Retain only fields consumed by the source normalizer, never owner/contact or
-# embedded asset descriptions. README is retained but excluded from retrieval.
+# unrelated account fields. Embedded descriptions remain untrusted App source.
 APP_FIELDS = {
+    *STORE_APP_FIELDS,
     "appId", "fkAppStoreId", "name", "description", "provider", "readme", "active",
     "visible", "registrationDate", "uiUrl", "openAPIURL", "deployURL", "registryBaseURL",
 }

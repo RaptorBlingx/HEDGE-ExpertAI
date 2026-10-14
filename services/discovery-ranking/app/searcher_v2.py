@@ -250,7 +250,8 @@ def _resolve_rankings(
             ):
                 del rows[key]
             else:
-                row["payload"] = app.recommendation_projection()
+                # Keep the authoritative source until final fusion projects safe evidence.
+                row["payload"] = app.model_dump(mode="json", exclude={"checksum"})
     resolved = {"dense": [], "lexical": []}
     changed = False
     for source, candidates in rankings.items():

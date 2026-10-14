@@ -8,7 +8,7 @@ import logging
 import os
 import re
 import time
-from typing import Any, Literal
+from typing import Any
 
 import httpx
 from fastapi import HTTPException
@@ -171,6 +171,15 @@ def _search_apps_v2(
         raise HTTPException(status_code=503, detail="Catalogue search unavailable") from exc
 
 
+def _store_evidence(app: dict[str, Any]) -> dict[str, str]:
+    # Older projections remain usable; new paths identify exact App source fields.
+    evidence = app.get("source_evidence")
+    if isinstance(evidence, dict):
+        return {path: text for path, text in evidence.items()
+                if isinstance(path, str) and isinstance(text, str) and text}
+    return {field: app[field] for field in ("name", "description", "provider") if app.get(field)}
+
+
 def _evidence_explanations(
     results: list[dict[str, Any]],
     locale: str,
@@ -179,12 +188,13 @@ def _evidence_explanations(
     for result in results:
         app = result.get("app", result)
         if app.get("source_profile") == "hedge-store-v1":
-            fields = [field for field in ("name", "description", "provider") if app.get(field)]
+            evidence = _store_evidence(app)
+            fields = list(evidence)
             explanations.append({
                 "app_id": app["id"], "source_profile": app["source_profile"],
                 "store_id": app["store_id"], "source_app_id": app["app_id"],
                 "text": " ".join(
-                    f'{field}: "{_quoted_store_text(app[field])}"' for field in fields
+                    f'{field}: "{_quoted_store_text(evidence[field])}"' for field in fields
                 ) or "The Store supplied no descriptive metadata.",
                 "evidence_fields": fields,
             })
@@ -258,7 +268,7 @@ def _recommendation_narrative(query: str, results: list[dict[str, Any]], locale:
 
 class _StoreQuote(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    field: Literal["description", "provider"]
+    field: StrictStr = Field(min_length=1, max_length=200)
     quote: StrictStr = Field(min_length=1, max_length=400)
 
 
@@ -279,18 +289,20 @@ def grounded_store_response(query: str, results: list[dict], locale: str,
 
     Free-form paraphrases cannot be proven grounded by the synthetic title-order
     validator. The LLM selects source excerpts; code owns identity, order and all
-    connective/limitation prose. Never send README, embedded metadata or history.
+    connective/limitation prose. Only bounded extracted evidence enters candidates;
+    raw README/embedded JSON and history never enter the prompt.
     """
     start = time.monotonic()
     metadata = {"source": "deterministic", "reason": "no_source_fields", "seconds": 0.0, "model_completed": False}
     response = {"message": fallback, "generation": metadata}
     if not results or locale != "en":
         return response
-    sources = [{"rank": r["rank"], **{field: " ".join(r["app"][field].split())
-               for field in ("description", "provider") if r["app"].get(field)}} for r in results]
+    sources = [{"rank": r["rank"], **{field: " ".join(text.split())
+               for field, text in _store_evidence(r["app"]).items() if field != "name"}}
+               for r in results]
     # Whole sentences only: arbitrary substrings could omit negation/qualifiers.
     candidates = [{"rank": source["rank"], **{field: [sentence for sentence in
-                  (re.split(r"(?<=[.!?])\s+", value) if field == "description" else [value])
+                  (re.split(r"(?<=[.!?])\s+", value) if field in {"description", "readme"} or field.endswith(".description") else [value])
                   if 0 < len(sentence) <= 400][:4]
                   for field, value in source.items() if field != "rank"}}
                   for source in sources]
@@ -323,7 +335,9 @@ def grounded_store_response(query: str, results: list[dict], locale: str,
                     raise ValueError("Unsupported source claim")
                 fields.add(evidence.field)
             name = _quoted_store_text(result["app"].get("name") or result["app"]["app_id"])
-            facts = " ".join(("The Store describes it as " if e.field == "description" else "The supplied provider is ")
+            facts = " ".join(("The Store describes it as " if e.field == "description"
+                              else "The supplied provider is " if e.field == "provider"
+                              else "The Store supplies ")
                              + f'“{_quoted_store_text(e.quote)}” [{e.field}].'
                              for e in selection.evidence)
             lines.append(f"- **{name}** — {facts}")

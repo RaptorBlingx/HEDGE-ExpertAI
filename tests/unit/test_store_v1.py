@@ -60,7 +60,7 @@ def test_rich_record_maps_evidence_without_inferred_versions_or_links() -> None:
     assert app.registration_date.isoformat() == "2026-10-01T12:00:00+00:00"
     assert [v.version for v in app.versions] == ["2.0", "1.0"]
     assert app.description in app.to_index_text("pt")
-    assert app.readme not in app.to_index_text("pt")
+    assert "Meter readings" in app.to_index_text("pt")
     assert "futureField" not in app.model_dump()
     assert "Unverified asset join" not in app.to_index_text()
 
@@ -176,8 +176,9 @@ def test_sanitized_observed_shapes_normalize_without_enrichment() -> None:
     assert second.versions == [] and second.registry_base_url is None
     for raw, app in zip(SAMPLED_SHAPES, (first, second), strict=True):
         assert app.app_id == raw["appId"] and app.store_id == raw["fkAppStoreId"]
-        assert "dataspaceAppDescription" not in app.model_dump()
-        assert "Unjoined asset" not in app.to_index_text()
+        assert app.dataspace_app_description == raw["dataspaceAppDescription"]
+    assert "Unjoined asset" in first.to_index_text()
+    for app in (first, second):
         payload = app.model_dump_json(exclude={"id", "public_eligible", "checksum"})
         assert StoreAppMetadata.model_validate_json(payload) == app
 

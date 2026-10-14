@@ -96,3 +96,22 @@ def test_mixed_sparse_results_retain_deterministic_fallback(monkeypatch):
     result,call=generate(monkeypatch,results=results)
     assert result['message']=='safe fallback'
     call.assert_not_called()
+
+
+@pytest.mark.parametrize('field', ['readme', 'builtForConnector', 'price',
+                                  'dataspaceAppDescription.properties.featureList[0]'])
+def test_new_source_paths_are_available_to_extraction_without_inferred_claims(monkeypatch, field):
+    texts = {'readme': 'Supports MQTT ingestion. It does not export personal data.',
+             'builtForConnector': 'ExampleConnector', 'price': '0.0',
+             'dataspaceAppDescription.properties.featureList[0]': 'Demand prediction'}
+    quote = 'Supports MQTT ingestion.' if field == 'readme' else texts[field]
+    results = [{'app': {'id':'one', 'app_id':'native', 'name':'One',
+                       'source_evidence':texts}, 'rank':1}]
+    value = {'apps':[{'rank':1, 'evidence':[{'field':field, 'quote':quote}]}]}
+    result, call = generate(monkeypatch, value, results=results)
+    assert result['generation']['source'] == 'ollama'
+    assert f'[{field}]' in result['message']
+    assert 'currency' not in result['message'] and 'free' not in result['message']
+    unsupported = {'apps':[{'rank':1, 'evidence':[{'field':'currency', 'quote':'EUR'}]}]}
+    result, _ = generate(monkeypatch, unsupported, results=results)
+    assert result['message'] == 'safe fallback'

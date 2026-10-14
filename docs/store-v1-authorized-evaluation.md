@@ -1,5 +1,10 @@
 # Authorized Store snapshot evaluation
 
+Current metadata behavior is extended by [SCRUM-38](store-v1-metadata-preservation.md):
+use its field map for connector/type/billing fields, README/embedded evidence and
+version projections. Earlier exclusion statements below describe prior checkpoints.
+Access/publication gates and historical verification claims remain unchanged.
+
 Use a short-lived **access token** from your own authorized Store login for local,
 read-only testing, not as a production service credential. The unchanged
 `HedgeApiClient` accepts the token file; it does not depend on a particular OAuth
