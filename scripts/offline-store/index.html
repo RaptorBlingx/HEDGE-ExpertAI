@@ -20,6 +20,13 @@
       <p>Choose a prompt, then send it in Chat. Open a result’s <strong>Source evidence</strong> to inspect the original field paths.</p>
       <div id="scenarios"></div>
     </section>
+    <section id="managed" hidden><h2>Observed Store catalogue</h2>
+      <p id="sync-status" role="status"></p>
+      <button id="refresh-store" type="button">Refresh from Store</button>
+      <p id="catalogue-count"></p><div id="catalogue-apps"></div>
+      <button id="catalogue-previous" type="button">Previous page</button>
+      <button id="catalogue-next" type="button">Next page</button>
+    </section>
     <section id="publisher" hidden><h2>Simulate a publisher change</h2>
       <p>These controls change only the authored Telemetry fixture in this disposable run. After updating, ask for its README again. Withdrawal should remove it from current results.</p>
       <div id="publisher-actions"></div><p id="publisher-status" role="status"></p>

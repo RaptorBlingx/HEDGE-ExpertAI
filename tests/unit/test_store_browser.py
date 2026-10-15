@@ -82,3 +82,27 @@ def test_private_snapshot_status_labels_source_and_blocks_private_input_download
         assert "Ollama not used" in status["generation"]
         assert status["records"] == evaluation.records
         assert client.get("/input/apps.json").status_code == 404
+
+
+def test_managed_workspace_without_authorized_observation_is_not_an_empty_catalogue():
+    from fastapi import HTTPException
+
+    async def unavailable(request):
+        raise HTTPException(status_code=503, detail="No authorized Store observation available")
+
+    evaluation = playground(unavailable)
+    evaluation.sync_status = lambda: {"state": "authorization_required", "snapshot_at": None}
+
+    def catalogue(ids):
+        raise HTTPException(status_code=503, detail="No authorized Store observation available")
+
+    evaluation.catalogue = catalogue
+    with TestClient(create_app(evaluation), base_url="http://127.0.0.1:8098") as client:
+        status = client.get("/api/v2/status")
+        assert status.status_code == 200
+        assert status.json()["records"] == []
+        assert status.json()["synchronization"]["state"] == "authorization_required"
+        assert client.get("/api/v2/catalogue").status_code == 503
+        assert client.post("/api/v2/chat", json={"message": "List apps"}).status_code == 503
+        stream = client.post("/api/v2/chat/stream", json={"message": "List apps"})
+        assert '"type":"problem"' in stream.text and '"type": "complete"' not in stream.text

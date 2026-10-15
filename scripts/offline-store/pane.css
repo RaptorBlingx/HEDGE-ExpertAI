@@ -12,3 +12,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-heigh
 @media (max-width: 768px) { main { max-width: 100%; margin: 1rem; } }
 
 #publisher-actions { display: grid; gap: .4rem; }
+
+#managed button { padding: .6rem; margin: .2rem 0; background: #1e293b; color: #e2e8f0; border: 1px solid #475569; border-radius: .5rem; cursor: pointer; }
+#managed button:disabled { opacity: .5; cursor: default; }
+#catalogue-apps { display: grid; }

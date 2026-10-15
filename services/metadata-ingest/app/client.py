@@ -317,10 +317,15 @@ class HedgeApiClient(AppStoreClient):
                     time.sleep(min(0.25 * 2**attempt, remaining))
         raise StoreApiError("Store API request failed")
 
-    def fetch_all_apps(self) -> list[dict[str, Any]]:
+    def fetch_catalogue_records(self) -> list[Any]:
+        """Bounded array transport; reconciliation quarantines individual records."""
         data = self._request_json(f"/store/{_path_identifier(self.store_id)}/app/all")
         if not isinstance(data, list):
             raise StoreApiError("Store catalogue response must be an App array")
+        return data
+
+    def fetch_all_apps(self) -> list[dict[str, Any]]:
+        data = self.fetch_catalogue_records()
         identities: set[str] = set()
         try:
             for raw in data:

@@ -24,6 +24,12 @@ App connector/type/billing fields, README evidence, embedded properties and vers
 through the current boundaries. The field map distinguishes declarations/reported
 shapes from unverified live population and meaning; access/publication gates remain.
 
+The [private managed Store workspace](store-v1-managed-integration.md) now persists
+authorized observations, reconciles scoped indexes and supports whole-observation
+browsing and refresh. Current live refresh returns 401 with the expired user token;
+the browser uses the dated authorized two-App snapshot, not authored fixtures.
+No current-live catalogue completeness, public activation or proposal KPI is claimed.
+
 ## Evidence and authority
 
 - **Project commitments:** [proposal](proposals/HEDGE-IoT-OC1-Proposal-HedgeExpertAI.md), especially objectives 1–5.

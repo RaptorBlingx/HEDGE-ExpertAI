@@ -10,6 +10,62 @@ window.addEventListener("DOMContentLoaded", async function () {
     document.getElementById("records").textContent = JSON.stringify(status, null, 2);
     const names = status.records.map(record => record.name).filter(Boolean).slice(0, 2);
     const metadataDemo = status.simulation_controls === true;
+    if (status.managed_workspace) {
+      document.getElementById("catalogue").textContent = "Actual Store records from an authorized observation. See refresh state and timestamp; these are not authored fixtures.";
+      document.getElementById("managed").hidden = false;
+      let offset = 0;
+      let next = null;
+      const showState = state => {
+        document.getElementById("sync-status").textContent = "Refresh: " + state.state +
+          " · Snapshot observed: " + (state.snapshot_at || "never") + " (" + (state.timestamp_basis || "local") + ")" +
+          " · Index pending: " + (state.index_pending ?? "unknown") +
+          ". Complete/current upstream catalogue coverage is unverified.";
+      };
+      const loadPage = async () => {
+        const response = await fetch("/api/v2/catalogue?offset=" + offset + "&limit=25");
+        if (!response.ok) throw new Error("Catalogue unavailable");
+        const page = await response.json();
+        next = page.next_offset;
+        document.getElementById("catalogue-count").textContent = page.total + " locally available Apps · page " + (1 + offset / 25);
+        const target = document.getElementById("catalogue-apps");
+        target.replaceChildren();
+        page.apps.forEach(record => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.textContent = record.name || record.app_id;
+          button.addEventListener("click", () => {
+            window.storeEvaluation.open();
+            window.storeEvaluation.textarea.value = "Show README for " + record.app_id;
+            window.storeEvaluation.textarea.focus();
+          });
+          target.appendChild(button);
+        });
+        document.getElementById("catalogue-previous").disabled = offset === 0;
+        document.getElementById("catalogue-next").disabled = next === null;
+      };
+      showState(status.synchronization);
+      document.getElementById("refresh-store").addEventListener("click", async event => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        try {
+          const response = await fetch("/evaluation/refresh", { method: "POST" });
+          if (!response.ok) throw new Error("Refresh failed");
+          const result = await response.json();
+          showState(result.synchronization);
+          offset = 0;
+          await loadPage();
+        } catch (_) {
+          document.getElementById("sync-status").textContent = "Refresh failed. Retained snapshot may be stale; retry required.";
+        } finally { button.disabled = false; }
+      });
+      const catalogueFailure = () => {
+        document.getElementById("catalogue-count").textContent = "Catalogue unavailable; retry required.";
+        document.getElementById("catalogue-apps").replaceChildren();
+      };
+      document.getElementById("catalogue-next").addEventListener("click", () => { offset = next ?? offset; loadPage().catch(catalogueFailure); });
+      document.getElementById("catalogue-previous").addEventListener("click", () => { offset = Math.max(0, offset - 25); loadPage().catch(catalogueFailure); });
+      await loadPage().catch(catalogueFailure);
+    }
     const suggestions = metadataDemo
       ? ["Find apps for district heat measurements", "Find apps for vocabulary review", "Show me all available applications"]
       : status.source === "authored-fixtures"
@@ -75,7 +131,10 @@ window.addEventListener("DOMContentLoaded", async function () {
       });
     }
     const pipeline = status.pipeline || {};
-    document.getElementById("pipeline").textContent = pipeline.eligible_records === undefined
+    document.getElementById("pipeline").textContent = status.managed_workspace
+      ? "Durable PostgreSQL catalogue · real E5/Qdrant · " + status.synchronization.available +
+        " locally available records · " + status.synchronization.index_pending + " index operations pending"
+      : pipeline.eligible_records === undefined
       ? "Pipeline receipts unavailable."
       : pipeline.eligible_records + " eligible records persisted · " + pipeline.vector_points + " vector points · " + pipeline.vector_mode;
 

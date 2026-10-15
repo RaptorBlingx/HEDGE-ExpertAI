@@ -6,7 +6,7 @@ import asyncio
 import json
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from hedge_shared.models_v2 import ChatRequestV2
@@ -19,6 +19,7 @@ def create_app(playground):
     # A single evaluation process serializes turns, including streams. This
     # avoids lost Valkey updates without adding a production locking subsystem.
     turn_lock = asyncio.Lock()
+    app.state.turn_lock = turn_lock
 
     @app.middleware("http")
     async def local_boundary(request: Request, call_next):
@@ -36,10 +37,10 @@ def create_app(playground):
         )
         return response
 
-    @app.get("/api/v2/status")
-    def status():
+    def status_payload():
         import os
 
+        sync_state = playground.sync_status() if hasattr(playground, "sync_status") else None
         return {"source": getattr(playground, "source", "authored-fixtures"),
                 "catalogue": ("Authored sanitized evaluation fixtures; not live HEDGE data"
                               if getattr(playground, "source", "authored-fixtures") == "authored-fixtures"
@@ -48,9 +49,17 @@ def create_app(playground):
                 "embeddings": "real pinned E5" if os.getenv("STORE_PLAYGROUND_E5") == "true" else "unavailable; lexical fallback",
                 "intent": "real Rasa with confidence/health regex fallback" if os.getenv("RASA_ENABLED") == "true" else "regex fallback; Rasa unavailable",
                 "generation": "Ollama enabled; validated excerpts or deterministic fallback per turn" if os.getenv("STORE_PLAYGROUND_OLLAMA") == "true" else "Deterministic source quotations; Ollama not used",
+                "synchronization": sync_state,
+                "managed_workspace": hasattr(playground, "refresh"),
                 "simulation_controls": callable(getattr(playground, "simulate", None)),
                 "pipeline": getattr(playground, "pipeline", {}),
-                "records": playground.records}
+                "records": (playground.catalogue(None)[:5] if sync_state and sync_state.get("snapshot_at")
+                            else [] if sync_state else playground.records)}
+
+    @app.get("/api/v2/status")
+    async def status():
+        async with turn_lock:
+            return status_payload()
 
     @app.post("/evaluation/scenario/{action}")
     async def scenario(action: str):
@@ -59,6 +68,28 @@ def create_app(playground):
             raise HTTPException(status_code=404, detail="Authored scenario unavailable")
         async with turn_lock:
             return await asyncio.to_thread(simulate, action)
+
+    @app.post("/evaluation/refresh")
+    async def refresh():
+        if not hasattr(playground, "refresh"):
+            raise HTTPException(status_code=404, detail="Managed workspace unavailable")
+        async with turn_lock:
+            try:
+                return await asyncio.to_thread(playground.refresh)
+            except Exception:
+                raise HTTPException(status_code=503, detail="Source or index refresh failed; retry required") from None
+
+    @app.get("/api/v2/catalogue")
+    async def catalogue(offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=50)):
+        if not hasattr(playground, "catalogue"):
+            raise HTTPException(status_code=404, detail="Managed catalogue unavailable")
+        async with turn_lock:
+            records = playground.catalogue(None)
+            page = records[offset:offset + limit]
+            return {"total": len(records), "offset": offset,
+                    "next_offset": offset + limit if offset + limit < len(records) else None,
+                    "apps": [{key: record.get(key) for key in ("id", "store_id", "app_id", "name", "provider",
+                              "readme_status", "dataspace_description_status")} for record in page]}
 
     @app.post("/api/v2/chat")
     async def chat(request: ChatRequestV2):

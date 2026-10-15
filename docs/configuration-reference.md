@@ -131,3 +131,14 @@ The production overlay removes host publishing for internal services and adds
 non-root/read-only/capability/process hardening to application containers. See
 the deployment guide and traceability matrix for gates that still require
 target-environment evidence.
+
+## Private managed Store workspace
+
+The opt-in [durable Store workspace](store-v1-managed-integration.md) is started
+with `scripts/store-workspace.sh`, independently of production Compose and `.env`.
+It uses the existing Store ID, token-file client, database/session settings and
+pinned E5 image in uniquely labelled private resources. Its backend reads
+`/credentials/token` from an owned private directory, supports atomic external
+token replacement, and attempts scoped read-only refresh every 7,200 seconds.
+The fixed local loopback browser port is 8098. Production scheduling/public indexing
+remain disabled; no dedicated credential acquisition or renewal flow is implied.
