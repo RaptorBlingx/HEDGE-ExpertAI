@@ -1,8 +1,9 @@
 """Bounded source-claim assessment; retrieval rank never establishes suitability.
 
-Recognized declarations form evidence groups only through explicit feature identity
-or an unambiguous local reference. Uninterpreted context stays uncertain. This is
-not a general semantic entailment engine, translator or real-corpus quality metric.
+Each assertion retains its feature owner, attributes, polarity and source path.
+Only the same feature or an unambiguous local reference can compose evidence.
+Uninterpreted context stays uncertain. This is not a general semantic entailment
+engine, translator or real-corpus quality metric.
 """
 from __future__ import annotations
 
@@ -31,7 +32,7 @@ _ACTIONS = (
     r"zeigt|zeigen|erkennt|erkennen|misst|arbeitet|funktioniert"
 )
 _APP = r"(?:this app|the app|this application|the application|it|esta aplicacao|este app|a aplicacao|die app|diese app|sie|es)"
-_REFERENCE = r"(?:they|them|these|those|this feature|that feature|these features|this capability|this|that|it|eles|elas|esta funcionalidade|esses alertas|sie|diese funktion)"
+_REFERENCE = r"(?:they|them|these|those|(?:this|that|the|these|those) (?:features?|capabilit(?:y|ies))|this|that|it|eles|elas|esta funcionalidade|esses alertas|sie|diese funktion)"
 _NEGATION = re.compile(r"\b(?:not|no|never|cannot|without|nao|nunca|sem|nicht|ohne|kein\w*)\b|\b(?:can|doesn|don|isn|aren|won)'t\b")
 # Grammar operators/states, interpreted with their feature/subject scope below.
 _QUALIFIED = re.compile(
@@ -49,8 +50,7 @@ _STATE = re.compile(
     r"^(?P<feature>.+?)\s+(?:is|are|was|were|can be|cannot be|can't be|may be|will be|e|sao|esta|estao|ist|sind)\s+"
     r"(?P<state>.+)$"
 )
-_AFFIRMED_STATE = re.compile(r"^(?:supported|provided|available|enabled|supplied|delivered|suportad[oa]s?|disponiveis|disponivel|ativad[oa]s?|unterstutzt|verfugbar)\b")
-_LINK = re.compile(rf"^(?P<reference>{_REFERENCE})\b(?:\s+(?:via|by|using|through|per|por|mit)\s+(?P<attribute>.+))?$")
+_AFFIRMED_STATE = re.compile(r"^(?:supported|provided|available|enabled|supplied|delivered|sent|suportad[oa]s?|disponiveis|disponivel|ativad[oa]s?|unterstutzt|verfugbar)\b")
 _CHANNEL = re.compile(r"\s+(?:via|by|using|through|per|por|mit)\s+", re.I)
 _SOURCE_WORDS = set((
     "this that these those it they them app application the a an is are was were "
@@ -88,22 +88,56 @@ def _terms(text: str) -> set[str]:
     return terms
 
 
-@dataclass
+_FEATURE_HEADS = _terms('readings observations monitoring forecasting prediction warnings alerts ingestion dashboards control')
+
+
+@dataclass(frozen=True)
 class _Claim:
     path: str
-    terms: set[str]
-    feature: set[str]
+    # None means App-wide or unresolved scope, never positive capability evidence.
+    feature: frozenset[str] | None
+    attributes: frozenset[str]
     status: str  # affirmed, qualified, unresolved
-    group: int
-    global_scope: bool = False
-    ambiguous: bool = False
 
 
-def _claims(path: str, text: str, query_terms: set[str], start: int, names: list[str], synthetic: bool, declarations: list[str]) -> list[_Claim]:
-    """Interpret complete clauses; references never cross field/paragraph boundaries."""
-    # The pinned synthetic catalogue labels translations with provenance before
-    # a colon. The annotation is preserved in output, but is not a claim or a
-    # qualifier of the following capability declaration.
+def _scope_text(text: str) -> str:
+    """Identify the subject/value without treating qualification as its identity.
+
+    Polarity is assessed on the complete original clause before this helper runs.
+    """
+    text = _NEGATION.sub('', text)
+    operator = _QUALIFIED.search(text)
+    return (text[:operator.start()] if operator else text).strip()
+
+
+def _owners(text: str, previous: list[_Claim], *, subject: bool = False) -> list[frozenset[str] | None]:
+    """One owner per declaration; coordination never becomes one merged feature."""
+    if subject and text == 'it':
+        return [None]
+    if re.fullmatch(_REFERENCE, text):
+        return [previous[0].feature] if len(previous) == 1 else [None]
+    if re.fullmatch(_APP, text):
+        return [None]
+    owners = []
+    for part in re.split(r'\s+(?:and|e|und)\s+|,\s*', text):
+        feature = frozenset(_terms(_scope_text(part)))
+        # A local noun-head repeat ("warnings") can refer to "earthquake
+        # warnings". Arbitrary subset/sibling features cannot inherit attributes.
+        if len(previous) == 1 and previous[0].feature and len(feature) == 1 and feature <= _FEATURE_HEADS and feature <= previous[0].feature:
+            feature = previous[0].feature
+        owners.append(feature or None)
+    return owners
+
+
+def _transport(text: str) -> tuple[str, frozenset[str]]:
+    parts = _CHANNEL.split(text, maxsplit=1)
+    return parts[0], frozenset(_terms(_scope_text(parts[1]))) if len(parts) > 1 else frozenset()
+
+
+def _claims(path: str, text: str, query_terms: set[str], names: list[str], synthetic: bool, declarations: list[str]) -> list[_Claim]:
+    """Extract owned assertions; references never cross field/paragraph boundaries."""
+    # Preserve the pinned fixture's informational annotations in output, without
+    # making them functional assertions. This does not waive unknown context.
     if synthetic and path.startswith('summary.') and ':' in text:
         heading, declaration = text.split(':', 1)
         header = _fold(heading).strip()
@@ -115,20 +149,16 @@ def _claims(path: str, text: str, query_terms: set[str], start: int, names: list
         if known_header and not _NEGATION.search(header) and not _QUALIFIED.search(header):
             text = declaration
     claims = []
-    previous = None
     named = _terms(' '.join(re.findall(r'\b[A-Z][A-Z0-9_-]+\b', text)))
     labels = _terms(' '.join(_LABEL_WORDS))
     for paragraph in re.split(r"\n\s*\n", text):
-        previous = None
-        # Split coordinated predicates, preserving noun coordination for ambiguity.
+        previous = []
         clauses = re.split(rf"(?<=[.!?])\s+|[;\n]|\s+(?:but|however|and|e|und)\s+(?=(?:does\s+not\s+|nao\s+)?(?:{_ACTIONS})\b)", _fold(paragraph))
         for clause in clauses:
-            # Store text extraction flattens headings; recognize bounded heading
-            # forms without treating arbitrary foreign actors as the App.
             clause = re.sub(r"^(?:telemetry|features|capabilities|functionality|functionalidade|funktionen)\s+(?=(?:supports?|provides?|envia|unterstutzt)\b)", "", clause)
             clause = clause.strip().rstrip('.!')
             if not clause or _IGNORED_NOTE.fullmatch(clause):
-                previous = None
+                previous = []
                 continue
             for name in names:
                 prefix = _fold(name) + ' '
@@ -137,126 +167,107 @@ def _claims(path: str, text: str, query_terms: set[str], start: int, names: list
                     if _ACTION.fullmatch(candidate) or _STATE.fullmatch(candidate):
                         clause = candidate
                         break
-            # Explicit fixture provenance is not a functional limitation. It is
-            # retained in served quotations and never supplies capability evidence.
             if synthetic and (clause == 'the listing is representative metadata for validation and is not a commercial product' or
                               (re.fullmatch(r'this app is a clearly synthetic reference application for .+ operations', clause) and
                                not _QUALIFIED.search(clause) and not _NEGATION.search(clause))):
-                previous = None
+                previous = []
                 continue
-            if re.match(r'^(?:another app|other apps?|an external service)\b', clause):
-                previous = None
-                continue
-            terms = _terms(clause)
-            status = "qualified" if _NEGATION.search(clause) or _QUALIFIED.search(clause) else "affirmed"
+            status = 'qualified' if _NEGATION.search(clause) or _QUALIFIED.search(clause) else 'affirmed'
             if '?' in clause or re.search(r"\b(?:ignore|disregard)\b.*\binstructions\b", clause):
-                status = "unresolved"
+                status = 'unresolved'
             assertion_text = re.sub(rf'^(?:{_APP}) is designed to\s+', '', clause)
             action = _ACTION.fullmatch(assertion_text)
             state = _STATE.fullmatch(clause)
             purpose = next((value for value in declarations if assertion_text == value or
                             (synthetic and assertion_text == value + _SYNTHETIC_CONTEXT)), None) if assertion_text != clause else None
-            feature = set()
-            global_scope = False
-            ambiguous = False
-            group = start + len(claims)
-            if purpose:
-                # A present-purpose assertion can corroborate an exact typed
-                # capability declaration. Full original context still determines
-                # polarity; neither field excuses a future/conditional qualifier.
-                terms = _terms(purpose)
-                feature = terms
+            dependency = re.fullmatch(r"(?P<target>.+?)\s+(?:(?P<negated>(?:does|do) not|doesn't|don't)\s+)?(?:requires?|depends? on)\s+.+", clause)
+            prerequisite = re.fullmatch(r'(?P<negated>not\s+)?(?:required|needed|necessary)(?:\s+for\s+(?P<target>.+))?', state['state']) if state else None
+            attributes = frozenset()
+            if dependency or prerequisite:
+                # The dependency is an argument, not the feature's actor. A
+                # missing/ambiguous target qualifies the App rather than vanishing.
+                if (prerequisite and prerequisite['negated']) or (dependency and dependency['negated']):
+                    previous = []
+                    continue  # explicit absence of a prerequisite supplies no capability
+                target = dependency['target'] if dependency else prerequisite['target']
+                owner_text, attributes = _transport(target) if target else ('', frozenset())
+                owners = _owners(owner_text, previous) if owner_text else [None]
+                if owner_text and not re.fullmatch(_REFERENCE, owner_text) and not _terms(owner_text) & (query_terms | named | labels):
+                    owners = [None]
+                status = 'qualified'
+            elif purpose:
+                owners = _owners(purpose, previous)
             elif action:
-                verb, body = action['verb'], action['body'].strip()
-                # Negation can follow the object in German; remove it only for scope,
-                # never from status or displayed quotations.
-                body = _NEGATION.sub('', body).strip()
+                verb, body = action['verb'], _NEGATION.sub('', action['body']).strip()
                 if verb in {'warn', 'warns'} and body.startswith('about '):
                     body = body[len('about '):]
-                reference = _LINK.fullmatch(body)
-                if reference:
-                    if previous is None or previous.ambiguous or not previous.feature:
-                        status, global_scope = "unresolved", True
-                    else:
-                        group, feature = previous.group, previous.feature
-                        terms |= previous.terms
-                    attribute = reference['attribute']
-                    if status == 'affirmed' and attribute and _terms(attribute) - (query_terms | named | labels):
-                        status, global_scope = 'unresolved', True
-                else:
-                    object_parts = _CHANNEL.split(body, maxsplit=1)
-                    object_text = object_parts[0]
-                    feature = _terms(object_text)
-                    if verb not in _OBJECT_ACTIONS:
-                        feature |= _terms(verb)
-                    ambiguous = bool(re.search(r"\b(?:and|e|und)\b", object_text))
-                    # An explicit repeat of the same feature can extend its evidence.
-                    if previous and feature and feature <= previous.feature and not previous.ambiguous:
-                        group = previous.group
-                    if status == 'affirmed' and feature & query_terms:
-                        coordinated = re.split(r"\b(?:and|e|und)\b", object_text)
-                        understood = query_terms | _terms(' '.join(_LABEL_WORDS)) | _terms(verb)
-                        # A purpose/input/audience relationship is not equivalent
-                        # to providing its object. Unknown transport or operating
-                        # context cannot be dropped after the feature name either.
-                        unknown_role = re.search(r'\b(?:for|to|from|about|in|on|as)\b', object_text)
-                        unknown_context = len(object_parts) > 1 and _terms(object_parts[1]) - (query_terms | named | labels)
-                        if unknown_role or unknown_context or any(
-                            _terms(part) & query_terms and not _terms(part) <= understood for part in coordinated
-                        ):
-                            status = 'unresolved'
-                            global_scope = True
-                    if not body:
-                        status, global_scope = "unresolved", True
+                owner_text, attributes = _transport(body)
+                if verb not in _OBJECT_ACTIONS and not re.fullmatch(_REFERENCE, owner_text):
+                    owner_text = verb + ' ' + owner_text
+                owners = _owners(owner_text, previous)
                 if verb in _OPERATING:
-                    # App-wide availability affects every requested capability.
-                    global_scope = status != "affirmed"
+                    owners = [None]
+                elif status == 'affirmed' and any(owner and owner & query_terms for owner in owners):
+                    understood = query_terms | labels | _terms(verb)
+                    if re.search(r'\b(?:for|to|from|about|in|on|as|with)\b', owner_text) or any(
+                        owner and owner & query_terms and not owner <= understood for owner in owners
+                    ):
+                        status, owners = 'unresolved', [None]
             elif state:
-                subject = state['feature'].strip()
-                subject_ref = re.fullmatch(_REFERENCE, subject)
-                if subject_ref:
-                    if subject == 'it' or previous is None or previous.ambiguous or not previous.feature:
-                        global_scope = True
-                        status = "qualified" if status == "qualified" else "unresolved"
-                    else:
-                        group, feature = previous.group, previous.feature
-                elif re.fullmatch(_APP, subject):
-                    global_scope = True
-                else:
-                    feature = _terms(subject)
-                if status == 'affirmed':
-                    assertion = _AFFIRMED_STATE.match(state['state'])
-                    if not assertion or _terms(state['state'][assertion.end():]) - (query_terms | named | labels):
-                        status = 'unresolved'
-                if previous and feature and feature <= previous.feature and not previous.ambiguous:
-                    group = previous.group
+                owner_text, subject_attributes = _transport(state['feature'].strip())
+                descriptor, predicate_attributes = _transport(state['state'])
+                owners = _owners(owner_text, previous, subject=True)
+                attributes = subject_attributes | predicate_attributes
+                if subject_attributes and predicate_attributes and subject_attributes != predicate_attributes:
+                    status, attributes = 'unresolved', frozenset()
+                assertion = _AFFIRMED_STATE.match(_NEGATION.sub('', descriptor).strip())
+                if status == 'affirmed' and (not assertion or _terms(_NEGATION.sub('', descriptor).strip()[assertion.end():]) - (query_terms | named | labels)):
+                    status, attributes = 'unresolved', frozenset()
             else:
-                # A restriction/reference fragment qualifies its local antecedent;
-                # its applicability cannot silently be assumed when unresolved.
-                if status != 'affirmed' and re.match(rf"^(?:{_REFERENCE}|only|apenas|nur)\b", clause):
-                    if previous and not previous.ambiguous and not re.match(r'^(?:only|apenas|nur)\b', clause):
-                        group, feature = previous.group, previous.feature
-                    else:
-                        global_scope = True
-                elif terms and (terms <= query_terms | labels or
-                              (terms <= named | labels and (terms & labels or len(terms) == 1)) or
-                              (path.startswith('dataspaceAppDescription.') and len(terms) == 1)):
-                    feature = terms
+                foreign = re.match(r'^(?:another app|other apps?|an external service)\s+', clause)
+                if foreign and _ACTION.fullmatch(clause[foreign.end():]):
+                    previous = []
+                    continue  # an actual assertion about the other actor, not a dependency
+                owner_text, attributes = _transport(clause)
+                owners = _owners(owner_text, previous)
+                if status != 'affirmed' and re.match(rf'^(?:{_REFERENCE})\b', clause):
+                    owners = [previous[0].feature] if len(previous) == 1 else [None]
                 else:
-                    status = 'unresolved'
-                    feature = terms
-                    # A functional label can identify a different feature
-                    # even when a modifier cannot be interpreted. It supplies no
-                    # positive support, but does not become an App-wide restriction.
-                    words = clause.split()
-                    heads = _terms('readings observations monitoring forecasting prediction warnings alerts ingestion dashboards control')
-                    scoped_label = bool(_terms(words[-1]) & heads)
-                    global_scope = not scoped_label or bool(re.match(_REFERENCE, clause))
-            claim = _Claim(path, terms, feature, status, group, global_scope, ambiguous)
-            claims.append(claim)
-            # A new or uninterpreted statement breaks the reference chain.
-            previous = claim
+                    if not all(owner and (owner <= query_terms | labels or
+                               (owner <= named | labels and (owner & labels or len(owner) == 1)) or
+                               (path.startswith('dataspaceAppDescription.') and len(owner) == 1)) for owner in owners):
+                        status = 'unresolved'
+                        # An uninterpreted functional label may identify a separate
+                        # feature. Other unknown prose has unresolved App-wide scope.
+                        scope = _scope_text(owner_text).split()
+                        if foreign or not _terms(scope[-1] if scope else '') & _FEATURE_HEADS:
+                            owners = [None]
+            if attributes - (query_terms | named | labels):
+                status, attributes = 'unresolved', frozenset()
+            if status != 'affirmed':
+                # A parsed state is not proof that an unknown subject denotes a
+                # different feature (e.g. "the delivery channel is disabled").
+                owners = [owner if owner and owner & (query_terms | named | labels) else None for owner in owners]
+            if None in owners and status == 'affirmed' and not state:
+                status = 'unresolved'
+            previous = [_Claim(path, owner, attributes, status) for owner in owners]
+            claims.extend(previous)
     return claims
+
+
+def _applies(restriction: _Claim, feature: frozenset[str], required_attributes: set[str]) -> bool:
+    """Partial overlap is uncertainty, never a reason to drop a restriction.
+
+    An explicit owner+channel restriction stays on that feature and channel. A
+    channel-wide restriction (e.g. "SMS delivery") also qualifies required SMS
+    attributes. Unresolved scope cannot establish an unrelated exception.
+    """
+    if restriction.feature is None:
+        return True
+    same_feature = bool(restriction.feature & feature)
+    if restriction.attributes:
+        return same_feature and bool(restriction.attributes & required_attributes)
+    return same_feature or bool(restriction.feature & required_attributes)
 
 
 def source_text(app: dict[str, Any], locale: str) -> dict[str, str]:
@@ -293,7 +304,7 @@ def source_text(app: dict[str, Any], locale: str) -> dict[str, str]:
 
 
 def assess(query: str, app: dict[str, Any], locale: str) -> dict[str, Any]:
-    """Require an affirmed coherent evidence group and no applicable qualification."""
+    """Require owned feature/constraint evidence and no applicable qualification."""
     title = app.get("name") if app.get("source_profile") == "hedge-store-v1" else app.get("title")
     identity_path = "name" if app.get("source_profile") == "hedge-store-v1" else "title"
     if isinstance(title, dict):
@@ -324,29 +335,27 @@ def assess(query: str, app: dict[str, Any], locale: str) -> dict[str, Any]:
     claims = []
     for path, text in source_text(app, locale).items():
         if len(text) <= 16000:
-            claims.extend(_claims(path, text, terms, len(claims), names, synthetic, declarations))
-    groups = {}
+            claims.extend(_claims(path, text, terms, names, synthetic, declarations))
+    features = {}
     for claim in claims:
-        if claim.status == 'affirmed':
-            groups.setdefault(claim.group, []).append(claim)
+        if claim.status == 'affirmed' and claim.feature:
+            features.setdefault(claim.feature, []).append(claim)
     parts = [_terms(part) for part in re.split(r"\b(?:and|e|und)\b", _fold(query))]
     requirements = parts if len(parts) > 1 and all(parts) else [terms]
     support = []
     covered = set()
-    for group in groups.values():
-        coverage = set().union(*(c.terms for c in group))
-        matched = {index for index, requirement in enumerate(requirements) if requirement <= coverage}
-        if not matched:
-            continue
-        relevant = [c for c in claims if c.status != 'affirmed' and (
-            c.global_scope or c.group == group[0].group or
-            (c.feature and (c.feature <= coverage or any(requirements[i] <= c.feature for i in matched)))
-        )]
-        if relevant:
-            return {"status": "uncertain", "reason": "qualified_or_unresolved_source",
-                    "evidence_fields": list(dict.fromkeys(c.path for c in [*group, *relevant]))}
-        support.extend(group)
-        covered |= matched
+    for feature, evidence in features.items():
+        attributes = set().union(*(c.attributes for c in evidence))
+        for index, requirement in enumerate(requirements):
+            if not requirement <= feature | attributes:
+                continue
+            relevant = [c for c in claims if c.status != 'affirmed' and
+                        _applies(c, feature, requirement - feature)]
+            if relevant:
+                return {"status": "uncertain", "reason": "qualified_or_unresolved_source",
+                        "evidence_fields": list(dict.fromkeys(c.path for c in [*evidence, *relevant]))}
+            support.extend(evidence)
+            covered.add(index)
     if len(covered) != len(requirements):
         support = []
     return {"status": "source_supported" if support else "uncertain",

@@ -487,3 +487,38 @@ def test_coherent_claims_survive_real_store_boundaries(offline, description, rea
     withdrawn = recommender.recommend_v2(query=query, locale=locale, filters={}, limit=10)
     assert app.id not in {r['app']['id'] for r in [*withdrawn['apps'], *withdrawn['candidates']]}
     assert payload(offline, app)['_index_revision'] == 1
+
+
+@pytest.mark.parametrize('case', json.loads(
+    (ROOT / 'tests/fixtures/store-v1/suitability-ownership.json').read_text()
+), ids=lambda case: case['case'])
+def test_owned_evidence_survives_store_persistence_and_retrieval(offline, case):
+    source = case['source']
+    app = client_module.normalize_store_v1_app({
+        'appId': 'Ownership-App', 'fkAppStoreId': STORE, 'name': 'Review App',
+        'description': source['description'], 'readme': source.get('readme'),
+        'dataspaceAppDescription': source.get('dataspace_app_description'),
+        'active': True, 'visible': True,
+    })
+    save(app)
+    assert apply(offline, operation(app)) == 1
+    stored = storage.get_catalogue_apps([app.id], store_id=STORE)[app.id]
+    assert stored['revision'] == 1
+    assert StoreAppMetadata.model_validate(stored['payload']).checksum == app.checksum
+    for key, value in source.items():
+        assert stored['payload'][key] == value
+    args = {'query': case['query'], 'locale': case['locale'], 'filters': {}, 'limit': 10}
+    result = recommender.recommend_v2(**args)
+    row = next(r for r in [*result['apps'], *result['candidates']] if r['app']['id'] == app.id)
+    assert (row in result['apps']) is case['supported']
+    assert row['app']['store_id'] == STORE and row['app']['app_id'] == 'Ownership-App'
+    assert row['app']['source_evidence']['description'] == source['description']
+    assert row['suitability']['status'] == ('source_supported' if case['supported'] else 'uncertain')
+    events = list(recommender.recommend_v2_stream(**args))
+    assert events[0]['apps'] == result['apps'] and events[0]['candidates'] == result['candidates']
+    assert events[0]['decision'] == result['decision']
+    assert ''.join(e['content'] for e in events if e['type'] == 'explanation_delta') == result['message']
+    save(app.model_copy(update={'visible': False}))
+    withdrawn = recommender.recommend_v2(**args)
+    assert app.id not in {r['app']['id'] for r in [*withdrawn['apps'], *withdrawn['candidates']]}
+    assert payload(offline, app)['_index_revision'] == 1

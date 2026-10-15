@@ -28,6 +28,24 @@ then reproduced three admission defects, also reproduced before this correction:
 | Portuguese `alertas de terremoto` / `Não envia alertas de terremoto.`, or German `MQTT` / `Unterstützt MQTT nicht.` | Recommended | Unverified candidate; explicit negation applies regardless of requested locale. |
 | `earthquake warnings SMS`; `Provides earthquake warnings. Sends them via SMS.` | Rejected | Source-supported; the clear local reference connects the delivery channel to the warnings. |
 
+Re-review of `3e276bcaf5d954f3be0d7973b028136180cab6bc` reproduced three
+structural defects despite those original cases passing:
+
+- The positive warning/SMS description plus README `SMS delivery is disabled.`
+  still produced `source_supported` and a recommendation impression. A restriction
+  on one required component did not pass the whole-query containment check.
+- `Provides earthquake warnings. Another App is required for this feature.`
+  was recommended because the foreign-actor prefix deleted the prerequisite.
+- `Earthquake warnings and water readings are available. Sends water readings
+  via SMS.` was recommended for earthquake warnings by SMS. Group-level term
+  union transferred the water readings' channel to a different feature.
+
+All three reproduced through normal/SSE Gateway output and the disposable Store
+pipeline. The retained 62-observation review probe included 22 unsupported
+recommendation observations before this correction; all 62 now match expected
+decisions. The new permanent Gateway cases initially reproduced 26 failures in
+60 observations, including positive controls, before changing admission code.
+
 ## Decision boundary
 
 Retrieval and fusion are unchanged. The recommender assesses retrieved records
@@ -42,26 +60,43 @@ before creating recommendation cards, impressions or served narrative:
 | Successful retrieval with no candidates | Return an abstained decision explaining that retrieval was empty. |
 | Retrieval error/timeout/malformed result envelope | Preserve SCRUM-28 503/504 errors or terminal stream problem events; do not claim no match. |
 
-The former one-sentence term check ignored material context and could not compose
-related evidence. The correction interprets bounded source clauses as affirmed,
-qualified or unresolved claims, keeping their original field paths and feature
-scope. Recognized predicates and availability states establish assertions;
-negation, conditional/future language, restrictions and uninterpreted context
-cannot establish unconditional support. Applicable contradictions and uncertainty
-are checked across all available functional fields, including README. This is a
-source-claim check, not an expanded retrieval keyword score.
+Each bounded source assertion now retains a feature owner, its explicitly attached
+attributes, affirmed/qualified/unresolved status and original field path. There
+are no groups that union distinct feature terms. Coordinated subjects and objects
+produce separate owned assertions through the same resolver. An unbound reference
+or unresolved App-wide statement cannot supply capability evidence. Recognized
+predicates and availability states establish assertions; negation, conditional/
+future language and uninterpreted context cannot establish unconditional support.
 
-Evidence may compose through an explicit repeat of a feature or an unambiguous
-immediate reference within a field and paragraph. `Provides earthquake warnings.
-Sends them via SMS.` supports warning delivery by SMS. `Provides earthquake
-warnings and water readings. Sends them via SMS.` leaves the referent ambiguous.
-`Provides earthquake warnings. Supports SMS.` does not establish that relationship.
-Explicit independent conjunctions can require separately supported features.
-References do not cross fields; an explicit named capability in another field
-can still supply its own support. Recognizable unrelated feature restrictions and
-privacy statements do not automatically veto another supported capability;
-unresolved scope or App-wide unavailability does. An explicitly different actor
-cannot supply this App's capabilities.
+Attributes compose only for the same normalized feature owner. An unambiguous
+immediate reference or bounded local noun-head repeat (`warnings` referring to
+`earthquake warnings`) can retain that owner within a field and paragraph.
+`Provides earthquake warnings. Sends them via SMS.` therefore supports delivery
+of those warnings by SMS. Coordinated owners make a following bare reference
+ambiguous, regardless of whether their declaration uses an action or an
+availability state. An explicit water-reading delivery statement contributes only
+to water readings. `Provides earthquake warnings. Supports SMS.` does not establish
+a delivery relationship. Explicit independent conjunctions can require separately
+supported features. References do not cross fields; explicit repeated owners can
+still carry their own attributes in another field.
+
+Restrictions are checked against each required feature and attribute across all
+available functional fields, including README and embedded descriptions. Partial
+overlap retains uncertainty rather than requiring the restriction to repeat the
+whole query. Thus `SMS delivery is disabled` qualifies a requested SMS channel.
+An explicitly scoped `Water readings via SMS are disabled` stays on water readings;
+`Earthquake warnings via MQTT are disabled` does not erase separately affirmed SMS
+delivery. A qualification with unresolved scope qualifies the App rather than
+vanishing. Recognizable unrelated restrictions and privacy statements remain
+separate from the requested feature.
+
+Dependencies are interpreted before other-actor assertions. Active requirements
+and passive prerequisites qualify their target feature/channel; an unknown or
+ambiguous target remains uncertain. Only a parsed assertion about another actor's
+capability is ignored as evidence for this App. Explicit absence of a prerequisite
+supplies no capability evidence and does not negate an otherwise supported
+capability. These are bounded grammatical relationships, with no additional model
+call, NLP framework, similarity threshold or dependency/ranking redesign.
 
 Request scaffolding and simple inflections are normalized for matching; original
 source text is unchanged. There is no similarity threshold, required metadata
@@ -124,7 +159,7 @@ uses structured selection rather than those free-form templates.
 
 ## Regression and verification evidence
 
-- 816 unit tests pass with 93.58% shared-package branch coverage (80% gate).
+- 939 unit tests pass with 93.58% shared-package branch coverage (80% gate).
   Source admission tests cover sparse positives, negation, simulation restrictions,
   unrelated limitations, README/embedded provenance, malformed optional fields,
   unsupported provider/price/ontology evidence, and constrained queries.
@@ -141,7 +176,14 @@ uses structured selection rather than those free-form templates.
   source-supported fallback never serves raw fabricated/private model output.
   Exclusions such as `without SMS`, material real-time requirements and unknown
   implementation context cannot disappear from the admission decision.
-- 98 focused integration tests pass with disposable PostgreSQL 16.9, Qdrant 1.18.2
+- The shared authored `tests/fixtures/store-v1/suitability-ownership.json` corpus
+  adds 33 cases through both Gateway paths and real Store persistence/retrieval.
+  It covers partial/cross-field/embedded restrictions, dependency polarity and
+  scope, wrong-feature channel transfer, active/state declaration variants,
+  ambiguity and sparse/coherent positives. Three new unsafe-admission scenarios
+  and an unrelated-restriction positive also exercise every existing selection/
+  abstention/timeout/transport/malformed-output branch through both Gateway paths.
+- 131 committed focused integration tests pass with disposable PostgreSQL 16.9, Qdrant 1.18.2
   and Valkey 8.1.3 on a unique internal network, no host ports and ephemeral storage.
   Invented Store records traverse the real normalizer, storage, indexing, lexical/
   vector search and recommender. An unrelated dense Water Meter neighbour remains
@@ -151,6 +193,10 @@ uses structured selection rather than those free-form templates.
   Thirteen added review cases prove the record was retrieved before admission,
   preserve the original description/README, native identity, checksum and revision,
   compare stream/non-stream output, and withdraw it while its vector is stale.
+  The 33 ownership cases additionally preserve raw optional fields/checksums and
+  test withdrawal with a stale vector. Ten retained independent-review assertions
+  also pass in that infrastructure, for 141 integration checks in the corrective
+  verification run; the 131 permanent tests include all 98 prior cases.
 - The SCRUM-38 1,254-/16,001-character README regressions retain complete omission/
   extraction-status handling and streaming parity. Legacy standalone explanation
   remains usable without inventing a missing App identity.

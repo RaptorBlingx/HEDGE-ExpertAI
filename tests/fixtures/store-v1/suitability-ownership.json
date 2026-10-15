@@ -1,0 +1,321 @@
+[
+  {
+    "case": "disabled-channel",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Sends them via SMS.",
+      "readme": "SMS delivery is disabled."
+    },
+    "supported": false
+  },
+  {
+    "case": "disabled-feature-delivery",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Sends them via SMS.",
+      "readme": "Earthquake warning delivery is disabled."
+    },
+    "supported": false
+  },
+  {
+    "case": "simulation-channel",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Sends them via SMS.",
+      "readme": "Sends SMS only in simulation."
+    },
+    "supported": false
+  },
+  {
+    "case": "german-channel-restriction",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Sends them via SMS.",
+      "readme": "SMS Versand ist nicht verfügbar."
+    },
+    "supported": false
+  },
+  {
+    "case": "portuguese-channel-restriction",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Sends them via SMS.",
+      "readme": "O envio de SMS está desativado."
+    },
+    "supported": false
+  },
+  {
+    "case": "unknown-partial-qualification",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Sends them via SMS.",
+      "readme": "Aucune earthquake warnings."
+    },
+    "supported": false
+  },
+  {
+    "case": "embedded-channel-restriction",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Sends them via SMS.",
+      "dataspace_app_description": "{\"properties\": {\"description\": \"SMS delivery is disabled.\"}}"
+    },
+    "supported": false
+  },
+  {
+    "case": "unrelated-channel",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Sends them via SMS.",
+      "readme": "MQTT delivery is disabled."
+    },
+    "supported": true
+  },
+  {
+    "case": "unrelated-feature-channel",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Sends them via SMS.",
+      "readme": "Water readings via SMS are disabled."
+    },
+    "supported": true
+  },
+  {
+    "case": "other-channel-same-feature",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Sends them via SMS.",
+      "readme": "Earthquake warnings via MQTT are disabled."
+    },
+    "supported": true
+  },
+  {
+    "case": "neighbor-dependency",
+    "query": "earthquake warnings",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Another App is required for this feature."
+    },
+    "supported": false
+  },
+  {
+    "case": "readme-dependency",
+    "query": "earthquake warnings",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings.",
+      "readme": "Another App is required for this feature."
+    },
+    "supported": false
+  },
+  {
+    "case": "service-dependency",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Sends them via SMS.",
+      "readme": "An external service is needed for SMS delivery."
+    },
+    "supported": false
+  },
+  {
+    "case": "active-dependency",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Sends them via SMS.",
+      "readme": "Earthquake warnings require another App."
+    },
+    "supported": false
+  },
+  {
+    "case": "channel-dependency",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Sends them via SMS.",
+      "readme": "SMS delivery requires another App."
+    },
+    "supported": false
+  },
+  {
+    "case": "unrelated-dependency",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Sends them via SMS.",
+      "readme": "Another App is required for water readings."
+    },
+    "supported": true
+  },
+  {
+    "case": "wrong-feature-copula",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Earthquake warnings and water readings are available. Sends water readings via SMS."
+    },
+    "supported": false
+  },
+  {
+    "case": "wrong-feature-action",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings and water readings. Sends water readings via SMS."
+    },
+    "supported": false
+  },
+  {
+    "case": "wrong-feature-readme",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Earthquake warnings and water readings are available.",
+      "readme": "Water readings are delivered via SMS."
+    },
+    "supported": false
+  },
+  {
+    "case": "ambiguous-copula-reference",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Earthquake warnings and water readings are available. Sends them via SMS."
+    },
+    "supported": false
+  },
+  {
+    "case": "right-feature-copula",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Earthquake warnings and water readings are available. Sends earthquake warnings via SMS."
+    },
+    "supported": true
+  },
+  {
+    "case": "right-feature-action",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings and water readings. Sends earthquake warnings via SMS."
+    },
+    "supported": true
+  },
+  {
+    "case": "clear-reference",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Sends them via SMS."
+    },
+    "supported": true
+  },
+  {
+    "case": "passive-reference",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. They are sent via SMS."
+    },
+    "supported": true
+  },
+  {
+    "case": "explicit-cross-field",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings.",
+      "readme": "Delivers earthquake warnings via SMS."
+    },
+    "supported": true
+  },
+  {
+    "case": "unbound-cross-field-reference",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings.",
+      "readme": "Sends them via SMS."
+    },
+    "supported": false
+  },
+  {
+    "case": "foreign-delivery",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Another App sends them via SMS."
+    },
+    "supported": false
+  },
+  {
+    "case": "sparse-positive",
+    "query": "earthquake warnings",
+    "locale": "en",
+    "source": {
+      "description": "Warns about earthquakes."
+    },
+    "supported": true
+  },
+  {
+    "case": "independent-constraints-positive",
+    "query": "earthquake warnings and temperature monitoring",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Monitors temperature."
+    },
+    "supported": true
+  },
+  {
+    "case": "independent-constraint-restriction",
+    "query": "earthquake warnings and temperature monitoring",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Monitors temperature.",
+      "readme": "Temperature monitoring is disabled."
+    },
+    "supported": false
+  },
+  {
+    "case": "no-passive-dependency",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Sends them via SMS.",
+      "readme": "Another App is not required for this feature."
+    },
+    "supported": true
+  },
+  {
+    "case": "no-active-dependency",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Sends them via SMS.",
+      "readme": "Earthquake warnings do not require another App."
+    },
+    "supported": true
+  },
+  {
+    "case": "unresolved-channel-scope",
+    "query": "earthquake warnings SMS",
+    "locale": "en",
+    "source": {
+      "description": "Provides earthquake warnings. Sends them via SMS.",
+      "readme": "The delivery channel is disabled."
+    },
+    "supported": false
+  }
+]

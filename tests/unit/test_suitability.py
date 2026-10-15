@@ -249,3 +249,27 @@ def test_synthetic_catalogue_provenance_is_neither_support_nor_a_blanket_veto():
     unknown = app | {'description': f'It is designed to {query} using an unspecified prerequisite.'}
     assert policy.assess(query, unknown, 'en')['status'] == 'uncertain'
     assert policy.assess('earthquake warnings', app, 'en')['status'] == 'uncertain'
+
+
+@pytest.mark.parametrize(('description', 'supported'), [
+    ('Provides earthquake warnings. Another App is required for the feature.', False),
+    ('Provides earthquake warnings. Another App is required for that capability.', False),
+    ('Provides earthquake warnings. An external service is necessary.', False),
+    ('Provides earthquake warnings. An external service is needed for an unspecified purpose.', False),
+    ('Provides earthquake warnings. Another App is not required for this feature.', True),
+    ('Provides earthquake warnings. Earthquake warnings do not require another App.', True),
+    ("Provides earthquake warnings. Earthquake warnings don't require another App.", True),
+    ('Provides earthquake warnings. Earthquake warnings require another App.', False),
+    ('Provides earthquake warnings. This feature depends on another App.', False),
+    ('Provides earthquake warnings. This feature does not depend on another App.', True),
+    ('Provides earthquake warnings via SMS. Water readings via SMS are disabled.', True),
+    ('Provides earthquake warnings via SMS. Earthquake warnings via MQTT are disabled.', True),
+    ('Provides earthquake warnings via SMS. Earthquake warnings via SMS are disabled.', False),
+    ('Provides earthquake warnings via SMS. Its channel is disabled.', False),
+    ('Provides earthquake warnings via SMS. The function is unavailable.', False),
+    ('Earthquake warnings via SMS are delivered via email.', False),
+    ('Earthquake warnings via SMS are delivered via SMS.', True),
+])
+def test_scoped_restrictions_and_dependencies_preserve_their_arguments(description, supported):
+    query = 'earthquake warnings SMS' if 'SMS' in description else 'earthquake warnings'
+    assert (policy.assess(query, {'description': description}, 'en')['status'] == 'source_supported') is supported
