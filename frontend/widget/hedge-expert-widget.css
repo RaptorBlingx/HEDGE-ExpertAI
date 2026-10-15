@@ -128,7 +128,7 @@
               transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   will-change: width, transform, opacity;
 }
-.he-panel--open {
+.he-panel.he-panel--open {
   opacity: 1;
   transform: translateY(0) scale(1);
   pointer-events: auto;
@@ -902,6 +902,7 @@
     bottom: 0;
     width: 100vw !important;
     height: 100vh !important;
+    max-height: 100vh;
     border-radius: 0;
     border: none;
     transform: translateY(16px) scale(0.96);
@@ -985,3 +986,10 @@
   background: rgba(244, 63, 94, 0.15) !important;
   color: #fda4af !important;
 }
+
+/* Plain, complete Store source quotations; no raw publisher markup. */
+.he-card-evidence { margin-top: 10px; font-size: 12px; line-height: 1.5; }
+.he-card-evidence summary { cursor: pointer; color: inherit; }
+.he-card-evidence p { margin: 8px 0; }
+.he-card-evidence dt { margin-top: 8px; font-weight: 600; overflow-wrap: anywhere; }
+.he-card-evidence dd { margin: 2px 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }

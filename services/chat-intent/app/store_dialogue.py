@@ -22,6 +22,22 @@ _BROWSE = re.compile(
     r"(?:\s+(?:are|do|you|have|available|published|currently|in|the|store|hedge|catalog(?:ue)?))*[?!.]*",
     re.I,
 )
+# Explicit source-field reads are separate from capability/suitability questions.
+# Full matches keep constraints such as "only free Apps" out of this path.
+_SOURCE_FIELDS = {
+    "readme": ("readme",),
+    "embedded metadata": ("dataspaceAppDescription.",),
+    "connector fields": ("builtForConnector", "connectorVersion"),
+    "connector version": ("connectorVersion",),
+    "versions": ("appVersionList[",),
+    "billing fields": ("billable", "price"),
+    "price": ("price", "billable"),
+    "type": ("type",),
+}
+_SOURCE_READ = re.compile(
+    r"(?:show|quote|list)(?: me)? (?:the )?(" + "|".join(_SOURCE_FIELDS) +
+    r")(?: (?:for|of) (.+?))?[?!.]*", re.I,
+)
 _REFERENCE = re.compile(r"\b(it|that app|this app|both|them|these apps|those apps)\b", re.I)
 
 
@@ -39,7 +55,7 @@ class StoreDialogue:
 
     async def respond(self, req: ChatRequestV2, intent: str, context: dict) -> dict:
         response = await self._respond(req, intent, context)
-        if self.generate:
+        if self.generate and response.get("intent") != "source_fields":
             rendered = await asyncio.to_thread(self.generate, req.message, response["apps"],
                                                req.locale, response["intent"], response["message"])
             # A slow model must not expose facts from a withdrawn/changed App.
@@ -58,6 +74,8 @@ class StoreDialogue:
     async def _respond(self, req: ChatRequestV2, intent: str, context: dict) -> dict:
         current = self.resolve(None)
         message = req.message
+        source_read = _SOURCE_READ.fullmatch(message.strip())
+        source_target = source_read[2] if source_read else None
         previous = [item.get("app", item)["id"] for item in context.get("last_results", [])]
         named_apps = [app for app in current
                  if any(value and re.search(rf"(?<!\w){re.escape(value)}(?!\w)", message, re.I)
@@ -65,7 +83,7 @@ class StoreDialogue:
         named = [app["id"] for app in named_apps]
         ordinals = [index for token, index in _ORDINALS.items()
                     if re.search(rf"\b{re.escape(token)}\b", message, re.I)]
-        targeted = intent in {"detail", "compare"} or bool(ordinals) or bool(_REFERENCE.search(message))
+        targeted = bool(source_read) or intent in {"detail", "compare"} or bool(ordinals) or bool(_REFERENCE.search(message))
         selected = named if targeted else []
         if targeted and not selected:
             if intent == "compare" and re.search(r"\bfirst (two|three|2|3)\b", message, re.I):
@@ -83,6 +101,65 @@ class StoreDialogue:
             filters = {**(context.get("filters") or {}),
                        **{k: v for k, v in filters.items() if v not in (None, [], "")}}
         invalid_filters = any(v not in (None, [], "") for k, v in filters.items() if k != "publisher")
+        if source_read and not invalid_filters:
+            # Resolve the complete target, not names/ordinals occurring elsewhere
+            # in the question. Native IDs are opaque and case-sensitive; duplicate
+            # names require an explicit ID rather than silently selecting both.
+            selected = context.get("focused_ids", [])
+            if source_target:
+                exact_ids = [a["id"] for a in current if a["app_id"] == source_target]
+                exact_names = [a["id"] for a in current
+                               if (a.get("name") or "").casefold() == source_target.casefold()]
+                ordinal = next((index for token, index in _ORDINALS.items()
+                                if source_target.casefold() == f"the {token} app"), None)
+                if exact_ids:
+                    selected = exact_ids
+                elif len(exact_names) == 1:
+                    selected = exact_names
+                elif source_target.casefold() in {"both", "both apps", "these apps", "those apps"}:
+                    selected = previous
+                elif ordinal is not None:
+                    selected = [previous[ordinal]] if ordinal < len(previous) else []
+                elif source_target.casefold() not in {"it", "this app", "that app"}:
+                    selected = []
+            apps = self.resolve(selected)
+            if filters.get("publisher"):
+                apps = [a for a in apps if filters["publisher"].casefold() in (a.get("provider") or "").casefold()]
+            if not selected or len(apps) != len(selected):
+                return self._response("Choose a currently published App by exact name/native ID or an existing reference; "
+                                      "source-field reads do not apply additional constraints.",
+                                      [], "source_fields", context)
+            field = source_read[1].casefold()
+            prefixes = _SOURCE_FIELDS[field]
+            results = [{"app": app, "rank": i + 1, "evidence_fields": ["reference"]}
+                       for i, app in enumerate(apps)]
+            lines = ["Supplied Store source values only; these do not establish suitability or compatibility."]
+            if field in {"price", "billing fields"}:
+                lines.append("Currency, billing period, taxes and licence terms are unspecified. "
+                             "billable=false or price=0 does not establish that an App is free.")
+            if field == "versions":
+                lines.append("Versions are in source order; no current or latest version is inferred.")
+            for result in results:
+                evidence = {path: value for path, value in result["app"].get("source_evidence", {}).items()
+                            if any(path == prefix or
+                                   (prefix.endswith((".", "[")) and path.startswith(prefix))
+                                   for prefix in prefixes)}
+                # Reuse the SCRUM-38 whole-quotation and escaping boundary. The
+                # complete authoritative projection stays in the result/card.
+                if evidence:
+                    view = {**result["app"], "source_evidence": evidence,
+                            "readme_status": None, "dataspace_description_status": None}
+                    lines.append(self.describe(message, [{**result, "app": view}], req.locale))
+                else:
+                    status_key = {"readme": "readme_status", "embedded metadata": "dataspace_description_status"}.get(field)
+                    status = result["app"].get(status_key) if status_key else "missing"
+                    # Statuses are normalized enums, never raw publisher strings.
+                    status = status if status in {"missing", "too_large", "malformed", "unsupported_shape",
+                                                   "no_supported_text", "not_projected", "extracted"} else "unavailable"
+                    lines.append(f"App {result['rank']}: requested source evidence is {status}. "
+                                 "Missing projected evidence does not establish absence of a capability.")
+            next_context = {**context, "filters": filters, "focused_ids": selected}
+            return self._response("\n".join(lines), results, "source_fields", next_context)
         if unsupported or invalid_filters:
             limitation = ("This snapshot has no verified price information. I cannot confirm what it costs. "
                           if _PRICE.search(message) else
@@ -139,6 +216,9 @@ class StoreDialogue:
         next_context = {"last_query": query, "filters": filters,
                         "last_results": response["apps"][:5],
                         "focused_ids": [response["apps"][0]["app"]["id"]] if len(response["apps"]) == 1 else []}
+        if response["apps"]:
+            response["message"] = ("Retrieved source records; order does not establish suitability.\n"
+                                   + response["message"])
         if not response["apps"]:
             response["message"] += " A missing match does not establish that a product lacks a feature."
         return {**response, "intent": intent, "context": next_context}

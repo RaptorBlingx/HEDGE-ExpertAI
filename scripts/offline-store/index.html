@@ -3,20 +3,32 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Offline HEDGE Store chat evaluation</title>
+  <title>ExpertAI · Metadata to Chat</title>
   <link rel="stylesheet" href="/evaluation/pane.css">
   <script src="/widget/hedge-expert-widget.js" defer></script>
   <script src="/evaluation/pane.js" defer></script>
 </head>
 <body>
   <main>
-    <h1>HEDGE Store chat evaluation</h1>
+    <p class="eyebrow">HEDGE-ExpertAI · local preview</p>
+    <h1>From App metadata to useful answers</h1>
     <p id="catalogue">Isolated evaluation. Checking input provenance…</p>
     <p id="components" role="status">Checking components…</p>
     <details><summary>Inspect eligible source records and component status</summary><pre id="records"></pre></details>
-    <p>Try a search using a supplied App name, “Tell me more about the second app”,
-      “Compare the first two apps”, “What does it cost?”, then “reset”.</p>
-    <p>Comparisons quote source fields only. Prices and structured capabilities cannot be confirmed.</p>
+    <section aria-labelledby="try-heading">
+      <h2 id="try-heading">Explore the source</h2>
+      <p>Choose a prompt, then send it in Chat. Open a result’s <strong>Source evidence</strong> to inspect the original field paths.</p>
+      <div id="scenarios"></div>
+    </section>
+    <section id="publisher" hidden><h2>Simulate a publisher change</h2>
+      <p>These controls change only the authored Telemetry fixture in this disposable run. After updating, ask for its README again. Withdrawal should remove it from current results.</p>
+      <div id="publisher-actions"></div><p id="publisher-status" role="status"></p>
+    </section>
+    <section><h2>What this demonstrates</h2>
+      <p>Store v1 App → normalization → PostgreSQL → scoped retrieval → quoted answers and source cards.</p>
+      <p id="pipeline" role="status"></p>
+      <p>These are source records and search candidates. A retrieval rank does not establish suitability. Billing values do not establish currency or licence terms.</p>
+    </section>
   </main>
 </body>
 </html>

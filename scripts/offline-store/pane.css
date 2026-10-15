@@ -1,3 +1,14 @@
-html { color-scheme: dark; background: #0f172a; color: #e2e8f0; font: 16px/1.5 system-ui, sans-serif; }
-main { max-width: 900px; margin: 2rem auto; padding: 0 1rem; }
-pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; max-height: 30vh; overflow-y: auto; }
+html { color-scheme: dark; background: #0f172a; color: #e2e8f0; font: 15px/1.5 system-ui, sans-serif; }
+main { max-width: 290px; margin: 2rem 1.5rem; padding-bottom: 5rem; }
+h1 { font-size: 1.8rem; line-height: 1.15; letter-spacing: -.03em; }
+h2 { font-size: 1rem; margin-top: 1.5rem; }
+.eyebrow { color: #93c5fd; font-size: .8rem; text-transform: uppercase; letter-spacing: .08em; }
+#catalogue { border-left: 3px solid #60a5fa; padding-left: .75rem; }
+#components, #pipeline { font-size: .8rem; color: #a5b4fc; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 30vh; overflow-y: auto; }
+#scenarios { display: grid; gap: .4rem; }
+#scenarios button, #publisher-actions button { padding: .6rem .75rem; background: #1e293b; color: #e2e8f0; border: 1px solid #475569; border-radius: .5rem; text-align: left; font: inherit; font-size: .85rem; cursor: pointer; }
+#scenarios button:hover, #scenarios button:focus-visible, #publisher-actions button:focus-visible { border-color: #93c5fd; background: #27364d; }
+@media (max-width: 768px) { main { max-width: 100%; margin: 1rem; } }
+
+#publisher-actions { display: grid; gap: .4rem; }

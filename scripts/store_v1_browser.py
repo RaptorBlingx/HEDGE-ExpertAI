@@ -48,12 +48,27 @@ def create_app(playground):
                 "embeddings": "real pinned E5" if os.getenv("STORE_PLAYGROUND_E5") == "true" else "unavailable; lexical fallback",
                 "intent": "real Rasa with confidence/health regex fallback" if os.getenv("RASA_ENABLED") == "true" else "regex fallback; Rasa unavailable",
                 "generation": "Ollama enabled; validated excerpts or deterministic fallback per turn" if os.getenv("STORE_PLAYGROUND_OLLAMA") == "true" else "Deterministic source quotations; Ollama not used",
+                "simulation_controls": callable(getattr(playground, "simulate", None)),
+                "pipeline": getattr(playground, "pipeline", {}),
                 "records": playground.records}
+
+    @app.post("/evaluation/scenario/{action}")
+    async def scenario(action: str):
+        simulate = getattr(playground, "simulate", None)
+        if not simulate or action not in {"update", "withdraw", "restore"}:
+            raise HTTPException(status_code=404, detail="Authored scenario unavailable")
+        async with turn_lock:
+            return await asyncio.to_thread(simulate, action)
 
     @app.post("/api/v2/chat")
     async def chat(request: ChatRequestV2):
         async with turn_lock:
-            return await playground.converse(request)
+            try:
+                return await playground.converse(request)
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(status_code=503, detail="Offline retrieval unavailable") from None
 
     @app.get("/api/v2/sessions/{session_id}")
     async def history(session_id: str):

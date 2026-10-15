@@ -38,6 +38,10 @@ def test_failed_retrieval_stream_emits_problem_and_never_success():
 
     with TestClient(create_app(playground(unavailable)), base_url="http://127.0.0.1:8091") as client:
         response = client.post("/api/v2/chat/stream", json={"message": "EdgeConnect"})
+        normal = client.post("/api/v2/chat", json={"message": "EdgeConnect"})
+        assert normal.status_code == 503
+        assert normal.json() == {"detail": "Offline retrieval unavailable"}
+        assert client.post("/evaluation/scenario/update").status_code == 404
         assert '"type":"stage"' in response.text
         assert '"type":"problem"' in response.text
         assert "complete" not in response.text

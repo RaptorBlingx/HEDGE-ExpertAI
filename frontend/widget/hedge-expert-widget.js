@@ -36,7 +36,7 @@
   const STAGE_LABELS = {
     intent: "Understanding the request…",
     retrieval: "Searching the application catalogue…",
-    ranking: "Ranking evidence-backed matches…",
+    ranking: "Ranking retrieved Apps…",
     explanation: "Preparing a grounded explanation…",
   };
 
@@ -563,7 +563,7 @@
 
     _trapFocus(event) {
       var focusable = this.panel.querySelectorAll(
-        'button:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href]'
+        'button:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], summary'
       );
       if (!focusable.length) return;
       var first = focusable[0];
@@ -867,6 +867,9 @@
     /* ---------- app cards ---------- */
 
     _addAppCards(parentBody, apps, impressionId) {
+      this.panel.querySelector(".he-side-title").textContent = apps.some(function (result) {
+        return (result.app || result).source_profile === "hedge-store-v1";
+      }) ? "Store source records" : "Recommended Context";
       parentBody.innerHTML = ""; // Clear previous context
       var container = document.createElement("div");
       container.className = "he-cards he-animate-in";
@@ -879,6 +882,23 @@
         var domainLabel = (app.domains && app.domains[0]) || app.saref_type || app.domain || "";
         var dc = domainColor(domainLabel);
         var desc = (app.description || "").slice(0, 140);
+        if (isStore && (app.description || "").length > 140) {
+          desc = "Read the complete description in source evidence below.";
+        }
+        var sourceDetails = "";
+        if (isStore) {
+          var evidence = app.source_evidence || {};
+          var sourceRows = Object.keys(evidence).map(function (path) {
+            var value = String(evidence[path]);
+            var quoted = value.length <= 1200 ? value : "Complete quotation omitted (exceeds 1,200 characters).";
+            return '<dt>' + escapeHtml(path) + '</dt><dd>' + escapeHtml(quoted) + '</dd>';
+          }).join("");
+          sourceDetails = '<details class="he-card-evidence"><summary>Source evidence</summary>' +
+            '<p>Publisher-supplied fields; compatibility, suitability and billing terms are not verified.</p>' +
+            '<dl>' + sourceRows + '</dl>' +
+            '<p>README: ' + escapeHtml(app.readme_status || "unavailable") +
+            ' · Embedded metadata: ' + escapeHtml(app.dataspace_description_status || "unavailable") + '</p></details>';
+        }
         var appTitle = (isStore ? app.name : localized(app.title, this.config.locale)) || (isStore ? "Unnamed App" : "Unknown App");
         var versionValue = (app.lifecycle && app.lifecycle.version) || app.version || "";
         var publisherValue = isStore ? app.provider || "" : (app.publisher && app.publisher.name) || app.publisher || "";
@@ -908,7 +928,7 @@
             version +
             '<span class="he-card-id">' + escapeHtml(isStore ? app.store_id + ' / ' + app.app_id : app.id || "") + '</span>' +
             (isStore ? '<span class="he-card-source">Store v1 · ' + escapeHtml((result.evidence_fields || []).join(', ')) + '</span>' : '') +
-          '</div>';
+          '</div>' + sourceDetails;
         if (hasExternalAppUrl && impressionId) {
           var self = this;
           (function (appId) {

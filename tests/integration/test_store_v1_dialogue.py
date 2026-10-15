@@ -86,3 +86,38 @@ def test_new_empty_topic_discards_old_references(conversation):
     assert conversation("energy")["apps"]
     assert conversation("zzzzunmatchedtopic")["apps"] == []
     assert conversation("Tell me about the first app")["apps"] == []
+
+
+def test_metadata_answers_use_current_persisted_evidence_and_keep_withdrawal(conversation):
+    initial = conversation("energy")
+    identity = initial["apps"][0]["app"]["id"]
+    app = StoreAppMetadata.model_validate(storage.get_catalogue_apps([identity], store_id=STORE)[identity]["payload"])
+    changed = app.model_copy(update={
+        "readme": "<p>thermaldiagnostic collection is available only in the simulator.</p><script>unsafeSource</script>",
+        "built_for_connector": "ExampleConnector", "connector_version": "1.2",
+        "billable": False, "price": 0,
+        "dataspace_app_description": '{"properties":{"description":"districtdiagnostic inspection"}}',
+    })
+    storage.upsert_catalogue_app(storage.create_ingestion_run("metadata-dialogue"), changed)
+    # Match evidence absent from title/description through real PostgreSQL lexical search.
+    found = conversation("thermaldiagnostic")
+    assert found["apps"][0]["app"]["id"] == identity
+    assert "lexical" in found["apps"][0]["evidence_fields"]
+    readme = conversation("Show README for it")
+    assert "readme:" in readme["message"] and "only in the simulator" in readme["message"]
+    assert "unsafeSource" not in readme["message"]
+    assert readme["apps"][0]["app"]["store_id"] == STORE
+    assert readme["apps"][0]["app"]["app_id"] == app.app_id
+    embedded = conversation("Show embedded metadata for it")
+    assert "dataspaceAppDescription.properties.description" in embedded["message"]
+    assert "districtdiagnostic" in embedded["message"]
+    billing = conversation("Show billing fields for it")
+    assert 'billable: "false"' in billing["message"]
+    assert 'price: "0"' in billing["message"] or 'price: "0.0"' in billing["message"]
+    assert "Currency, billing period, taxes and licence terms are unspecified" in billing["message"]
+    assert 'connectorVersion: "1.2"' in conversation("Show connector fields for it")["message"]
+    # A changed source is rehydrated; neither history nor vector payload supplies facts.
+    storage.upsert_catalogue_app(storage.create_ingestion_run("metadata-change"), changed.model_copy(update={"readme": "x" * 16001}))
+    assert "evidence is too_large" in conversation("Show README for it")["message"]
+    storage.upsert_catalogue_app(storage.create_ingestion_run("metadata-withdrawal"), changed.model_copy(update={"visible": False}))
+    assert conversation("Show README for it")["apps"] == []
