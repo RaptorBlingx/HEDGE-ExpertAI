@@ -135,6 +135,10 @@ def test_coherent_store_evidence_controls_gateway_cards_and_impressions(
     ('Provides earthquake warnings. Sends them via SMS. Another App is required for the feature.', False),
     ('Earthquake warnings and water readings are available. Sends water readings via SMS.', False),
     ('Provides earthquake warnings. Sends them via SMS. MQTT delivery is disabled.', True),
+    ('Provides earthquake warnings. Sends them via SMS. Earthquake warnings are only available via MQTT.', False),
+    ('Provides earthquake warnings. Sends them via SMS. Earthquake warnings are only available in simulation via SMS.', False),
+    ('Provides earthquake warnings. Sends them via SMS. Earthquake warnings do not require another App, but SMS delivery requires another App.', False),
+    ('Provides earthquake warnings. Sends them via SMS. Earthquake warnings are only available via SMS.', True),
 ])
 def test_model_failure_cannot_promote_unavailable_claims_or_destroy_coherent_support(
     chain, monkeypatch, stream, failure, description, supported,

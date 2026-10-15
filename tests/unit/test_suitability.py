@@ -273,3 +273,16 @@ def test_synthetic_catalogue_provenance_is_neither_support_nor_a_blanket_veto():
 def test_scoped_restrictions_and_dependencies_preserve_their_arguments(description, supported):
     query = 'earthquake warnings SMS' if 'SMS' in description else 'earthquake warnings'
     assert (policy.assess(query, {'description': description}, 'en')['status'] == 'source_supported') is supported
+
+
+def test_qualification_trace_preserves_complete_original_source_spans():
+    exclusive = 'Earthquake warnings are only available via MQTT.'
+    compound = 'Earthquake warnings do not require another App, but SMS delivery requires another App.'
+    text = f'Provides earthquake warnings. {exclusive} {compound}'
+    claims = policy._claims('readme', text, policy._terms('earthquake warnings SMS'), [], False, [])
+    assert {c.span for c in claims} == {'Provides earthquake warnings.', exclusive, compound}
+    assert all(c.path == 'readme' and c.span in text for c in claims)
+    limitation = next(c for c in claims if c.span == exclusive)
+    assert limitation.kind == 'exclusive' and limitation.scope == 'feature'
+    incomplete = next(c for c in claims if c.span == compound)
+    assert not incomplete.complete and incomplete.status == 'unresolved'

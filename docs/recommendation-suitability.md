@@ -46,6 +46,16 @@ recommendation observations before this correction; all 62 now match expected
 decisions. The new permanent Gateway cases initially reproduced 26 failures in
 60 observations, including positive controls, before changing admission code.
 
+The final review of `ec6503f` exposed two remaining structural gaps: an exclusive
+MQTT restriction was treated like a prohibition of MQTT, and a negated prerequisite
+discarded a later SMS prerequisite in the same sentence. A feature-wide simulation
+restriction also vanished when its predicate mentioned a channel. Before this
+bounded correction, the retained Gateway probe reproduced 14 unsupported decisions
+in 48 observations; the disposable Store run reproduced all three source failures
+(3 failed, 144 passed). The initial added Gateway regressions reproduced 30 failing
+assertions before changing production code. After correction the 48 observations
+all match their expected decisions, including failed-generation fallback.
+
 ## Decision boundary
 
 Retrieval and fusion are unchanged. The recommender assesses retrieved records
@@ -61,7 +71,9 @@ before creating recommendation cards, impressions or served narrative:
 | Retrieval error/timeout/malformed result envelope | Preserve SCRUM-28 503/504 errors or terminal stream problem events; do not claim no match. |
 
 Each bounded source assertion now retains a feature owner, its explicitly attached
-attributes, affirmed/qualified/unresolved status and original field path. There
+attributes, qualification kind/scope, interpretation completeness, original field
+path and complete original sentence/segment. Status derives from that interpretation;
+source spans remain internal and the public result schema is unchanged. There
 are no groups that union distinct feature terms. Coordinated subjects and objects
 produce separate owned assertions through the same resolver. An unbound reference
 or unresolved App-wide statement cannot supply capability evidence. Recognized
@@ -97,6 +109,50 @@ capability is ignored as evidence for this App. Explicit absence of a prerequisi
 supplies no capability evidence and does not negate an otherwise supported
 capability. These are bounded grammatical relationships, with no additional model
 call, NLP framework, similarity threshold or dependency/ranking redesign.
+
+### Qualification and completeness contract
+
+Qualification kind is separate from grammatical scope. Feature availability and
+environment/conditional restrictions retain feature-wide force despite incidental
+transport text. An explicitly channel-qualified subject binds its restriction to
+that feature/channel. Direct negative delivery assertions can also prohibit a
+channel. Unknown or inconsistent attributes cannot narrow uncertainty and thereby
+erase a restriction. Nothing attempts to prove that an installation prerequisite
+or environment condition has been satisfied.
+
+An exclusive channel assertion supplies an allowed-channel set, not a prohibition
+of that set. Independently affirmed delivery can be corroborated when the requested
+channel is allowed and no affirmed channel conflicts. Without an explicit requested
+channel, the exclusive limitation remains uncertain. A qualified assertion alone
+does not manufacture affirmative evidence.
+
+| Source added to independently supported warning/SMS evidence | Request | Decision |
+|---|---|---|
+| Warnings only available via MQTT | Warning/SMS | Uncertain: exclusivity conflicts |
+| Warnings only available via SMS | Warning/SMS | Supported: matching channel corroborated |
+| Warnings via MQTT disabled | Warning/SMS | Supported: different channel |
+| Warnings only available in simulation via SMS | Warnings, or warning/SMS | Uncertain: feature environment restriction |
+| Warnings via MQTT available only in simulation | Warning/SMS | Supported: explicitly different channel |
+| Another App required for SMS delivery | Warning/SMS | Uncertain: requested-channel prerequisite |
+| `Earthquake warnings do not require another App, but SMS delivery requires another App.` | Warning/SMS | Uncertain: compound is not silently discarded |
+| `Earthquake warnings do not require another App.` | Warning/SMS | Preserve independent positive support |
+| Water readings via SMS disabled | Warning/SMS | Supported: different feature |
+
+Only bounded atomic assertions, understood nominal lists and the existing simple
+action coordination are interpreted. Unhandled contrast, parenthetical/comma
+compounds, nested transports or unconsumed dependency arguments become explicit
+incomplete evidence with unresolved scope. They cannot support a recommendation
+or be discarded as an absent prerequisite/foreign actor. Sentence, semicolon and
+paragraph boundaries remain supported; references do not cross fields/paragraphs.
+The existing matching subject/predicate transport form remains valid.
+
+Complete active/passive prerequisite interpretation is deliberately limited to the
+existing external-actor forms (`another App`, `other Apps`, `an external service`)
+and a simple target. Other argument structures retain uncertainty, including
+negated ones. This bounds interpretation rather than expanding a noun vocabulary
+or attempting general compound parsing. Ordinary substantive colon-labelled states
+retain their source and owner; a colon cannot hide a tail in a discarded argument.
+Unknown source language, paraphrase and unresolved relationship limitations remain.
 
 Request scaffolding and simple inflections are normalized for matching; original
 source text is unchanged. There is no similarity threshold, required metadata
@@ -159,7 +215,7 @@ uses structured selection rather than those free-form templates.
 
 ## Regression and verification evidence
 
-- 939 unit tests pass with 93.58% shared-package branch coverage (80% gate).
+- 1,058 unit tests pass with 93.58% shared-package branch coverage (80% gate).
   Source admission tests cover sparse positives, negation, simulation restrictions,
   unrelated limitations, README/embedded provenance, malformed optional fields,
   unsupported provider/price/ontology evidence, and constrained queries.
@@ -177,13 +233,17 @@ uses structured selection rather than those free-form templates.
   Exclusions such as `without SMS`, material real-time requirements and unknown
   implementation context cannot disappear from the admission decision.
 - The shared authored `tests/fixtures/store-v1/suitability-ownership.json` corpus
-  adds 33 cases through both Gateway paths and real Store persistence/retrieval.
+  contains 72 cases (24 positive / 48 uncertain) through both Gateway paths and
+  real Store persistence/retrieval, including 39 additional qualification and
+  completeness cases. The retained sparse and coherent multi-sentence positives
+  still pass; source-span tracing also protects full qualification provenance.
   It covers partial/cross-field/embedded restrictions, dependency polarity and
   scope, wrong-feature channel transfer, active/state declaration variants,
-  ambiguity and sparse/coherent positives. Three new unsafe-admission scenarios
-  and an unrelated-restriction positive also exercise every existing selection/
+  ambiguity and sparse/coherent positives. The exclusive-channel, environment and
+  compound-prerequisite failures and a matching-channel positive additionally
+  exercise every existing selection/
   abstention/timeout/transport/malformed-output branch through both Gateway paths.
-- 131 committed focused integration tests pass with disposable PostgreSQL 16.9, Qdrant 1.18.2
+- 170 committed focused integration tests pass with disposable PostgreSQL 16.9, Qdrant 1.18.2
   and Valkey 8.1.3 on a unique internal network, no host ports and ephemeral storage.
   Invented Store records traverse the real normalizer, storage, indexing, lexical/
   vector search and recommender. An unrelated dense Water Meter neighbour remains
@@ -193,17 +253,17 @@ uses structured selection rather than those free-form templates.
   Thirteen added review cases prove the record was retrieved before admission,
   preserve the original description/README, native identity, checksum and revision,
   compare stream/non-stream output, and withdraw it while its vector is stale.
-  The 33 ownership cases additionally preserve raw optional fields/checksums and
-  test withdrawal with a stale vector. Ten retained independent-review assertions
-  also pass in that infrastructure, for 141 integration checks in the corrective
-  verification run; the 131 permanent tests include all 98 prior cases.
+  All 72 ownership/qualification cases additionally preserve raw optional fields/
+  checksums and test withdrawal with a stale vector. All 16 retained independent-
+  review assertions pass in that infrastructure, for 186 integration checks in
+  the corrective verification run. The permanent tests include all prior cases.
 - The SCRUM-38 1,254-/16,001-character README regressions retain complete omission/
   extraction-status handling and streaming parity. Legacy standalone explanation
   remains usable without inventing a missing App identity.
 - Ruff and 25 frontend tests pass; all six OpenAPI exports match tracked files.
   The original branch's TypeScript/Vite build and widget syntax checks passed
   using pinned Node 20.19.4; this correction changes no frontend code or public
-  schema. Frontend tests were rerun on that same pinned Node version.
+  schema. Frontend tests and OpenAPI comparisons were rerun for this correction.
 - `npm audit --audit-level=high` fails with 8 high and 4 moderate advisories in
   the unchanged baseline dependency lockfile. Dependency remediation is separate
   from this issue; the branch cannot be represented as fully green CI.

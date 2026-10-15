@@ -1,6 +1,6 @@
 """Bounded source-claim assessment; retrieval rank never establishes suitability.
 
-Each assertion retains its feature owner, attributes, polarity and source path.
+Each assertion retains its feature owner, attributes, qualification and source span.
 Only the same feature or an unambiguous local reference can compose evidence.
 Uninterpreted context stays uncertain. This is not a general semantic entailment
 engine, translator or real-corpus quality metric.
@@ -9,8 +9,9 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 # Only request scaffolding, not source limitations or functional requirements.
 _REQUEST_WORDS = set((
@@ -69,6 +70,17 @@ _OBJECT_ACTIONS = set("provide provides support supports send sends deliver deli
 # An informational annotation authored in the pinned synthetic catalogue. Unknown
 # implementation context must still be interpreted, rather than discarded.
 _SYNTHETIC_CONTEXT = ' using auditable edge processing, bounded data retention, configurable thresholds, and operator-reviewed actions'
+_FOREIGN = r'(?:another app|other apps?|an external service)'
+# Atomic assertions and coordinated feature names are supported. Other compound
+# syntax must survive as uncertainty rather than disappear into a regex argument.
+_COMPOUND = re.compile(r'[,(\[\])]|\b(?:but|however)\b')
+_COORDINATION = re.compile(r'\b(?:and|e|und)\b')
+_ENVIRONMENT = re.compile(r'\b(?:simulation|simulated|prototype|production)\b')
+_EXCLUSIVE = re.compile(r'\b(?:only|apenas|somente|nur)\b')
+_PROHIBITION = re.compile(r'\b(?:disabled|unsupported|unavailable|unimplemented|lacks|desativad\w*|indisponivel|deaktiviert|nichtverfugbar)\b')
+_Kind = Literal['affirmation', 'prohibition', 'exclusive', 'environment',
+                'condition', 'prerequisite', 'no_prerequisite', 'unresolved']
+_Scope = Literal['feature', 'channel', 'unresolved']
 
 
 def _fold(text: str) -> str:
@@ -94,10 +106,54 @@ _FEATURE_HEADS = _terms('readings observations monitoring forecasting prediction
 @dataclass(frozen=True)
 class _Claim:
     path: str
+    span: str  # Complete original source sentence/segment, before normalization.
     # None means App-wide or unresolved scope, never positive capability evidence.
     feature: frozenset[str] | None
     attributes: frozenset[str]
-    status: str  # affirmed, qualified, unresolved
+    kind: _Kind
+    scope: _Scope
+    complete: bool = True
+
+    @property
+    def status(self) -> str:
+        if not self.complete or self.kind == 'unresolved':
+            return 'unresolved'
+        return 'affirmed' if self.kind == 'affirmation' else 'qualified'
+
+
+def _source_clauses(text: str) -> Iterator[tuple[str, str]]:
+    """Keep original spans even when a supported action coordination is split."""
+    for span in re.split(r'(?<=[.!?])\s+|[;\n]', text):
+        for clause in re.split(rf'\s+(?:but|however|and|e|und)\s+(?=(?:does\s+not\s+|nao\s+)?(?:{_ACTIONS})\b)', _fold(span)):
+            yield span, clause
+
+
+def _qualification(clause: str, status: str, attributes: frozenset[str], *, channel_subject: bool,
+                   delivery_predicate: bool) -> tuple[_Kind, _Scope]:
+    """Kind and grammatical target are independent of incidental transport text."""
+    scope: _Scope = 'channel' if channel_subject else 'feature'
+    if status == 'unresolved':
+        return 'unresolved', 'feature'  # lost/ambiguous attributes cannot narrow uncertainty
+    if status == 'affirmed':
+        return 'affirmation', scope
+    negative = bool(_NEGATION.search(clause) or _PROHIBITION.search(clause))
+    operators = [m[0] for m in _QUALIFIED.finditer(clause) if not _PROHIBITION.fullmatch(m[0])]
+    if _ENVIRONMENT.search(clause):
+        return 'environment', scope
+    if _EXCLUSIVE.search(clause):
+        # Exclusivity has feature-wide force. Mixed negation or additional
+        # conditions cannot establish an unconditional allowed-channel set.
+        if negative or any(not _EXCLUSIVE.fullmatch(op) for op in operators) or not attributes or channel_subject:
+            return 'condition', scope
+        return 'exclusive', 'feature'
+    if operators:
+        return 'condition', scope
+    if negative:
+        # A direct negative delivery assertion prohibits that channel; a
+        # feature availability state does not acquire channel-local scope just
+        # because its predicate also mentions a transport.
+        return 'prohibition', 'channel' if attributes and delivery_predicate else scope
+    return 'condition', scope
 
 
 def _scope_text(text: str) -> str:
@@ -153,8 +209,7 @@ def _claims(path: str, text: str, query_terms: set[str], names: list[str], synth
     labels = _terms(' '.join(_LABEL_WORDS))
     for paragraph in re.split(r"\n\s*\n", text):
         previous = []
-        clauses = re.split(rf"(?<=[.!?])\s+|[;\n]|\s+(?:but|however|and|e|und)\s+(?=(?:does\s+not\s+|nao\s+)?(?:{_ACTIONS})\b)", _fold(paragraph))
-        for clause in clauses:
+        for span, clause in _source_clauses(paragraph):
             clause = re.sub(r"^(?:telemetry|features|capabilities|functionality|functionalidade|funktionen)\s+(?=(?:supports?|provides?|envia|unterstutzt)\b)", "", clause)
             clause = clause.strip().rstrip('.!')
             if not clause or _IGNORED_NOTE.fullmatch(clause):
@@ -180,25 +235,54 @@ def _claims(path: str, text: str, query_terms: set[str], names: list[str], synth
             state = _STATE.fullmatch(clause)
             purpose = next((value for value in declarations if assertion_text == value or
                             (synthetic and assertion_text == value + _SYNTHETIC_CONTEXT)), None) if assertion_text != clause else None
-            dependency = re.fullmatch(r"(?P<target>.+?)\s+(?:(?P<negated>(?:does|do) not|doesn't|don't)\s+)?(?:requires?|depends? on)\s+.+", clause)
+            dependency = re.fullmatch(r"(?P<target>.+?)\s+(?:(?P<negated>(?:does|do) not|doesn't|don't)\s+)?(?:requires?|depends? on)\s+(?P<argument>.+)", clause)
             prerequisite = re.fullmatch(r'(?P<negated>not\s+)?(?:required|needed|necessary)(?:\s+for\s+(?P<target>.+))?', state['state']) if state else None
+            # A full regex match is not proof that its arbitrary argument was
+            # interpreted. Only the existing simple external-actor arguments
+            # have a complete dependency interpretation; other arguments or
+            # compound tails remain uncertainty, including negated prerequisites.
+            complete = not _COMPOUND.search(clause) or bool(purpose)
+            if not (action or state or dependency or prerequisite) and not _NEGATION.search(clause) and not _QUALIFIED.search(clause):
+                # Commas can coordinate fully understood functional labels, but
+                # cannot conceal another predicate inside an ignored argument.
+                complete = complete or (not _COMPOUND.search(clause.replace(',', '')) and
+                                        _terms(clause) <= query_terms | named | labels)
+            if dependency:
+                complete = complete and bool(re.fullmatch(_FOREIGN, dependency['argument']))
+            elif prerequisite:
+                target = prerequisite['target'] or ''
+                complete = complete and bool(re.fullmatch(_FOREIGN, state['feature'])) and not (
+                    _COORDINATION.search(target) or _QUALIFIED.search(target) or _NEGATION.search(target) or ':' in target
+                )
+            if action and len(_CHANNEL.split(action['body'])) > 2:
+                complete = False
+            if state and (len(_CHANNEL.split(state['feature'])) > 2 or len(_CHANNEL.split(state['state'])) > 2):
+                complete = False
+            if not complete:
+                previous = [_Claim(path, span, None, frozenset(), 'unresolved', 'unresolved', False)]
+                claims.extend(previous)
+                continue
             attributes = frozenset()
+            channel_subject = False
+            delivery_predicate = False
+            dependency_kind: _Kind | None = None
             if dependency or prerequisite:
                 # The dependency is an argument, not the feature's actor. A
                 # missing/ambiguous target qualifies the App rather than vanishing.
-                if (prerequisite and prerequisite['negated']) or (dependency and dependency['negated']):
-                    previous = []
-                    continue  # explicit absence of a prerequisite supplies no capability
+                absent = (prerequisite and prerequisite['negated']) or (dependency and dependency['negated'])
                 target = dependency['target'] if dependency else prerequisite['target']
                 owner_text, attributes = _transport(target) if target else ('', frozenset())
                 owners = _owners(owner_text, previous) if owner_text else [None]
                 if owner_text and not re.fullmatch(_REFERENCE, owner_text) and not _terms(owner_text) & (query_terms | named | labels):
                     owners = [None]
                 status = 'qualified'
+                dependency_kind = 'no_prerequisite' if absent else 'prerequisite'
+                channel_subject = bool(attributes)
             elif purpose:
                 owners = _owners(purpose, previous)
             elif action:
                 verb, body = action['verb'], _NEGATION.sub('', action['body']).strip()
+                delivery_predicate = True
                 if verb in {'warn', 'warns'} and body.startswith('about '):
                     body = body[len('about '):]
                 owner_text, attributes = _transport(body)
@@ -216,18 +300,24 @@ def _claims(path: str, text: str, query_terms: set[str], names: list[str], synth
             elif state:
                 owner_text, subject_attributes = _transport(state['feature'].strip())
                 descriptor, predicate_attributes = _transport(state['state'])
+                delivery_predicate = bool(re.fullmatch(r'(?:delivered|sent)', _NEGATION.sub('', descriptor).strip()))
                 owners = _owners(owner_text, previous, subject=True)
                 attributes = subject_attributes | predicate_attributes
+                channel_subject = bool(subject_attributes)
                 if subject_attributes and predicate_attributes and subject_attributes != predicate_attributes:
                     status, attributes = 'unresolved', frozenset()
                 assertion = _AFFIRMED_STATE.match(_NEGATION.sub('', descriptor).strip())
                 if status == 'affirmed' and (not assertion or _terms(_NEGATION.sub('', descriptor).strip()[assertion.end():]) - (query_terms | named | labels)):
                     status, attributes = 'unresolved', frozenset()
             else:
-                foreign = re.match(r'^(?:another app|other apps?|an external service)\s+', clause)
+                foreign = re.match(rf'^{_FOREIGN}\s+', clause)
                 if foreign and _ACTION.fullmatch(clause[foreign.end():]):
-                    previous = []
-                    continue  # an actual assertion about the other actor, not a dependency
+                    if not _COORDINATION.search(clause) and ':' not in clause:
+                        previous = []
+                        continue  # complete other-actor assertion, not a dependency
+                    previous = [_Claim(path, span, None, frozenset(), 'unresolved', 'unresolved', False)]
+                    claims.extend(previous)
+                    continue
                 owner_text, attributes = _transport(clause)
                 owners = _owners(owner_text, previous)
                 if status != 'affirmed' and re.match(rf'^(?:{_REFERENCE})\b', clause):
@@ -250,22 +340,39 @@ def _claims(path: str, text: str, query_terms: set[str], names: list[str], synth
                 owners = [owner if owner and owner & (query_terms | named | labels) else None for owner in owners]
             if None in owners and status == 'affirmed' and not state:
                 status = 'unresolved'
-            previous = [_Claim(path, owner, attributes, status) for owner in owners]
+            kind, scope = _qualification(clause, status, attributes, channel_subject=channel_subject,
+                                         delivery_predicate=delivery_predicate)
+            if dependency_kind and status != 'unresolved':
+                kind = dependency_kind
+                scope = 'channel' if attributes else 'feature'
+            previous = [_Claim(path, span, owner, attributes, kind, scope) for owner in owners]
             claims.extend(previous)
+            if kind == 'no_prerequisite':
+                previous = []  # absence supplies no capability or new antecedent
     return claims
 
 
-def _applies(restriction: _Claim, feature: frozenset[str], required_attributes: set[str]) -> bool:
+def _applies(restriction: _Claim, feature: frozenset[str], required_attributes: set[str],
+             affirmed_attributes: set[str]) -> bool:
     """Partial overlap is uncertainty, never a reason to drop a restriction.
 
     An explicit owner+channel restriction stays on that feature and channel. A
     channel-wide restriction (e.g. "SMS delivery") also qualifies required SMS
     attributes. Unresolved scope cannot establish an unrelated exception.
     """
-    if restriction.feature is None:
+    if restriction.kind == 'no_prerequisite' and restriction.complete:
+        return False
+    if not restriction.complete or restriction.scope == 'unresolved' or restriction.feature is None:
         return True
     same_feature = bool(restriction.feature & feature)
-    if restriction.attributes:
+    if restriction.kind == 'exclusive':
+        # A compatible explicitly requested channel can be corroborated. With
+        # no requested channel, keep the limitation rather than certify an
+        # unconditional feature or silently reconcile conflicting channel sets.
+        return same_feature and (not required_attributes or bool(
+            (required_attributes | affirmed_attributes) - restriction.attributes
+        ))
+    if restriction.scope == 'channel':
         return same_feature and bool(restriction.attributes & required_attributes)
     return same_feature or bool(restriction.feature & required_attributes)
 
@@ -350,7 +457,7 @@ def assess(query: str, app: dict[str, Any], locale: str) -> dict[str, Any]:
             if not requirement <= feature | attributes:
                 continue
             relevant = [c for c in claims if c.status != 'affirmed' and
-                        _applies(c, feature, requirement - feature)]
+                        _applies(c, feature, requirement - feature, attributes)]
             if relevant:
                 return {"status": "uncertain", "reason": "qualified_or_unresolved_source",
                         "evidence_fields": list(dict.fromkeys(c.path for c in [*evidence, *relevant]))}
