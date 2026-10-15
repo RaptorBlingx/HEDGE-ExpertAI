@@ -443,3 +443,47 @@ def test_disposable_store_pipeline_separates_dense_neighbours_from_source_suppor
     assert withdrawn["apps"] == []
     assert warning.id not in {r["app"]["id"] for r in withdrawn["candidates"]}
     assert payload(offline, warning)["_index_revision"] == 1
+
+
+@pytest.mark.parametrize(('description', 'readme', 'query', 'locale', 'supported'), [
+    ('Earthquake warnings are planned for a future release.', None, 'earthquake warnings', 'en', False),
+    ('Earthquake warnings. They are not supported by this App.', None, 'earthquake warnings', 'en', False),
+    ('Provides earthquake warnings.', 'This feature is disabled. It cannot be used.', 'earthquake warnings', 'en', False),
+    ('Provides earthquake warnings if sensors are installed.', None, 'earthquake warnings', 'en', False),
+    ('Provides earthquake warnings. Sends them via SMS.', None, 'earthquake warnings SMS', 'en', True),
+    ('Provides earthquake warnings and water readings. Sends them via SMS.', None, 'earthquake warnings SMS', 'en', False),
+    ('Provides earthquake warnings. Another App sends them via SMS.', None, 'earthquake warnings SMS', 'en', False),
+    ('Provides earthquake warnings.', 'Delivers earthquake warnings via SMS.', 'earthquake warnings SMS', 'en', True),
+    ('Provides earthquake warnings.', 'MQTT is unavailable.', 'earthquake warnings', 'en', True),
+    ('Não envia alertas de terremoto.', None, 'alertas de terremoto', 'pt', False),
+    ('Envia alertas de terremoto.', None, 'Preciso de apps para alertas de terremoto', 'pt', True),
+    ('Unterstützt MQTT nicht.', None, 'MQTT', 'de', False),
+    ('Unterstützt MQTT.', None, 'Ich brauche eine App für MQTT', 'de', True),
+])
+def test_coherent_claims_survive_real_store_boundaries(offline, description, readme, query, locale, supported):
+    app = client_module.normalize_store_v1_app({
+        'appId': 'Claim-Review-App', 'fkAppStoreId': STORE, 'name': 'Review App',
+        'description': description, 'readme': readme, 'active': True, 'visible': True,
+    })
+    save(app)
+    assert apply(offline, operation(app)) == 1
+    stored = storage.get_catalogue_apps([app.id], store_id=STORE)[app.id]
+    assert stored['revision'] == 1
+    assert stored['payload']['description'] == description and stored['payload']['readme'] == readme
+    assert StoreAppMetadata.model_validate(stored['payload']).checksum == app.checksum
+    result = recommender.recommend_v2(query=query, locale=locale, filters={}, limit=10)
+    # Prove absence from apps is a decision, rather than a retrieval failure.
+    row = next(r for r in [*result['apps'], *result['candidates']] if r['app']['id'] == app.id)
+    assert (row in result['apps']) is supported
+    assert row['app']['store_id'] == STORE and row['app']['app_id'] == app.app_id
+    assert row['app']['source_evidence']['description'] == description
+    assert row['suitability']['status'] == ('source_supported' if supported else 'uncertain')
+    events = list(recommender.recommend_v2_stream(query=query, locale=locale, filters={}, limit=10))
+    assert events[0]['apps'] == result['apps'] and events[0]['candidates'] == result['candidates']
+    assert events[0]['decision'] == result['decision']
+    assert ''.join(e['content'] for e in events if e['type'] == 'explanation_delta') == result['message']
+    # A stale vector cannot keep an App in either output collection after withdrawal.
+    save(app.model_copy(update={'visible': False}))
+    withdrawn = recommender.recommend_v2(query=query, locale=locale, filters={}, limit=10)
+    assert app.id not in {r['app']['id'] for r in [*withdrawn['apps'], *withdrawn['candidates']]}
+    assert payload(offline, app)['_index_revision'] == 1
