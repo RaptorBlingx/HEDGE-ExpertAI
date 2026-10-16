@@ -890,7 +890,7 @@
           var evidence = app.source_evidence || {};
           var sourceRows = Object.keys(evidence).map(function (path) {
             var value = String(evidence[path]);
-            var quoted = value.length <= 1200 ? value : "Complete quotation omitted (exceeds 1,200 characters).";
+            var quoted = value; // Bounded normalized evidence, escaped below; never cut qualifications.
             return '<dt>' + escapeHtml(path) + '</dt><dd>' + escapeHtml(quoted) + '</dd>';
           }).join("");
           sourceDetails = '<details class="he-card-evidence"><summary>Source evidence</summary>' +
@@ -936,6 +936,21 @@
               self._sendRecommendationEvent(impressionId, "app_opened", appId);
             });
           })(app.id);
+        }
+        if (isStore) {
+          var explain = document.createElement("button");
+          explain.type = "button";
+          explain.className = "he-card-explain";
+          explain.textContent = "Explain this App";
+          var owner = this;
+          (function (nativeId) {
+            explain.addEventListener("click", function () {
+              if (owner.isStreaming) return;
+              owner.textarea.value = "Tell me about " + nativeId;
+              owner._send();
+            });
+          })(app.app_id);
+          card.appendChild(explain);
         }
         container.appendChild(card);
       }

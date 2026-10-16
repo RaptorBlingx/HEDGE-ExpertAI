@@ -48,7 +48,7 @@ def create_app(playground):
                 "snapshot_complete": False,
                 "embeddings": "real pinned E5" if os.getenv("STORE_PLAYGROUND_E5") == "true" else "unavailable; lexical fallback",
                 "intent": "real Rasa with confidence/health regex fallback" if os.getenv("RASA_ENABLED") == "true" else "regex fallback; Rasa unavailable",
-                "generation": "Ollama enabled; validated excerpts or deterministic fallback per turn" if os.getenv("STORE_PLAYGROUND_OLLAMA") == "true" else "Deterministic source quotations; Ollama not used",
+                "generation": "Ollama enabled; validated evidence selection or readable fallback per turn" if os.getenv("STORE_PLAYGROUND_OLLAMA") == "true" else "Deterministic source quotations; Ollama not used",
                 "synchronization": sync_state,
                 "managed_workspace": hasattr(playground, "refresh"),
                 "simulation_controls": callable(getattr(playground, "simulate", None)),
@@ -84,7 +84,7 @@ def create_app(playground):
         if not hasattr(playground, "catalogue"):
             raise HTTPException(status_code=404, detail="Managed catalogue unavailable")
         async with turn_lock:
-            records = playground.catalogue(None)
+            records = sorted(playground.catalogue(None), key=lambda a: a["app_id"])
             page = records[offset:offset + limit]
             return {"total": len(records), "offset": offset,
                     "next_offset": offset + limit if offset + limit < len(records) else None,

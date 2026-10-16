@@ -121,3 +121,66 @@ def test_metadata_answers_use_current_persisted_evidence_and_keep_withdrawal(con
     assert "evidence is too_large" in conversation("Show README for it")["message"]
     storage.upsert_catalogue_app(storage.create_ingestion_run("metadata-withdrawal"), changed.model_copy(update={"visible": False}))
     assert conversation("Show README for it")["apps"] == []
+
+
+def test_private_contextual_http_sse_fallback_and_withdrawal(offline, monkeypatch):
+    """Real persistence/search/sessions behind the same private browser adapter."""
+    import json
+    from types import SimpleNamespace
+
+    from fastapi.testclient import TestClient
+
+    from scripts.store_v1_browser import create_app
+    from scripts.store_v1_playground import Playground
+
+    answers = __import__(recommender.__package__ + ".store_answers", fromlist=["respond"])
+    identities = [client_module.normalize_store_v1_app(r).id for r in RAW if r["fkAppStoreId"] == STORE]
+
+    def resolve(ids):
+        ids = identities if ids is None else ids
+        rows = storage.get_catalogue_apps(ids, store_id=STORE)
+        return [StoreAppMetadata.model_validate(rows[i]["payload"]).recommendation_projection() for i in ids if i in rows]
+
+    async def search(**kwargs):
+        return recommender.recommend_v2(**kwargs, limit=5)
+
+    def failed_model():
+        raise TimeoutError("private model output")
+
+    monkeypatch.setattr(answers, "OllamaClient", failed_model)
+    # Reproduce the deployed Rasa misclassification without allowing it to own
+    # application dialogue or prevent explicit entity/reference resolution.
+    monkeypatch.setattr(chat, "classify", lambda msg: SimpleNamespace(intent="help", source="rasa", confidence=1.0))
+    policy = policy_module.StoreDialogue(search, resolve, answers.render, answers.respond, catalogue_references=True)
+    playground = Playground(chat, recommender, __import__("hedge_shared.models_v2", fromlist=["ChatRequestV2"]), [], policy)
+    sessions = set()
+    try:
+        with TestClient(create_app(playground), base_url="http://127.0.0.1:8098") as browser:
+            normal = browser.post("/api/v2/chat", json={"message": "Tell me about the first app"}).json()
+            session = normal["session_id"]
+            sessions.add(session)
+            assert len(normal["apps"]) == 1 and normal["impression_id"]
+            assert normal["generation"]["reason"] == "no_source_fields"  # first fixture is deliberately empty
+            assert "private model output" not in normal["message"]
+            same = browser.post("/api/v2/chat/stream", json={"message": "Tell me about the first app", "session_id": session})
+            events = [json.loads(line[6:]) for line in same.text.splitlines() if line.startswith("data: ")]
+            assert next(e["apps"] for e in events if e["type"] == "recommendations") == normal["apps"]
+            assert next(e["content"] for e in events if e["type"] == "explanation_delta") == normal["message"].replace("References use the observed catalogue order shown on this page.\n", "")
+            compared = browser.post("/api/v2/chat", json={"message": "Compare the first two apps", "session_id": session}).json()
+            assert len(compared["apps"]) == 2
+            assert "no superiority or suitability" in compared["message"]
+            app = next(a for a in resolve(None) if a.get("name") and a.get("description"))
+            named = browser.post("/api/v2/chat", json={"message": "Tell me about " + app["name"]}).json()
+            sessions.add(named["session_id"])
+            assert named["generation"]["reason"] == "model_unavailable_or_timeout"
+            assert named["apps"][0]["app"]["id"] == app["id"]
+            follow = browser.post("/api/v2/chat", json={"message": "Describe it", "session_id": named["session_id"]}).json()
+            assert follow["apps"] == named["apps"]
+            rows = storage.get_catalogue_apps([app["id"]], store_id=STORE)
+            current = StoreAppMetadata.model_validate(rows[app["id"]]["payload"])
+            storage.upsert_catalogue_app(storage.create_ingestion_run("context-withdraw"), current.model_copy(update={"visible": False}))
+            withdrawn = browser.post("/api/v2/chat", json={"message": "Describe it", "session_id": named["session_id"]}).json()
+            assert withdrawn["apps"] == [] and withdrawn["impression_id"] is None
+    finally:
+        for session in sessions:
+            chat.delete_session(session)

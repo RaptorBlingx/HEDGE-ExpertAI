@@ -14,7 +14,7 @@ check_owner() {
 }
 case "$command" in
   stop)
-    for role in runner sessions vectors database; do
+    for role in runner rasa sessions vectors database; do
       if docker container inspect "$prefix-$role" >/dev/null 2>&1; then
         check_owner "$prefix-$role"; docker stop "$prefix-$role" >/dev/null
       fi
@@ -41,6 +41,11 @@ fi
 if [[ -e "$credential_dir/token" ]] && [[ ! -f "$credential_dir/token" || ! -O "$credential_dir/token" || $(stat -c %a "$credential_dir/token") != 600 ]]; then
   echo 'Workspace token must be an owned mode-0600 file' >&2; exit 1
 fi
+# Existing pinned CPU runtime/model cache only. No model downloads or public port.
+ollama_dir=/home/ubuntu/.cache/hedge-store-ollama
+[[ -x "$ollama_dir/0.32.0/bin/ollama" && -d "$ollama_dir/models" ]] || {
+  echo 'Pinned local Ollama cache missing; private Chat requires the existing cache' >&2; exit 1;
+}
 image=$(docker image inspect hedge-store-models:local --format '{{.Id}}')
 for net in private ui; do
   if ! docker network inspect "$prefix-$net" >/dev/null 2>&1; then
@@ -77,19 +82,30 @@ ensure sessions --network "$prefix-private" --network-alias sessions --memory 64
   --mount "type=volume,source=$prefix-sessions,target=/data" \
   valkey/valkey:8.1.3-alpine@sha256:d827e7f7552cdee40cc7482dbae9da020f42bc47669af6f71182a4ef76a22773 \
   valkey-server --appendonly yes
+# Private Rasa instance reuses the trained image, never the frozen demo service.
+rasa_image=$(docker image inspect hedge-rasa:latest --format '{{.Id}}')
+ensure rasa --network "$prefix-private" --network-alias rasa --memory 768m --cpus 1 \
+  --log-driver none --tmpfs /tmp:rw,size=128m \
+  -e RASA_TELEMETRY_ENABLED=false "$rasa_image"
 for ((attempt=0; attempt<30; attempt++)); do
   if docker exec "$prefix-database" pg_isready -U postgres -d hedge_store_workspace >/dev/null 2>&1; then break; fi
   sleep 1
 done
 ensure runner --network "$prefix-private" --network "$prefix-ui" -p 127.0.0.1:8098:8091 \
-  --user "$(id -u):$(id -g)" --memory 1280m --cpus 1 --read-only --tmpfs /tmp:rw,size=64m \
+  --user "$(id -u):$(id -g)" --memory 3072m --cpus 2 --read-only --tmpfs /tmp:rw,size=128m --tmpfs /.ollama:rw,size=16m,mode=1777 \
   --mount "type=bind,source=$repo,target=/repo,readonly" \
   --mount "type=bind,source=$credential_dir,target=/credentials,readonly" \
   --mount "type=bind,source=$private_dir,target=/bootstrap,readonly" \
+  --mount "type=bind,source=$ollama_dir/0.32.0,target=/opt/ollama,readonly" \
+  --mount "type=bind,source=$ollama_dir/models,target=/ollama-models,readonly" \
+  -e OLLAMA_HOST=127.0.0.1:11434 -e OLLAMA_BASE_URL=http://127.0.0.1:11434 \
+  -e OLLAMA_MODELS=/ollama-models -e OLLAMA_MODEL=qwen3.5:2b \
+  -e OLLAMA_NO_CLOUD=true -e OLLAMA_NUM_PARALLEL=1 -e OLLAMA_MAX_LOADED_MODELS=1 \
+  -e STORE_PLAYGROUND_OLLAMA=true -e STORE_OLLAMA_CACHED_ONLY=true \
   -e DATABASE_URL=postgresql://postgres@database/hedge_store_workspace \
-  -e VALKEY_SESSION_URL=redis://sessions:6379/0 -e RASA_ENABLED=false \
+  -e VALKEY_SESSION_URL=redis://sessions:6379/0 -e RASA_ENABLED=true -e RASA_URL=http://rasa:5005 \
   -e "HEDGE_STORE_ID=$store_id" \
   -e STORE_PLAYGROUND_E5=true -e EMBEDDING_MODEL=/opt/e5-model \
   -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 -e OMP_NUM_THREADS=1 -e TOKENIZERS_PARALLELISM=false \
-  "$image" -m uvicorn scripts.store_v1_workspace:app --host 0.0.0.0 --port 8091
+  "$image" -m scripts.store_v1_ollama -m uvicorn scripts.store_v1_workspace:app --host 0.0.0.0 --port 8091
 printf '%s\n' 'Private durable Store workspace: http://127.0.0.1:8098 (startup may take a moment)'

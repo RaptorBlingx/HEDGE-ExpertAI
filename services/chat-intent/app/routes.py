@@ -467,7 +467,7 @@ async def run_chat_v2(req: ChatRequestV2, *, store_dialogue: StoreDialogue | Non
     session_id, history = get_or_create_session(req.session_id)
     context = _context_for(session_id)
     result = classify(req.message)
-    intent = result.intent
+    intent = store_dialogue.route_intent(req.message, result.intent) if store_dialogue else result.intent
 
     if not req.session_id:
         log_session_event(session_id, "start", {"locale": req.locale})

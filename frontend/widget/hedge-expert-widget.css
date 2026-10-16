@@ -993,3 +993,7 @@
 .he-card-evidence p { margin: 8px 0; }
 .he-card-evidence dt { margin-top: 8px; font-weight: 600; overflow-wrap: anywhere; }
 .he-card-evidence dd { margin: 2px 0 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* Explicit Store inspection action; never a product endorsement or external link. */
+.he-card-explain { margin-top: 10px; padding: 6px 10px; border: 1px solid currentColor; border-radius: 6px; color: inherit; background: transparent; cursor: pointer; font: inherit; }
+.he-card-explain:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }

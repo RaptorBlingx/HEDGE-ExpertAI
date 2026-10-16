@@ -26,7 +26,7 @@ window.addEventListener("DOMContentLoaded", async function () {
         if (!response.ok) throw new Error("Catalogue unavailable");
         const page = await response.json();
         next = page.next_offset;
-        document.getElementById("catalogue-count").textContent = page.total + " locally available Apps · page " + (1 + offset / 25);
+        document.getElementById("catalogue-count").textContent = page.total + " locally available Apps · native ID order · page " + (1 + offset / 25);
         const target = document.getElementById("catalogue-apps");
         target.replaceChildren();
         page.apps.forEach(record => {
@@ -35,7 +35,7 @@ window.addEventListener("DOMContentLoaded", async function () {
           button.textContent = record.name || record.app_id;
           button.addEventListener("click", () => {
             window.storeEvaluation.open();
-            window.storeEvaluation.textarea.value = "Show README for " + record.app_id;
+            window.storeEvaluation.textarea.value = "Tell me about " + record.app_id;
             window.storeEvaluation.textarea.focus();
           });
           target.appendChild(button);
@@ -72,13 +72,13 @@ window.addEventListener("DOMContentLoaded", async function () {
       ? ["Show me EdgeConnect and Semantic Treehouse", "Find apps for sensor readings", "Find apps for semantic data models"]
       : [names.length ? "Show me " + names.join(" and ") : "Find apps", "Tell me about the first app", "Compare the first two apps"];
     window.storeEvaluation = new window.HedgeExpertWidget({
-      title: "ExpertAI · Store source explorer",
-      subtitle: status.source === "authored-fixtures" ? "Authored fixtures · source quotations only" : "Private snapshot · source quotations only",
+      title: "ExpertAI · App assistant",
+      subtitle: status.source === "authored-fixtures" ? "Authored fixtures · source quotations only" : "Private Store · grounded conversation",
       width: "min(560px, calc(100vw - 420px))",
       height: "min(650px, 75vh)",
       restoreHistory: true,
       suggestions: suggestions,
-      welcomeText: "Discover Apps in this snapshot, inspect their source evidence, and compare supplied fields. Product suitability and billing terms are not established.",
+      welcomeText: "Browse the observed catalogue, ask about an App by name, then use first, second or it to explore and compare. Open Source evidence for complete projected fields. I cannot verify suitability or undocumented terms.",
     });
     window.storeEvaluation.open();
     const prompts = metadataDemo ? [

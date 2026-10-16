@@ -86,7 +86,9 @@ Bootstrap is used only before the first retained observation. It never replaces 
 subsequent successful API observation, including a genuinely empty response.
 
 Use the catalogue panel to page through **all locally available observed Apps**;
-click an App to request its README by exact native ID. Chat can browse, retrieve by
+click an App to request its explanation by exact native ID. The
+[contextual Chat follow-up](store-contextual-chat.md) adds the private Rasa/Ollama
+path, concise descriptive answers and explicit source inspection. Chat can browse, retrieve by
 name/concept, show README/embedded/connector/billing/version source fields, and
 compare supplied fields with preserved native identity. Source cards are escaped
 plain text. Search/cards remain bounded to five results; catalogue pagination is
@@ -131,8 +133,10 @@ The workspace reuses actual normalization/reconciliation, PostgreSQL, E5/Qdrant,
 retrieval, recommendation, dialogue, Valkey and widget implementations. Browser
 HTTP/SSE and Store HTTPS are real. Internal service calls still use the established
 in-process evaluation bridges; this is not validation of the deployed production
-service mesh, gateway authentication or native HEDGE Angular pane. Generation is
-currently deterministic source quotation; no expert-LLM reasoning/KPI is claimed.
+service mesh, gateway authentication or native HEDGE Angular pane. At `3ee84f4`,
+generation was deterministic source quotation. The [contextual Chat follow-up](store-contextual-chat.md)
+enables private Rasa and validated Ollama evidence selection with readable fallback;
+no expert-reasoning or proposal KPI is claimed.
 
 ## Verification and remaining decisions
 

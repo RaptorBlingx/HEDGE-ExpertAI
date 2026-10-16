@@ -41,17 +41,42 @@ _SOURCE_READ = re.compile(
 _REFERENCE = re.compile(r"\b(it|that app|this app|both|them|these apps|those apps)\b", re.I)
 
 
+def _mentions(app: dict, message: str) -> bool:
+    return any(value and re.search(rf"(?<!\w){re.escape(value)}(?!\w)", message, flags)
+               for value, flags in ((app.get("name"), re.I), (app["app_id"], 0)))
+
+
 class StoreDialogue:
     """Use existing recommendation/quoting seams plus authoritative scoped resolution."""
 
     def __init__(self, recommend: Callable[..., Awaitable[dict]],
                  resolve: Callable[[list[str] | None], list[dict]],
                  describe: Callable[[str, list[dict], str], str],
-                 generate: Callable[..., dict] | None = None):
+                 generate: Callable[..., dict] | None = None, *, catalogue_references: bool = False):
         self.recommend = recommend
         self.resolve = resolve
         self.describe = describe
         self.generate = generate
+        self.catalogue_references = catalogue_references
+
+    def route_intent(self, message: str, intent: str) -> str:
+        """Explicit Store entities/references outrank statistical small-talk labels."""
+        if not self.catalogue_references or intent == "reset":
+            return intent
+        if re.match(r"^(?:please\s+)?compare\b", message, re.I):
+            return "compare"
+        if _BROWSE.fullmatch(message.strip()):
+            return "search"
+        if not _SOURCE_READ.fullmatch(message.strip()) and re.match(
+            r"^(?:please\s+)?(?:find|search|recommend|show me)\b", message, re.I
+        ):
+            return "search"
+        known = any(_mentions(app, message) for app in self.resolve(None))
+        reference = bool(re.search(r"\b(?:first|second|third|fourth|fifth) app\b", message, re.I) or
+                         _REFERENCE.search(message))
+        if known or reference or _SOURCE_READ.fullmatch(message.strip()):
+            return "compare" if re.search(r"\bcompare\b", message, re.I) else "detail"
+        return intent
 
     async def respond(self, req: ChatRequestV2, intent: str, context: dict) -> dict:
         response = await self._respond(req, intent, context)
@@ -66,7 +91,8 @@ class StoreDialogue:
                 response["generation"] = {"source": "deterministic", "reason": "catalogue_changed"}
             else:
                 response.update(message=rendered["message"], generation=rendered["generation"])
-                label = ("Validated Ollama source excerpts" if rendered["generation"]["source"] == "ollama"
+                label = (("Model-assisted source selection" if self.catalogue_references else "Validated Ollama source excerpts")
+                         if rendered["generation"]["source"] == "ollama"
                          else "Deterministic source fallback")
                 response["message"] = f"*{label}.*\n" + response["message"]
         return response
@@ -76,10 +102,12 @@ class StoreDialogue:
         message = req.message
         source_read = _SOURCE_READ.fullmatch(message.strip())
         source_target = source_read[2] if source_read else None
+        seeded = self.catalogue_references and not context.get("turn") and not context.get("last_results")
+        if seeded:
+            context = {**context, "last_results": [{"app": app, "rank": i + 1}
+                       for i, app in enumerate(sorted(current, key=lambda a: a["app_id"])[:5])]}
         previous = [item.get("app", item)["id"] for item in context.get("last_results", [])]
-        named_apps = [app for app in current
-                 if any(value and re.search(rf"(?<!\w){re.escape(value)}(?!\w)", message, re.I)
-                        for value in (app.get("name"), app["app_id"]))]
+        named_apps = [app for app in current if _mentions(app, message)]
         named = [app["id"] for app in named_apps]
         ordinals = [index for token, index in _ORDINALS.items()
                     if re.search(rf"\b{re.escape(token)}\b", message, re.I)]
@@ -101,6 +129,12 @@ class StoreDialogue:
             filters = {**(context.get("filters") or {}),
                        **{k: v for k, v in filters.items() if v not in (None, [], "")}}
         invalid_filters = any(v not in (None, [], "") for k, v in filters.items() if k != "publisher")
+        if self.catalogue_references and selected and _PRICE.search(message) and not source_read:
+            # A cost question asks for supplied values, never a free/paid verdict.
+            # Unsupported filters still fail closed below; this does not rank by price.
+            source_read = _SOURCE_READ.fullmatch("Show billing fields")
+            source_target = None
+            context = {**context, "focused_ids": selected}
         if source_read and not invalid_filters:
             # Resolve the complete target, not names/ordinals occurring elsewhere
             # in the question. Native IDs are opaque and case-sensitive; duplicate
@@ -149,7 +183,7 @@ class StoreDialogue:
                 if evidence:
                     view = {**result["app"], "source_evidence": evidence,
                             "readme_status": None, "dataspace_description_status": None}
-                    lines.append(self.describe(message, [{**result, "app": view}], req.locale))
+                    lines.append(self.describe(f"Show {field}", [{**result, "app": view}], req.locale))
                 else:
                     status_key = {"readme": "readme_status", "embedded metadata": "dataspace_description_status"}.get(field)
                     status = result["app"].get(status_key) if status_key else "missing"
@@ -160,7 +194,7 @@ class StoreDialogue:
                                  "Missing projected evidence does not establish absence of a capability.")
             next_context = {**context, "filters": filters, "focused_ids": selected}
             return self._response("\n".join(lines), results, "source_fields", next_context)
-        if unsupported or invalid_filters:
+        if (unsupported and not (self.catalogue_references and selected and not _PRICE.search(message))) or invalid_filters:
             limitation = ("This snapshot has no verified price information. I cannot confirm what it costs. "
                           if _PRICE.search(message) else
                           "The supplied Store fields do not verify that capability, metadata or filter. "
@@ -199,6 +233,10 @@ class StoreDialogue:
             if intent == "compare":
                 text = "Source-field comparison only; no superiority or suitability is inferred.\n" + text
             next_context = {**context, "filters": filters, "focused_ids": selected}
+            if seeded and named:
+                next_context["last_results"] = results
+            if seeded and not named:
+                text = "References use the observed catalogue order shown on this page.\n" + text
             if intent != "compare" and len(selected) == 1:
                 intent = "detail"
             return self._response(text, results, intent, next_context)

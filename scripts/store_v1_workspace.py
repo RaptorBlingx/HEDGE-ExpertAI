@@ -91,6 +91,7 @@ def workspace():
     ingest = load_service("workspace_ingest", "metadata-ingest")
     discovery = load_service("workspace_discovery", "discovery-ranking")
     recommend = load_service("workspace_expert", "expert-recommend")("recommender")
+    answers = __import__(recommend.__package__ + ".store_answers", fromlist=["respond"])
     chat = load_service("workspace_chat", "chat-intent")("routes")
     policy_module = __import__(chat.__package__ + ".store_dialogue", fromlist=["StoreDialogue"])
     client = ingest("client").HedgeApiClient(
@@ -171,15 +172,18 @@ def workspace():
         ) -> dict[str, Any]:
             response = await super().respond(req, intent, context)
             state = store_sync.status(store_id)
-            response["message"] = (
-                f"Local Store snapshot observed at {state.get('snapshot_at')}; "
-                f"({state['timestamp_basis']}); refresh state: {state['state']}. Current upstream publication and complete catalogue coverage "
-                "are not established by this snapshot.\n" + response["message"]
+            response["message"] += (
+                f"\n\nLocal Store snapshot observed at {state.get('snapshot_at')}; "
+                f"refresh state: {state['state']}. Current publication and complete catalogue coverage "
+                "are unverified."
             )
             return response
 
     async def search(**kwargs):
-        return playground.recommend(**kwargs)
+        response = playground.recommend(**kwargs)
+        if response["apps"]:
+            response["message"] = answers.render(kwargs["query"], response["apps"], kwargs["locale"])
+        return response
 
     def scoped_search(query, *, locale, filters, limit):
         return discovery("searcher_v2").search_apps_v2(
@@ -198,8 +202,17 @@ def workspace():
     with ExitStack() as stack:
         stack.callback(vector.close)
         stack.enter_context(patch.object(recommend, "_search_apps_v2", scoped_search))
+        # Keep retrieval orchestration deterministic; only dialogue owns the single
+        # bounded model call, after authoritative App selection.
         stack.enter_context(patch.object(recommend, "OllamaClient", no_model))
-        policy = ObservedDialogue(search, resolve, recommend._recommendation_narrative)
+        def describe(query, results, locale):
+            if policy_module._SOURCE_READ.fullmatch(query.strip()):
+                return recommend._recommendation_narrative(query, results, locale)
+            return answers.render(query, results, locale)
+
+        policy = ObservedDialogue(search, resolve, describe,
+                                 answers.respond if os.getenv("STORE_PLAYGROUND_OLLAMA") == "true" else None,
+                                 catalogue_references=True)
         playground = Playground(chat, recommend, models_v2, [], policy)
         playground.source = "managed-authorized-store"
         playground.refresh = refresh
