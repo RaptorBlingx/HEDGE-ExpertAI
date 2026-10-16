@@ -91,9 +91,9 @@ def workspace():
     ingest = load_service("workspace_ingest", "metadata-ingest")
     discovery = load_service("workspace_discovery", "discovery-ranking")
     recommend = load_service("workspace_expert", "expert-recommend")("recommender")
-    answers = __import__(recommend.__package__ + ".store_answers", fromlist=["respond"])
+    answers = __import__(recommend.__package__ + ".store_conversation", fromlist=["respond"])
     chat = load_service("workspace_chat", "chat-intent")("routes")
-    policy_module = __import__(chat.__package__ + ".store_dialogue", fromlist=["StoreDialogue"])
+    policy_module = __import__(chat.__package__ + ".store_conversation", fromlist=["StoreConversation"])
     client = ingest("client").HedgeApiClient(
         "https://store.haslab-dataspace.pt/backend/api/v1",
         store_id=store_id,
@@ -166,24 +166,8 @@ def workspace():
             if i in rows
         ]
 
-    class ObservedDialogue(policy_module.StoreDialogue):
-        async def respond(
-            self, req: models_v2.ChatRequestV2, intent: str, context: dict[str, Any]
-        ) -> dict[str, Any]:
-            response = await super().respond(req, intent, context)
-            state = store_sync.status(store_id)
-            response["message"] += (
-                f"\n\nLocal Store snapshot observed at {state.get('snapshot_at')}; "
-                f"refresh state: {state['state']}. Current publication and complete catalogue coverage "
-                "are unverified."
-            )
-            return response
-
     async def search(**kwargs):
-        response = playground.recommend(**kwargs)
-        if response["apps"]:
-            response["message"] = answers.render(kwargs["query"], response["apps"], kwargs["locale"])
-        return response
+        return playground.recommend(**kwargs)
 
     def scoped_search(query, *, locale, filters, limit):
         return discovery("searcher_v2").search_apps_v2(
@@ -202,17 +186,18 @@ def workspace():
     with ExitStack() as stack:
         stack.callback(vector.close)
         stack.enter_context(patch.object(recommend, "_search_apps_v2", scoped_search))
-        # Keep retrieval orchestration deterministic; only dialogue owns the single
-        # bounded model call, after authoritative App selection.
+        # Keep retrieval orchestration deterministic. Dialogue owns bounded model
+        # interpretation and reviewed synthesis after authoritative App selection.
         stack.enter_context(patch.object(recommend, "OllamaClient", no_model))
-        def describe(query, results, locale):
-            if policy_module._SOURCE_READ.fullmatch(query.strip()):
-                return recommend._recommendation_narrative(query, results, locale)
-            return answers.render(query, results, locale)
-
-        policy = ObservedDialogue(search, resolve, describe,
-                                 answers.respond if os.getenv("STORE_PLAYGROUND_OLLAMA") == "true" else None,
-                                 catalogue_references=True)
+        if os.getenv("STORE_PLAYGROUND_OLLAMA") == "true":
+            policy = policy_module.StoreConversation(
+                search, resolve, recommend._recommendation_narrative,
+                answers.plan, answers.respond, lambda: store_sync.status(store_id),
+            )
+        else:
+            policy = policy_module.StoreDialogue(
+                search, resolve, recommend._recommendation_narrative, catalogue_references=True,
+            )
         playground = Playground(chat, recommend, models_v2, [], policy)
         playground.source = "managed-authorized-store"
         playground.refresh = refresh

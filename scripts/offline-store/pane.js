@@ -8,25 +8,25 @@ window.addEventListener("DOMContentLoaded", async function () {
     document.getElementById("catalogue").textContent = status.catalogue;
     document.getElementById("components").textContent = [status.intent, status.embeddings, status.generation].join(" · ");
     document.getElementById("records").textContent = JSON.stringify(status, null, 2);
-    const names = status.records.map(record => record.name).filter(Boolean).slice(0, 2);
     const metadataDemo = status.simulation_controls === true;
     if (status.managed_workspace) {
-      document.getElementById("catalogue").textContent = "Actual Store records from an authorized observation. See refresh state and timestamp; these are not authored fixtures.";
+      document.getElementById("catalogue").textContent = "Explore Apps from your authorized Store catalogue.";
       document.getElementById("managed").hidden = false;
       let offset = 0;
       let next = null;
       const showState = state => {
-        document.getElementById("sync-status").textContent = "Refresh: " + state.state +
-          " · Snapshot observed: " + (state.snapshot_at || "never") + " (" + (state.timestamp_basis || "local") + ")" +
-          " · Index pending: " + (state.index_pending ?? "unknown") +
-          ". Complete/current upstream catalogue coverage is unverified.";
+        const observed = state.snapshot_at ? new Date(state.snapshot_at).toLocaleString() : "not yet available";
+        const refresh = state.state === "authorization_required"
+          ? "Refresh needs renewed Store access."
+          : state.state === "observed_api" ? "Store refresh succeeded." : "See workspace status for refresh details.";
+        document.getElementById("sync-status").textContent = "Saved catalogue: " + observed + ". " + refresh;
       };
       const loadPage = async () => {
         const response = await fetch("/api/v2/catalogue?offset=" + offset + "&limit=25");
         if (!response.ok) throw new Error("Catalogue unavailable");
         const page = await response.json();
         next = page.next_offset;
-        document.getElementById("catalogue-count").textContent = page.total + " locally available Apps · native ID order · page " + (1 + offset / 25);
+        document.getElementById("catalogue-count").textContent = page.total + " Apps in this observation · page " + (1 + offset / 25);
         const target = document.getElementById("catalogue-apps");
         target.replaceChildren();
         page.apps.forEach(record => {
@@ -35,8 +35,9 @@ window.addEventListener("DOMContentLoaded", async function () {
           button.textContent = record.name || record.app_id;
           button.addEventListener("click", () => {
             window.storeEvaluation.open();
+            if (window.storeEvaluation.isStreaming) return;
             window.storeEvaluation.textarea.value = "Tell me about " + record.app_id;
-            window.storeEvaluation.textarea.focus();
+            window.storeEvaluation._send();
           });
           target.appendChild(button);
         });
@@ -70,15 +71,15 @@ window.addEventListener("DOMContentLoaded", async function () {
       ? ["Find apps for district heat measurements", "Find apps for vocabulary review", "Show me all available applications"]
       : status.source === "authored-fixtures"
       ? ["Show me EdgeConnect and Semantic Treehouse", "Find apps for sensor readings", "Find apps for semantic data models"]
-      : [names.length ? "Show me " + names.join(" and ") : "Find apps", "Tell me about the first app", "Compare the first two apps"];
+      : ["What apps are available, and what is each useful for?", "What is the main difference between them?", "Explain that in simpler terms"];
     window.storeEvaluation = new window.HedgeExpertWidget({
-      title: "ExpertAI · App assistant",
-      subtitle: status.source === "authored-fixtures" ? "Authored fixtures · source quotations only" : "Private Store · grounded conversation",
+      title: "ExpertAI",
+      subtitle: status.source === "authored-fixtures" ? "Authored fixtures · source quotations only" : "Your HEDGE App Store assistant",
       width: "min(560px, calc(100vw - 420px))",
       height: "min(650px, 75vh)",
       restoreHistory: true,
       suggestions: suggestions,
-      welcomeText: "Browse the observed catalogue, ask about an App by name, then use first, second or it to explore and compare. Open Source evidence for complete projected fields. I cannot verify suitability or undocumented terms.",
+      welcomeText: "Hi! Tell me what you’re trying to do, or ask me about an App. I can explain how Apps differ and help you explore their documentation.",
     });
     window.storeEvaluation.open();
     const prompts = metadataDemo ? [
@@ -93,7 +94,7 @@ window.addEventListener("DOMContentLoaded", async function () {
       "Show embedded metadata for Demo Sparse Catalogue",
       "Show me all available applications",
       "Compare the first two apps",
-    ] : suggestions.concat(["Show README for the first app", "Show connector fields for the first app", "Show billing fields for the first app"]);
+    ] : suggestions;
     prompts.forEach(prompt => {
       const button = document.createElement("button");
       button.type = "button";

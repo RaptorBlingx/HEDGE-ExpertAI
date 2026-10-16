@@ -46,6 +46,12 @@ def _mentions(app: dict, message: str) -> bool:
                for value, flags in ((app.get("name"), re.I), (app["app_id"], 0)))
 
 
+def _search_query(message: str) -> str:
+    """Remove request boilerplate, retaining functional terms and negation."""
+    query = re.sub(r"^(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?(?:find|search(?: for)?|show me|recommend|i need|i am looking for)\s+", "", message, flags=re.I)
+    return re.sub(r"^(?:an?\s+)?(?:apps?|applications?)\s+(?:for|to|about|that)\s+", "", query, flags=re.I)
+
+
 class StoreDialogue:
     """Use existing recommendation/quoting seams plus authoritative scoped resolution."""
 
@@ -77,6 +83,9 @@ class StoreDialogue:
         if known or reference or _SOURCE_READ.fullmatch(message.strip()):
             return "compare" if re.search(r"\bcompare\b", message, re.I) else "detail"
         return intent
+
+    async def respond_with_history(self, req, intent, context, history, *, nlu=None):
+        return await self.respond(req, intent, context)
 
     async def respond(self, req: ChatRequestV2, intent: str, context: dict) -> dict:
         response = await self._respond(req, intent, context)
@@ -243,8 +252,7 @@ class StoreDialogue:
 
         # Remove only request boilerplate, not content terms or negation. Dense
         # retrieval (when available) still receives the remaining natural query.
-        query = re.sub(r"^(?:please\s+)?(?:find|search for|show me|recommend|i need|i am looking for)\s+", "", message, flags=re.I)
-        query = re.sub(r"^(?:an?\s+)?(?:apps?|applications?)\s+(?:for|to|about|that)\s+", "", query, flags=re.I)
+        query = _search_query(message)
         if named:
             names = [(app["name"] or app["app_id"]).replace('"', " ") for app in named_apps]
             query = " OR ".join('"' + name + '"' for name in names)

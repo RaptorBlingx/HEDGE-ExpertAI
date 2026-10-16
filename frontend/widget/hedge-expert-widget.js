@@ -34,10 +34,12 @@
   const SUPPORTED_LOCALES = ["en", "de", "fr", "es", "it", "nl", "pt", "tr"];
 
   const STAGE_LABELS = {
-    intent: "Understanding the request…",
+    intent: "Understanding your question…",
+    review: "Checking the answer against Store sources…",
+    revision: "Refining the answer using its sources…",
     retrieval: "Searching the application catalogue…",
     ranking: "Ranking retrieved Apps…",
-    explanation: "Preparing a grounded explanation…",
+    explanation: "Writing your answer…",
   };
 
   const DOMAIN_COLORS = {
@@ -869,7 +871,7 @@
     _addAppCards(parentBody, apps, impressionId) {
       this.panel.querySelector(".he-side-title").textContent = apps.some(function (result) {
         return (result.app || result).source_profile === "hedge-store-v1";
-      }) ? "Store source records" : "Recommended Context";
+      }) ? "Apps in this conversation" : "Recommended Context";
       parentBody.innerHTML = ""; // Clear previous context
       var container = document.createElement("div");
       container.className = "he-cards he-animate-in";
@@ -878,7 +880,7 @@
         var result = apps[i];
         var app = result.app || result;
         var isStore = app.source_profile === "hedge-store-v1";
-        var relevance = isStore ? "Rank " + result.rank : result.relevance || "medium";
+        var relevance = isStore ? "App " + result.rank : result.relevance || "medium";
         var domainLabel = (app.domains && app.domains[0]) || app.saref_type || app.domain || "";
         var dc = domainColor(domainLabel);
         var desc = (app.description || "").slice(0, 140);
@@ -894,7 +896,8 @@
             return '<dt>' + escapeHtml(path) + '</dt><dd>' + escapeHtml(quoted) + '</dd>';
           }).join("");
           sourceDetails = '<details class="he-card-evidence"><summary>Source evidence</summary>' +
-            '<p>Publisher-supplied fields; compatibility, suitability and billing terms are not verified.</p>' +
+            '<p>Original Store fields used to explain this App.</p>' +
+            '<p>Store: ' + escapeHtml(app.store_id) + '<br>App: ' + escapeHtml(app.app_id) + '</p>' +
             '<dl>' + sourceRows + '</dl>' +
             '<p>README: ' + escapeHtml(app.readme_status || "unavailable") +
             ' · Embedded metadata: ' + escapeHtml(app.dataspace_description_status || "unavailable") + '</p></details>';
@@ -926,8 +929,8 @@
             (domainLabel ? '<span class="he-card-domain" style="background:' + dc.bg + ';color:' + dc.fg + '">' + escapeHtml(domainLabel) + '</span>' : "") +
             publisher +
             version +
-            '<span class="he-card-id">' + escapeHtml(isStore ? app.store_id + ' / ' + app.app_id : app.id || "") + '</span>' +
-            (isStore ? '<span class="he-card-source">Store v1 · ' + escapeHtml((result.evidence_fields || []).join(', ')) + '</span>' : '') +
+            (isStore ? '' : '<span class="he-card-id">' + escapeHtml(app.id || "") + '</span>') +
+            (isStore ? '<span class="he-card-source">Store catalogue</span>' : '') +
           '</div>' + sourceDetails;
         if (hasExternalAppUrl && impressionId) {
           var self = this;
@@ -942,6 +945,7 @@
           explain.type = "button";
           explain.className = "he-card-explain";
           explain.textContent = "Explain this App";
+          explain.setAttribute("aria-label", "Explain " + appTitle);
           var owner = this;
           (function (nativeId) {
             explain.addEventListener("click", function () {

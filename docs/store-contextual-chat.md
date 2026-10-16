@@ -121,3 +121,7 @@ also verified named dense+lexical retrieval, natural billing questions and zero
 pending index work. Final UI model turns ranged from 16–28 seconds; an earlier
 cold turn took 36 seconds. Counts/timings-only evidence:
 `/home/ubuntu/.codex/artifacts/HEDGE-contextual-chat-2026-10-16/`.
+
+Follow-up: [expert conversation over Store evidence](store-expert-conversation.md)
+replaces field-selection generation in the private managed workspace with contextual,
+reviewed prose. This report describes the earlier `4fa7a6e` behavior.

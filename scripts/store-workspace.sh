@@ -92,7 +92,7 @@ for ((attempt=0; attempt<30; attempt++)); do
   sleep 1
 done
 ensure runner --network "$prefix-private" --network "$prefix-ui" -p 127.0.0.1:8098:8091 \
-  --user "$(id -u):$(id -g)" --memory 3072m --cpus 2 --read-only --tmpfs /tmp:rw,size=128m --tmpfs /.ollama:rw,size=16m,mode=1777 \
+  --user "$(id -u):$(id -g)" --memory 4096m --cpus 2 --read-only --tmpfs /tmp:rw,size=128m --tmpfs /.ollama:rw,size=16m,mode=1777 \
   --mount "type=bind,source=$repo,target=/repo,readonly" \
   --mount "type=bind,source=$credential_dir,target=/credentials,readonly" \
   --mount "type=bind,source=$private_dir,target=/bootstrap,readonly" \

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
@@ -42,10 +43,10 @@ def test_failed_retrieval_stream_emits_problem_and_never_success():
         assert normal.status_code == 503
         assert normal.json() == {"detail": "Offline retrieval unavailable"}
         assert client.post("/evaluation/scenario/update").status_code == 404
-        assert '"type":"stage"' in response.text
-        assert '"type":"problem"' in response.text
-        assert "complete" not in response.text
-        assert "recommendations" not in response.text
+        output = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
+        assert any(e["type"] == "stage" for e in output)
+        assert output[-1]["type"] == "problem"
+        assert not any(e["type"] in {"complete", "recommendations"} for e in output)
 
 
 def test_overlapping_browser_turns_are_serialized():
@@ -105,4 +106,22 @@ def test_managed_workspace_without_authorized_observation_is_not_an_empty_catalo
         assert client.get("/api/v2/catalogue").status_code == 503
         assert client.post("/api/v2/chat", json={"message": "List apps"}).status_code == 503
         stream = client.post("/api/v2/chat/stream", json={"message": "List apps"})
-        assert '"type":"problem"' in stream.text and '"type": "complete"' not in stream.text
+        output = [json.loads(line[6:]) for line in stream.text.splitlines() if line.startswith("data: ")]
+        assert output[-1]["type"] == "problem"
+        assert not any(e["type"] == "complete" for e in output)
+
+
+def test_legacy_session_restores_source_number_without_reassigning_identity():
+    async def unused(request):
+        return {}
+    evaluation = playground(unused)
+    first, second = {'id': 'first'}, {'id': 'second'}
+    evaluation.chat.get_session = lambda session_id: {'messages': [], 'context': {
+        'last_results': [{'app': first, 'rank': 1}, {'app': second, 'rank': 2}],
+        'displayed_ids': ['second'],
+    }}
+    evaluation.policy = SimpleNamespace(resolve=lambda ids: [second] if ids == ['second'] else [])
+    with TestClient(create_app(evaluation), base_url='http://127.0.0.1:8091') as client:
+        response = client.get('/api/v2/sessions/legacy')
+        assert response.status_code == 200
+        assert response.json()['apps'] == [{'app': second, 'rank': 2, 'evidence_fields': ['reference']}]
