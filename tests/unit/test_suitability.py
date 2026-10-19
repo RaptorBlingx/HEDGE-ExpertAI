@@ -1,4 +1,5 @@
 """Source decisions: relevance is separate from rank, ontology and metadata richness."""
+import json
 from copy import deepcopy
 
 import pytest
@@ -327,3 +328,28 @@ def test_explicit_coordinated_purpose_keeps_shared_object_and_conditions(query,t
     app={'source_profile':'hedge-store-v1','source_evidence':{'readme':
         'Vocabulary hub of Example data space. Used to publish and manage shared data models' + tail + '.'}}
     assert (policy.assess(query,app,'en')['status'] == 'source_supported') is supported
+
+
+@pytest.mark.parametrize('label', ['Vocabulary translation', 'Payload validation and verification',
+                                  'Enterprise terminology alignment'])
+def test_unknown_structured_feature_labels_do_not_veto_unrelated_readme_support(label):
+    app = StoreAppMetadata(store_id='Store', app_id='Models', name='Model Workbench',
+        description='Provides shared data models.',
+        dataspace_app_description=json.dumps({'properties':{'featureList':[label]}})
+    ).recommendation_projection()
+    assert policy.assess('shared data models', app, 'en')['status'] == 'source_supported'
+    # Unknown capability is still unknown; the unrelated label is not a match.
+    assert policy.assess('earthquake warnings', app, 'en')['status'] == 'uncertain'
+
+
+@pytest.mark.parametrize('label', ['Shared data models require another app.',
+                                  'Shared data models are available only in simulation.',
+                                  'This app does not support shared data models.',
+                                  'All features are disabled.',
+                                  'Shared data models depend on an external service.'])
+def test_structured_feature_prose_restrictions_are_not_flat_positive_labels(label):
+    app = StoreAppMetadata(store_id='Store', app_id='Models', name='Model Workbench',
+        description='Provides shared data models.',
+        dataspace_app_description=json.dumps({'properties':{'featureList':[label]}})
+    ).recommendation_projection()
+    assert policy.assess('shared data models', app, 'en')['status'] == 'uncertain'

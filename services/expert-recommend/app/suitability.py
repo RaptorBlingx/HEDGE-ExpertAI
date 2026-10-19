@@ -255,6 +255,21 @@ def _claims(path: str, text: str, query_terms: set[str], names: list[str], synth
                 purpose_context = provenance.startswith('vocabulary hub of ')
                 previous = []
                 continue
+            # A structured feature-list item is a declaration about that topic,
+            # not an App-wide restriction on unrelated README capabilities.
+            # Unknown flat labels retain uncertainty on their own words. Negative,
+            # conditional, relational and sentence-shaped items still use the
+            # full parser below; this never promotes an unparsed feature.
+            declared = _terms(clause)
+            if (path.startswith('dataspaceAppDescription.properties.featureList[')
+                    and re.fullmatch(r"[\w -]{1,180}", clause)
+                    and not _NEGATION.search(clause) and not _QUALIFIED.search(clause)
+                    and not re.search(r"\b(?:another|other|external|is|are|was|were|has|have)\b", clause)
+                    and declared - (query_terms | named | labels)):
+                claims.append(_Claim(path, span, frozenset(declared), frozenset(),
+                                     'unresolved', 'feature'))
+                previous = []
+                continue
             # A short acronym label is not a predicate about every capability.
             # Keep its uncertainty on the labelled topic (e.g. "SMS demo app"
             # still prevents confirming production SMS), rather than discarding it.

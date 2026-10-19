@@ -79,7 +79,7 @@ class StoreConversation(StoreDialogue):
         if not fallback["apps"]:
             fallback.setdefault("decision", {"outcome": "abstained", "reason": "insufficient_evidence"})
         fallback["generation"] = {"source": "prepared", "reason": (
-            "reviewed_preparation" if any(r["app"].get("prepared_explanation") for r in fallback["apps"])
+            "source_preparation" if any(r["app"].get("prepared_explanation") for r in fallback["apps"])
             else "source_evidence"), "model_completed": False}
         if complex_request and self.settings.STORE_REASONING_ENABLED and fallback["apps"]:
             # A single budget covers drafting and review. The expert checks the

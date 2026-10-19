@@ -2,7 +2,7 @@
 
 The [automatic English preparation and M2M follow-up](store-m2m-preparation.md)
 removes manual explanation import as a dependency for new or updated Apps.
-It documents the current credential rejection and extractive-quality limits.
+It documents verified service-client access and the extractive-quality limits.
 
 Implementation and local evaluation, 2026-10-19. This work is local only: no push,
 branch merge, deployment, source catalogue mutation or Jira transition.

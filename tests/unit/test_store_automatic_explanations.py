@@ -51,3 +51,25 @@ def test_paragraph_qualification_is_preserved_as_an_exact_substring():
     assert prose['en']['summary'] == source
     assert prose['facts'][0]['quote'] == source
     assert prose['en']['simple'] == source
+
+
+def test_new_apps_with_only_embedded_store_descriptions_or_features_get_automatic_prose():
+    import json
+
+    for properties in [
+        {'description':'Used to manage device ownership records.'},
+        {'featureList':['Device ownership records', 'Certificate renewal']},
+    ]:
+        app = StoreAppMetadata(store_id='Store', app_id='Embedded-only',
+                               dataspace_app_description=json.dumps({'properties':properties}))
+        knowledge = prepare(app)
+        value = explanation({**knowledge['projection'],
+                             'prepared_explanation':knowledge['explanation']})
+        assert value['en']['summary']
+        for fact in value['facts']:
+            assert fact['path'].startswith('dataspaceAppDescription.properties.')
+            assert fact['quote'] in knowledge['projection']['source_evidence'][fact['path']]
+
+    assert extract({'dataspaceAppDescription.properties.featureList[0].label':'Nested object',
+                    'dataspaceAppDescription.properties.featureList[1]':'true',
+                    'dataspaceAppDescription.properties.featureList[2]':'3.14159'}) == {}

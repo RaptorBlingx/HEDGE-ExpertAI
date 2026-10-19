@@ -8,7 +8,7 @@ from .store_explanations import extract
 from .store_v1 import StoreAppMetadata
 
 # Bump whenever source extraction/projection semantics change.
-PREPARATION_VERSION = 2
+PREPARATION_VERSION = 3
 
 
 def prepare(app: StoreAppMetadata) -> dict[str, Any]:

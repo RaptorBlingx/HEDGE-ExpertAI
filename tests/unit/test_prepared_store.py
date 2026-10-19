@@ -94,6 +94,9 @@ def test_browse_followups_comparison_and_publisher_keep_current_identity(routine
     failed = ask(policy, 'Find earthquake predictions', context=first['context'])
     assert not failed['apps']
     assert len(ask(policy, 'Compare them', context=failed['context'])['apps']) == 2
+    compared_after_detail = ask(policy, 'Compare both apps', context=focused['context'])
+    ordinal = ask(policy, 'Tell me about the first one', context=compared_after_detail['context'])
+    assert ordinal['apps'][0]['app']['id'] == apps[0]['id']
     filtered = ask(policy,'Show me all available applications',filters={'publisher':'Provider B'})
     assert [r['app']['id'] for r in filtered['apps']] == [apps[1]['id']]
     assert not ask(policy,'Tell me more about the fifth app', context=first['context'])['apps']

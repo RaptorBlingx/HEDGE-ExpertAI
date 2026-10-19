@@ -186,6 +186,11 @@ def dialogue_language(message: str, locale: str) -> str:
         re.I,
     ):
         return "How do I get started with it?"
+    if re.fullmatch(
+        r"(?:how|where) (?:do|should|can) (?:i|we) (?:get started|start|begin) "
+        r"(?:with |using )?(?:it|this app|that app|this one|that one)", clean, re.I,
+    ):
+        return "How do I get started with it?"
     if re.fullmatch(r"(?:is (?:it|this app|that app)|are (?:they|these apps)) (?:free|paid)|"
                     r"does (?:it|this app|that app) cost anything", clean, re.I):
         return "How much does it cost?"

@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-VERSION = 1
+VERSION = 2
 # Exclude operational headings, navigation, obvious instructions and links, not
 # negative capability statements: limitations must remain attached to facts.
 _NOISE = re.compile(r"https?://|release (?:version|type|notes)|^product:|"
@@ -26,7 +26,7 @@ _QUALIFIER = re.compile(r"\b(?:not|no|only|unless|except|although|however|requir
 def extract(evidence: dict[str, str], name: str = "") -> dict[str, Any]:
     candidates = []
     for path, text in evidence.items():
-        if path not in {"readme", "description"}:
+        if path not in {"readme", "description", "dataspaceAppDescription.properties.description"}:
             continue
         # HTML has already been normalized upstream. Keep the original substring
         # exactly, including internal whitespace; no arbitrary truncation.
@@ -59,6 +59,17 @@ def extract(evidence: dict[str, str], name: str = "") -> dict[str, Any]:
     for _, path, passage in candidates:
         if passage not in [v["quote"] for v in unique]:
             unique.append({"path": path, "quote": passage, "en": passage})
+    if not unique:
+        # Sparse Store Apps may expose only the established structured feature
+        # list. Attribute those labels without fabricating a purpose/workflow.
+        for path, label in evidence.items():
+            if (re.fullmatch(r"dataspaceAppDescription\.properties\.featureList\[\d+\]", path)
+                    and label not in {"true", "false", "null"}
+                    and re.search(r"[^\W\d_]", label)
+                    and 3 <= len(label) <= 180 and not _NOISE.search(label)
+                    and not _QUALIFIER.search(label)):
+                unique.append({"path": path, "quote": label,
+                               "en": "Features include " + label.rstrip(".") + "."})
     if not unique:
         return {}
     facts = unique[:20]

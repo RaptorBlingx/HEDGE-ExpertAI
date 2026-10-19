@@ -142,7 +142,7 @@ def prepared_answer(question: str, response: dict, locale: str) -> str:
     rows = response.get("apps", [])
     intent = response["intent"]
     normalized = dialogue_language(question, locale)
-    if (intent == "source_fields" and re.match(r"^(?:show|quote|list)\b", normalized, re.I)
+    if (intent == "source_fields" and re.match(r"^(?:show|quote|list|(?:can|could|may) (?:i|we) (?:see|read))\b", normalized, re.I)
             and not re.search(r"\b(?:cost|price|billing)\b", normalized, re.I)):
         # Drop the server's generic inspection preface; keep every source line.
         _, separator, body = response["message"].partition("\n")

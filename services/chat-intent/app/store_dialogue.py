@@ -36,10 +36,10 @@ _SOURCE_FIELDS = {
     "type": ("type",),
 }
 _SOURCE_READ = re.compile(
-    r"(?:show|quote|list)(?: me)? (?:the )?(" + "|".join(_SOURCE_FIELDS) +
+    r"(?:(?:show|quote|list)(?: me)?|(?:can|could|may) (?:i|we) (?:see|read)) (?:the |its )?(" + "|".join(_SOURCE_FIELDS) +
     r")(?: (?:for|of) (.+?))?[?!.]*", re.I,
 )
-_REFERENCE = re.compile(r"\b(it|that app|this app|both|them|these apps|those apps|the other (?:app|one)|bu uygulama|bunu)\b", re.I)
+_REFERENCE = re.compile(r"\b(it|that app|this app|that one|this one|both|them|these apps|those apps|the other (?:app|one)|bu uygulama|bunu)\b", re.I)
 
 
 def _mentions(app: dict, message: str) -> bool:
@@ -87,7 +87,7 @@ class StoreDialogue:
         if re.search(r"\buygulama(?:ları)? (?:bul|öner)[?!.]*$", message, re.I):
             return "search"
         known = any(_mentions(app, message) for app in self.resolve(None))
-        reference = bool(re.search(r"\b(?:first|second|third|fourth|fifth) app\b", message, re.I) or
+        reference = bool(re.search(r"\b(?:first|second|third|fourth|fifth) (?:app|one)\b", message, re.I) or
                          _REFERENCE.search(message))
         if known or reference or _SOURCE_READ.fullmatch(message.strip()):
             return "compare" if re.search(r"\bcompare\b", message, re.I) else "detail"
@@ -320,6 +320,7 @@ class StoreDialogue:
             next_context = {**context, "filters": filters, "focused_ids": selected}
             if self.catalogue_references and intent == "compare":
                 next_context["comparison_ids"] = selected
+                next_context["last_results"] = results
             if seeded and named:
                 next_context["last_results"] = results
             if seeded and not named:
