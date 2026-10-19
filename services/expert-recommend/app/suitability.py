@@ -255,6 +255,19 @@ def _claims(path: str, text: str, query_terms: set[str], names: list[str], synth
                 purpose_context = provenance.startswith('vocabulary hub of ')
                 previous = []
                 continue
+            # A clearly contrasted test population is not a platform capacity
+            # ceiling. Retain it on the pilot/trial topic only when the same
+            # sentence explicitly states the platform accommodates more units.
+            capacity = re.fullmatch(
+                r"although the (?:[\w-]+ ){0,4}(?P<sample>pilot|trial|test) "
+                r"(?:only )?(?:includes?|uses?|has) (?:only )?(?P<count>\d+) (?P<units>[\w -]+), "
+                r"the (?:platform|app|service|system) is prepared to "
+                r"(?:accommodate|support|handle) more than (?P=count)", provenance)
+            if capacity and not _NEGATION.search(provenance):
+                claims.append(_Claim(path, span, frozenset({capacity['sample']}), frozenset(),
+                                     'environment', 'feature'))
+                previous = []
+                continue
             # A structured feature-list item is a declaration about that topic,
             # not an App-wide restriction on unrelated README capabilities.
             # Unknown flat labels retain uncertainty on their own words. Negative,
@@ -487,7 +500,7 @@ def source_text(app: dict[str, Any], locale: str) -> dict[str, str]:
 
 
 def _prepared_support(query: str, app: dict, locale: str, claims: list[_Claim]) -> dict | None:
-    """Interpret reviewed coherent passages within the existing assessor.
+    """Interpret current source-bound passages within the existing assessor.
 
     Preparation may explain compound prose the bounded clause grammar cannot
     interpret. Require request coverage in BOTH the explanation and its original
@@ -506,6 +519,8 @@ def _prepared_support(query: str, app: dict, locale: str, claims: list[_Claim]) 
     if any(c.kind == 'unresolved' and _NEGATION.search(_fold(c.span)) for c in claims):
         return None
     for fact in prepared.get("facts", []):
+        if fact.get("qualified"):
+            continue
         path, quote, prose = fact.get("path"), fact.get("quote", ""), fact.get("en", "")
         if not quote or quote not in source_text(app, locale).get(path, ""):
             continue

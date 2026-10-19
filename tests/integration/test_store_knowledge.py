@@ -102,7 +102,7 @@ def test_automatic_english_upgrade_preserves_source_revision_and_rebuilds_after_
     initial = saved(app)
     prose = initial['prepared_knowledge']['explanation']
     assert prose['review']['method'] == 'source_extraction'
-    assert 'publish device registers' in prose['en']['simple']
+    assert 'share device registers' in prose['en']['simple']
     with storage.connection() as conn:
         conn.execute('UPDATE catalog_apps SET prepared_knowledge=%s::jsonb WHERE id=%s',
                      (json.dumps({'version':0}), app.id))
@@ -154,7 +154,7 @@ def test_m2m_managed_sync_prepares_new_and_changed_apps_and_preserves_observatio
     assert sync()['created'] == 1
     app = client_module.normalize_store_v1_app(raw)
     first = storage.get_catalogue_apps([app.id], store_id=app.store_id)[app.id]
-    assert first['prepared_knowledge']['explanation']['en']['simple'] == 'It helps you publish device registers.'
+    assert first['prepared_knowledge']['explanation']['en']['simple'] == 'It helps you share device registers.'
     assert sync()['unchanged'] == 1
     assert storage.get_catalogue_apps([app.id], store_id=app.store_id)[app.id] == first
     raw['readme'] = '<p>Used to manage laboratory samples.</p>'
@@ -173,3 +173,40 @@ def test_m2m_managed_sync_prepares_new_and_changed_apps_and_preserves_observatio
     assert failed['snapshot_at'] == observed['snapshot_at']
     assert failed['available'] == 1 and failed['last_error'] == 'authorization_required'
     assert storage.get_catalogue_apps([app.id], store_id=app.store_id)[app.id] == updated
+
+
+def test_integration_head_upgrade_and_derived_rollback_preserve_native_rows(database, monkeypatch, tmp_path):
+    """The target's 0001–0003 schema upgrades without rewriting source/history."""
+    import json
+    from pathlib import Path
+
+    migrations = Path(__file__).parents[2] / 'database/migrations'
+    for file in migrations.glob('000[1-3]_*.up.sql'):
+        (tmp_path/file.name).write_text(file.read_text())
+    monkeypatch.setattr(migrate, 'MIGRATIONS', tmp_path)
+    migrate.main()
+    app = StoreAppMetadata(store_id='Upgrade', app_id='Native', name='Telemetry',
+                           description='Displays energy readings.', active=True, visible=True)
+    columns = 'id,checksum,revision,payload,source_store_id,source_app_id'
+    with storage.connection() as conn:
+        conn.execute('INSERT INTO catalog_apps '
+                     '(id,checksum,revision,schema_version,payload,search_document,active,source_store_id,source_app_id) '
+                     "VALUES (%s,%s,11,'hedge-store-v1',%s::jsonb,%s,true,%s,%s)",
+                     (app.id,app.checksum,json.dumps(app.model_dump(mode='json',exclude={'id','checksum','public_eligible'})),
+                      app.to_index_text(),app.store_id,app.app_id))
+        before = conn.execute('SELECT '+columns+' FROM catalog_apps ORDER BY id').fetchall()
+        history = conn.execute('SELECT * FROM catalog_app_revisions').fetchall()
+        outbox = conn.execute('SELECT * FROM indexing_outbox').fetchall()
+    monkeypatch.setattr(migrate, 'MIGRATIONS', migrations)
+    migrate.main()
+    migrate.main()
+    assert storage.rebuild_store_knowledge(app.store_id) == 1
+    with storage.connection() as conn:
+        assert conn.execute('SELECT '+columns+' FROM catalog_apps ORDER BY id').fetchall() == before
+        assert conn.execute('SELECT * FROM catalog_app_revisions').fetchall() == history
+        assert conn.execute('SELECT * FROM indexing_outbox').fetchall() == outbox
+        assert conn.execute('SELECT prepared_knowledge FROM catalog_apps WHERE id=%s',
+                            (app.id,)).fetchone()['prepared_knowledge']['version'] == store_knowledge.PREPARATION_VERSION
+        conn.execute((migrations/'0005_store_knowledge.down.sql').read_text())
+        conn.execute((migrations/'0004_store_sync.down.sql').read_text())
+        assert conn.execute('SELECT '+columns+' FROM catalog_apps ORDER BY id').fetchall() == before

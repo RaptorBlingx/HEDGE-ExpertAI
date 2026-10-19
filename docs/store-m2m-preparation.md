@@ -1,5 +1,7 @@
 # Store M2M authentication and automatic English preparation
 
+Latest: [finalization and integration handoff](integration-handoff-prepared-store.md) supersedes the earlier regression limitations below.
+
 Local implementation on `perf/prepared-store-discovery`, based on `84f93fe`,
 19 October 2026. No push, merge, deployment, upstream mutation or Jira change.
 English is the current evaluation language; Turkish improvements are deferred.

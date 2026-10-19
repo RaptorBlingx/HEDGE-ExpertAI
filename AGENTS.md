@@ -35,7 +35,7 @@
 
 - Answer directly and naturally. Keep validation internal; avoid repetitive disclaimers, defensive language, robotic templates and explanations of implementation limits.
 - Recommend and explain Apps confidently when source evidence supports the user's need. Interpret unfamiliar wording and follow-ups in context; ask a useful clarification when needed, without excessive abstention or invented capabilities.
-- Judge changes through complete English and Turkish conversations in the actual widget: understanding, useful recommendations, natural wording, continuity and latency. Automated tests support this product evaluation; they do not replace it. Preserve source grounding and the existing recommendation architecture.
+- Prioritize complete English conversations in the actual widget; refine other languages when requested: understanding, useful recommendations, natural wording, continuity and latency. Automated tests support this product evaluation; they do not replace it. Preserve source grounding and the existing recommendation architecture.
 
 ## Engineering and verification
 

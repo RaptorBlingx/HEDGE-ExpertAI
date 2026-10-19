@@ -16,7 +16,7 @@ def test_unseen_app_automatically_gets_english_tasks_and_bound_facts():
     current = project(row)
     prose = explanation(current)
     assert prose['review']['method'] == 'source_extraction'
-    assert prose['en']['simple'] == 'It helps you publish device registers and ownership records.'
+    assert prose['en']['simple'] == 'It helps you share device registers and ownership records.'
     assert 'tr' not in prose
     for fact in prose['facts']:
         assert fact['en'] == fact['quote']

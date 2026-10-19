@@ -1,6 +1,8 @@
 # HEDGE Store integration baseline
 
-Latest local follow-up: [M2M authentication and automatic English preparation](store-m2m-preparation.md).
+Latest integration review: [fast Store handoff against `0a02b5a`](integration-handoff-prepared-store.md).
+
+Earlier local follow-up: [M2M authentication and automatic English preparation](store-m2m-preparation.md).
 The service client obtained tokens and synchronized two current published Apps;
 cached reuse, early renewal and automatic polling were verified locally.
 Historical access/enablement statements below describe their dated slices.

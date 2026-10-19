@@ -1,5 +1,7 @@
 # Prepared Store discovery
 
+Latest: [finalization and integration handoff](integration-handoff-prepared-store.md) supersedes the earlier regression limitations below.
+
 The [automatic English preparation and M2M follow-up](store-m2m-preparation.md)
 removes manual explanation import as a dependency for new or updated Apps.
 It documents verified service-client access and the extractive-quality limits.

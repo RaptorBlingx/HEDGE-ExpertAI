@@ -14,6 +14,7 @@ from copy import deepcopy
 from datetime import date, datetime
 from typing import Annotated, Literal
 
+from hedge_shared.store_explanations import plain_english
 from hedge_shared.store_knowledge import explanation
 from hedge_shared.store_language import dialogue_language, search_language
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
@@ -192,9 +193,16 @@ def prepared_answer(question: str, response: dict, locale: str) -> str:
         lines = []
         for row in rows:
             price = row["app"].get("source_evidence", {}).get("price")
+            try:
+                zero_price = price is not None and float(price) == 0
+            except (ValueError, TypeError):
+                zero_price = False
             if price is None:
                 lines.append(f'**{title(row)}** için fiyat belirtilmemiş. Ücret bilgisini sağlayıcıdan istemenizi öneririm.' if locale == "tr" else
                               f'No price is listed for **{title(row)}**. I’d check the cost with the provider.')
+            elif locale == "en" and zero_price:
+                lines.append(f'Pricing isn’t confirmed for **{title(row)}**. The Store lists 0, '
+                             'but that doesn’t establish free use. Check the terms with the provider.')
             else:
                 price = _quoted_store_text(str(price)) or "—"
                 lines.append(f'**{title(row)}** için listelenen fiyat: {price}. Para birimi ve fatura dönemi belirtilmemiş.' if locale == "tr" else
@@ -222,10 +230,33 @@ def prepared_answer(question: str, response: dict, locale: str) -> str:
     simple = normalized == "Explain it simply"
     how = bool(re.search(r"how .*work|nasıl çalış", normalized, re.I))
     if simple:
-        return "\n\n".join(
-            f'**{title(row)}**: {_explanation(row, locale)[locale]["simple"]}'
-            if _explanation(row, locale) else f'**{title(row)}**: {_excerpt(row, locale)}'
-            for row in rows)
+        context = response.setdefault('context', {})
+        topic = context.get('explanation_topic', '')
+        key = ([row['app']['id'] for row in rows], topic)
+        previous = context.get('simplification', {})
+        repeated = previous.get('ids') == key[0] and previous.get('topic') == topic
+        lines = []
+        for row in rows:
+            prepared = _explanation(row, locale)
+            text = prepared[locale]['simple'] if prepared else _excerpt(row, locale)
+            if locale == 'en' and prepared:
+                terms = _terms(topic)
+                facts = sorted(prepared['facts'],
+                               key=lambda f: len(terms & _terms(f['quote'])), reverse=True)
+                fact = facts[0]
+                if terms and len(terms & _terms(fact['quote'])) / len(terms) >= .4:
+                    text = fact.get('short_en' if repeated else 'simple_en', text)
+                if repeated and not fact.get('short_en'):
+                    # A shorter restatement of the explicit purpose, without
+                    # adding an analogy or an unsupported capability.
+                    if prepared.get('short_simple_en'):
+                        text = prepared['short_simple_en']
+                    task = prepared['en']['use_when'].rstrip('.')
+                    if prepared.get('task_phrase') and not prepared.get('short_simple_en'):
+                        text = ('For ' if prepared.get('noun_task') else 'To ') + plain_english(task) + '.'
+            lines.append(f'**{title(row)}**: {text}')
+        context['simplification'] = {'ids': key[0], 'topic': topic}
+        return "\n\n".join(lines)
     if intent == "compare" and all(_explanation(row, locale) for row in rows):
         # Compare the practical tasks, not a repeated pair of source paragraphs.
         # Never invent superiority, mutual exclusivity or a missing feature.

@@ -158,7 +158,7 @@ def dialogue_language(message: str, locale: str) -> str:
         r"(?:(?:can|could|would) you )?(?:please )?(?:"
         r"(?:explain|describe|put) (?:that|it|this) "
         r"(?:in (?:simpler terms|simple terms|plain English|plain language)|more simply)|"
-        r"make (?:that|it|this) (?:simpler|less technical))|"
+        r"make (?:that|it|this) (?:(?:even |much |a bit )?simpler|less technical))|"
         r"(?:bunu )?daha (?:basit|sade) (?:anlat|açıkla)(?:ır mısın|r mısın)?|"
         r"(?:bunu )?(?:basitleştir|sadeleştir)", clean, re.I,
     ):
