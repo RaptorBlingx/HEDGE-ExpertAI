@@ -1,0 +1,4 @@
+# Reviewed false positives: public Store OpenAPI SHA-256 checksum, not a credential.
+# Exact historical commit/file/rule/line fingerprints only; new findings still fail.
+de2fc1bdcf1bff2a5c9a7704ee1c4813b8ce9dfd:docs/store-v1-managed-integration.md:generic-api-key:15
+3ee84f476c77e1322579c79daeb5fe187f88d0fd:docs/store-v1-managed-integration.md:generic-api-key:15

@@ -48,6 +48,11 @@ reported, not falsified or suppressed. Other scanners and protections are unchan
   tooling/policy and documentation. No deployed workspace was restarted for this
   integration. A local validation adapter is not proof of a production mesh.
 
+The full-history Gitleaks scan also passes. It initially flagged two historical
+occurrences of the public OpenAPI checksum as generic API keys. `.gitleaksignore`
+records only those exact commit/file/rule/line fingerprints, with a reason; no
+credential or general path/rule is exempted and history is not rewritten.
+
 Local receipts are retained under `/tmp/hedge-publish-evidence` and copied to a
 private durable final evidence directory. The publication receipt records the
 actual final SHA and re-fetched target. Private web/API access returns 404 with
