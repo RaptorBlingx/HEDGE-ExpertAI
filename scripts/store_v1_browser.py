@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from contextlib import asynccontextmanager, suppress
+from weakref import WeakValueDictionary
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
@@ -16,10 +17,23 @@ from scripts.store_v1_playground import ROOT, offline_playground
 
 def create_app(playground):
     app = FastAPI(title="Isolated Store evaluation", docs_url=None, redoc_url=None, openapi_url=None)
-    # A single evaluation process serializes turns, including streams. This
-    # avoids lost Valkey updates without adding a production locking subsystem.
+    # Serialize each session's turns in this single-process adapter. A complex
+    # turn must not hold up other sessions' prepared replies. Inactive locks are
+    # weakly held, so user-supplied session IDs cannot grow a persistent cache.
     turn_lock = asyncio.Lock()
     app.state.turn_lock = turn_lock
+    refresh_lock = asyncio.Lock()
+    app.state.refresh_lock = refresh_lock
+    session_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
+
+    def session_lock(session_id):
+        if session_id is None:
+            return asyncio.Lock()
+        lock = session_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            session_locks[session_id] = lock
+        return lock
 
     @app.middleware("http")
     async def local_boundary(request: Request, call_next):
@@ -48,7 +62,9 @@ def create_app(playground):
                 "snapshot_complete": False,
                 "embeddings": "real pinned E5" if os.getenv("STORE_PLAYGROUND_E5") == "true" else "unavailable; lexical fallback",
                 "intent": "real Rasa with confidence/health regex fallback" if os.getenv("RASA_ENABLED") == "true" else "regex fallback; Rasa unavailable",
-                "generation": "Ollama enabled; contextual explanations with source review" if os.getenv("STORE_PLAYGROUND_OLLAMA") == "true" else "Deterministic source quotations; Ollama not used",
+                "generation": ("Prepared source evidence; optional reasoning enabled for explicit complex requests"
+                               if os.getenv("STORE_REASONING_ENABLED") == "true" else
+                               "Prepared source evidence; Ollama not used for routine requests"),
                 "synchronization": sync_state,
                 "managed_workspace": hasattr(playground, "refresh"),
                 "simulation_controls": callable(getattr(playground, "simulate", None)),
@@ -73,7 +89,7 @@ def create_app(playground):
     async def refresh():
         if not hasattr(playground, "refresh"):
             raise HTTPException(status_code=404, detail="Managed workspace unavailable")
-        async with turn_lock:
+        async with refresh_lock:
             try:
                 return await asyncio.to_thread(playground.refresh)
             except Exception:
@@ -93,7 +109,7 @@ def create_app(playground):
 
     @app.post("/api/v2/chat")
     async def chat(request: ChatRequestV2):
-        async with turn_lock:
+        async with session_lock(request.session_id):
             try:
                 return await playground.converse(request)
             except HTTPException:
@@ -120,7 +136,7 @@ def create_app(playground):
     @app.post("/api/v2/chat/stream")
     async def stream(request: ChatRequestV2):
         async def events():
-            async with turn_lock:
+            async with session_lock(request.session_id):
                 yield 'data: {"type":"stage","stage":"retrieval"}\n\n'
                 queue = asyncio.Queue()
                 loop = asyncio.get_running_loop()

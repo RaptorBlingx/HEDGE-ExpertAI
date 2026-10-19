@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     HEDGE_STORE_TOKEN_FILE: str = ""
     HEDGE_STORE_TIMEOUT_SECONDS: float = Field(default=30.0, gt=0, le=120)
     HEDGE_STORE_MAX_RETRIES: int = Field(default=2, ge=0, le=3)
+    # Private Store workspace. Routine requests do not use generation.
+    STORE_REASONING_ENABLED: bool = False
+    STORE_REASONING_SECONDS: float = Field(default=8.0, gt=0, le=15)
+    STORE_SYNC_INTERVAL_SECONDS: int = Field(default=86400, ge=60, le=86400)
 
     # --- Ingestion ---
     INGEST_INTERVAL_SECONDS: int = 7200

@@ -16,7 +16,7 @@ from typing import Any, Literal
 # Only request scaffolding, not source limitations or functional requirements.
 _REQUEST_WORDS = set((
     "a an the app apps application applications please find search show me for to "
-    "that can could you i need looking recommend about with support supports does "
+    "that can could you i need looking recommend about with support supports does which "
     "do give want some available in on and "
     "preciso quero encontre encontrar procure mostre mostrar recomende por favor "
     "um uma os as o para de da do que pode podem voce aplicacao aplicacoes e "
@@ -26,7 +26,7 @@ _REQUEST_WORDS = set((
 _ACTIONS = (
     r"provides?|supports?|sends?|issues?|warns?|monitors?|displays?|shows?|collects?|"
     r"connects?|detects?|organizes?|measures?|forecasts?|predicts?|ingests?|notifies|notify|"
-    r"controls?|optimizes?|exports?|delivers?|reads?|logs?|works?|operates?|runs?|uses?|"
+    r"controls?|optimizes?|exports?|delivers?|reads?|logs?|works?|operates?|runs?|uses?|publishes|publish|manages|manage|"
     r"envia|enviam|fornece|fornecem|suporta|suportam|emite|emitem|avisa|avisam|"
     r"monitoriza|mostra|recolhe|conecta|deteta|detecta|preve|funciona|opera|usa|"
     r"unterstutzt|unterstutzen|sendet|senden|warnt|warnen|liefert|liefern|"
@@ -62,7 +62,7 @@ _SOURCE_WORDS = set((
 # Sparse functional labels are accepted only when the whole label is understood,
 # not simply because a requested word occurs somewhere in arbitrary prose.
 _LABEL_WORDS = set("energy sensor meter consumption reading readings monitoring forecasting prediction "
-                   "warning warnings alert alerts ingestion dashboard dashboards data telemetry "
+                   "warning warnings alert alerts ingestion dashboard dashboards data telemetry shared model models mapping mappings "
                    "demand remote control real time supplied sensor sensors trend analysis timestamped observations derived operator review evidence".split())
 _IGNORED_NOTE = re.compile(r"^(?:documentation|docs|see documentation|see docs)\.?$")
 _OPERATING = set("work works operate operates run runs use uses funciona opera usa arbeitet funktioniert".split())
@@ -124,8 +124,23 @@ class _Claim:
 def _source_clauses(text: str) -> Iterator[tuple[str, str]]:
     """Keep original spans even when a supported action coordination is split."""
     for span in re.split(r'(?<=[.!?])\s+|[;\n]', text):
-        for clause in re.split(rf'\s+(?:but|however|and|e|und)\s+(?=(?:does\s+not\s+|nao\s+)?(?:{_ACTIONS})\b)', _fold(span)):
-            yield span, clause
+        # HTML extraction can flatten adjacent metadata paragraphs. Recognize
+        # their explicit headings; retain the whole original span for evidence.
+        segments = re.split(r"\s+(?=(?:deployed instance(?: \(|:)|documentation:|"
+                            r"external service, accessible via its public url))", span, flags=re.I)
+        for segment in segments:
+            folded = _fold(segment)
+            shared_object = re.fullmatch(
+                rf"(?P<prefix>used to )?(?P<first>{_ACTIONS}) and (?P<second>{_ACTIONS}) (?P<body>.+)", folded)
+            if shared_object:
+                # Explicit coordinated predicates share their complete object,
+                # including its restrictions. Never share objects across sentences.
+                body = shared_object['body']
+                yield span, (shared_object['prefix'] or '') + shared_object['first'] + ' ' + body
+                yield span, shared_object['second'] + ' ' + body
+                continue
+            for clause in re.split(rf'\s+(?:but|however|and|e|und)\s+(?=(?:does\s+not\s+|nao\s+)?(?:{_ACTIONS})\b)', _fold(segment)):
+                yield span, clause
 
 
 def _qualification(clause: str, status: str, attributes: frozenset[str], *, channel_subject: bool,
@@ -209,10 +224,46 @@ def _claims(path: str, text: str, query_terms: set[str], names: list[str], synth
     labels = _terms(' '.join(_LABEL_WORDS))
     for paragraph in re.split(r"\n\s*\n", text):
         previous = []
+        purpose_context = False
         for span, clause in _source_clauses(paragraph):
             clause = re.sub(r"^(?:telemetry|features|capabilities|functionality|functionalidade|funktionen)\s+(?=(?:supports?|provides?|envia|unterstutzt)\b)", "", clause)
             clause = clause.strip().rstrip('.!')
             if not clause or _IGNORED_NOTE.fullmatch(clause):
+                previous = []
+                continue
+            # README provenance is not a functional predicate or an App-wide
+            # restriction. Recognize only complete bounded metadata forms;
+            # negation/qualifications/instructions still require assessment.
+            provenance = clause
+            for name in names:
+                if provenance.startswith(_fold(name) + ' '):
+                    provenance = provenance[len(_fold(name)) + 1:]
+                    break
+            if (not _NEGATION.search(provenance) and not _QUALIFIED.search(provenance)
+                    and not re.search(r"\b(?:ignore|disregard)\b", provenance)
+                    and re.fullmatch(
+                        r"(?:developed and operated by [\w -]{1,100}|"
+                        r"(?:deployed instance(?: \([^()]{1,100}\))?|documentation): https?://\S+|"
+                        r"vocabulary hub of [\w .-]{1,100} data space)", provenance)):
+                purpose_context = provenance.startswith('vocabulary hub of ')
+                previous = []
+                continue
+            # A short acronym label is not a predicate about every capability.
+            # Keep its uncertainty on the labelled topic (e.g. "SMS demo app"
+            # still prevents confirming production SMS), rather than discarding it.
+            if path == 'description' and re.fullmatch(r"[A-Z][A-Z0-9_-]{1,12} demo app[.!]?", span):
+                claims.append(_Claim(path, span, frozenset(_terms(span)), frozenset(),
+                                     'unresolved', 'feature'))
+                previous = []
+                continue
+            if re.fullmatch(r"no container image in the appstore registry", provenance):
+                claims.append(_Claim(path, span, frozenset(_terms('container image registry deployment')),
+                                     frozenset(), 'prohibition', 'feature'))
+                previous = []
+                continue
+            if provenance == 'external service, accessible via its public url':
+                claims.append(_Claim(path, span, frozenset(_terms('external service deployment offline')),
+                                     frozenset(), 'condition', 'feature'))
                 previous = []
                 continue
             for name in names:
@@ -230,7 +281,10 @@ def _claims(path: str, text: str, query_terms: set[str], names: list[str], synth
             status = 'qualified' if _NEGATION.search(clause) or _QUALIFIED.search(clause) else 'affirmed'
             if '?' in clause or re.search(r"\b(?:ignore|disregard)\b.*\binstructions\b", clause):
                 status = 'unresolved'
-            assertion_text = re.sub(rf'^(?:{_APP}) is designed to\s+', '', clause)
+            assertion_text = re.sub(rf'^(?:{_APP}) is (?:designed|used) to\s+', '', clause)
+            if purpose_context and assertion_text.startswith('used to '):
+                assertion_text = assertion_text[len('used to '):]
+                purpose_context = False
             action = _ACTION.fullmatch(assertion_text)
             state = _STATE.fullmatch(clause)
             purpose = next((value for value in declarations if assertion_text == value or

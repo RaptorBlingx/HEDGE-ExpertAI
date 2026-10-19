@@ -9,6 +9,7 @@ from typing import Any
 
 from hedge_shared.models_v2 import AppMetadataV2
 from hedge_shared.storage import catalogue_index_app, get_catalogue_apps
+from hedge_shared.store_knowledge import PREPARATION_VERSION
 from hedge_shared.store_v1 import StoreAppMetadata, validate_offline_store_scope
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import (
@@ -213,6 +214,7 @@ def apply_operations(
                         **(authoritative.recommendation_projection()
                            if store_id is not None else row["payload"]),
                         "_index_revision": revision,
+                        **({"_index_preparation_version": PREPARATION_VERSION} if store_id is not None else {}),
                         "_index_model": os.getenv(
                             "EMBEDDING_MODEL", "intfloat/multilingual-e5-small"
                         ),

@@ -1,5 +1,7 @@
 # Expert conversation over Store evidence
 
+Local performance work on 2026-10-19 changes the default request path; see [prepared Store discovery](prepared-store-discovery.md). Routine replies now use prepared source evidence, with explicit bounded reasoning opt-in. The implementation and measurements below describe their earlier revision; the running workspace has not been changed by the local performance task.
+
 Review branch starts at `4fa7a6e`. The private preview remains
 [127.0.0.1:8098](http://127.0.0.1:8098); the frozen reference at `fa06952` was read
 only. No new Jira identifier was assigned.

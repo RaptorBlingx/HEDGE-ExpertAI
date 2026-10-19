@@ -120,7 +120,7 @@ def conversation():
     explain = Mock(return_value={'message': 'Different purposes. [1] [2]', 'decision': 'answer', 'focus': ['1', '2'],
                                  'generation': {'source': 'ollama', 'reason': 'reviewed_source_synthesis'}})
     search = AsyncMock(return_value={'apps': deepcopy(RESULTS), 'message': 'unused legacy narrative'})
-    policy = policy_module.StoreConversation(search, resolve, lambda *a: 'source fields', interpret, explain)
+    policy = policy_module.StoreConversation(search, resolve, lambda *a: 'source fields', interpret, explain, routine=False)
     context = {'last_results': deepcopy(RESULTS), 'focused_ids': ['local-a'], 'turn': 2}
     return policy, apps, interpret, explain, search, context
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import json
+import logging
 import os
 import uuid
 from contextlib import ExitStack, asynccontextmanager, contextmanager
@@ -20,6 +21,8 @@ from urllib.parse import urlparse
 
 from fastapi import FastAPI, HTTPException
 from hedge_shared import models_v2, storage, store_sync
+from hedge_shared.config import Settings
+from hedge_shared.store_knowledge import PREPARATION_VERSION, project
 from hedge_shared.store_v1 import StoreAppMetadata
 from qdrant_client import QdrantClient, models
 
@@ -56,6 +59,9 @@ def repair_store_index(
                     or point.payload.get("_index_revision") != row["revision"]
                     or point.payload.get("store_id") != store_id
                     or point.payload.get("app_id") != app.app_id
+                    or point.payload.get("_index_preparation_version") != PREPARATION_VERSION
+                    or point.payload.get("_index_model") != os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
+                    or point.payload.get("_index_model_revision") != os.getenv("EMBEDDING_MODEL_REVISION", "main")
                 ):
                     applied = indexer.apply_operations(
                         vector,
@@ -131,6 +137,13 @@ def workspace():
             captured_at=captured_at,
         )
     repair_store_index(store_id, vector, indexer, collection)
+    # An unchanged vector index does not load the query encoder. Warm it before
+    # serving, as Discovery's existing lifespan does, rather than on a user's turn.
+    if os.getenv("STORE_PLAYGROUND_E5") == "true":
+        try:
+            discovery("embeddings").encode_single("catalogue readiness")
+        except Exception:
+            logging.getLogger(__name__).warning("Query encoder warmup unavailable; lexical retrieval remains usable")
 
     def refresh() -> dict[str, Any]:
         try:
@@ -161,7 +174,7 @@ def workspace():
             identities = [row["id"] for row in store_sync.members(store_id) if row["available"]]
         rows = storage.get_catalogue_apps(identities, store_id=store_id)
         return [
-            StoreAppMetadata.model_validate(rows[i]["payload"]).recommendation_projection()
+            project(rows[i])
             for i in identities
             if i in rows
         ]
@@ -189,15 +202,11 @@ def workspace():
         # Keep retrieval orchestration deterministic. Dialogue owns bounded model
         # interpretation and reviewed synthesis after authoritative App selection.
         stack.enter_context(patch.object(recommend, "OllamaClient", no_model))
-        if os.getenv("STORE_PLAYGROUND_OLLAMA") == "true":
-            policy = policy_module.StoreConversation(
-                search, resolve, recommend._recommendation_narrative,
-                answers.plan, answers.respond, lambda: store_sync.status(store_id),
-            )
-        else:
-            policy = policy_module.StoreDialogue(
-                search, resolve, recommend._recommendation_narrative, catalogue_references=True,
-            )
+        policy = policy_module.StoreConversation(
+            search, resolve, recommend._recommendation_narrative,
+            answers.plan, answers.respond, lambda: store_sync.status(store_id),
+            decide=recommend._recommendation_decision,
+        )
         playground = Playground(chat, recommend, models_v2, [], policy)
         playground.source = "managed-authorized-store"
         playground.refresh = refresh
@@ -215,8 +224,8 @@ async def lifespan(app):
 
         async def polling():
             while True:
-                await asyncio.sleep(7200)
-                async with ui.state.turn_lock:
+                await asyncio.sleep(Settings().STORE_SYNC_INTERVAL_SECONDS)
+                async with ui.state.refresh_lock:
                     try:
                         await asyncio.to_thread(playground.refresh)
                     except Exception:

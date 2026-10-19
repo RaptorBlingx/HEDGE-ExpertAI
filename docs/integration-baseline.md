@@ -181,3 +181,13 @@ multilingual dialogue, training or proposal KPIs.
    complete sessions. Define denominators, timing boundaries, and retained
    evidence before declaring success. See [evaluation guide](evaluation-and-testing.md)
    and [traceability](traceability-matrix.md); no KPI is newly marked achieved here.
+
+
+## Local performance implementation — 2026-10-19
+
+[Prepared Store discovery](prepared-store-discovery.md) extends the existing private
+workspace and SCRUM-39 boundary with incremental source preparation and routine
+responses without generation. It is local, undeployed work; its dependency
+composition and measured timing boundary are documented explicitly. It does not
+authorize public indexing, establish real-corpus suitability KPIs or resolve the
+daily-sync/two-hour freshness conflict.

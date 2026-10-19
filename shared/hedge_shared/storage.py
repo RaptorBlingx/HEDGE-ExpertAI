@@ -200,10 +200,9 @@ def upsert_catalogue_app(
     Returns ``created``, ``updated``, or ``unchanged``.
     """
     store_app = isinstance(app, StoreAppMetadata)
-    # Store derived values are recomputed on read, not accepted as source facts.
+    # Computed Store identity/eligibility are excluded from the authoritative payload.
     excluded = {"checksum", "id", "public_eligible"} if store_app else {"checksum"}
     payload = app.model_dump(mode="json", exclude=excluded)
-    search_document = app.to_index_text("en")
     checksum = app.checksum
     if store_app and source_updated_at is not None:
         raise ValueError("Store v1 has no confirmed source update timestamp")
@@ -219,7 +218,7 @@ def upsert_catalogue_app(
         _lock_catalogue_source(cursor, source=run["source"], store_id=native_store)
         cursor.execute(
             """
-            SELECT checksum, revision, schema_version, active, last_seen_run_id
+            SELECT checksum, revision, schema_version, active, last_seen_run_id, prepared_knowledge
             FROM catalog_apps WHERE id = %s FOR UPDATE
             """,
             (app.id,),
@@ -235,6 +234,18 @@ def upsert_catalogue_app(
             )
             if cursor.fetchone()["source"] != run["source"]:
                 raise ValueError("catalogue key belongs to a different source")
+        from .store_knowledge import PREPARATION_VERSION, prepare
+
+        knowledge = existing.get("prepared_knowledge") if existing else None
+        prepared_current = (isinstance(knowledge, dict)
+                            and knowledge.get("version") == PREPARATION_VERSION
+                            and knowledge.get("checksum") == checksum
+                            and isinstance(knowledge.get("index_text"), str)
+                            and isinstance(knowledge.get("projection"), dict)
+                            and knowledge["projection"].get("id") == app.id)
+        if store_app and not prepared_current:
+            knowledge = prepare(app)
+        search_document = knowledge["index_text"] if store_app else app.to_index_text("en")
         if existing and existing["checksum"] == checksum and existing["active"] == active:
             cursor.execute(
                 """
@@ -242,10 +253,11 @@ def upsert_catalogue_app(
                 SET active = %s,
                     last_seen_run_id = %s,
                     search_document = %s,
+                    prepared_knowledge = %s::jsonb,
                     source_updated_at = COALESCE(%s, source_updated_at)
                 WHERE id = %s
                 """,
-                (active, run_id, search_document, source_updated_at, app.id),
+                (active, run_id, search_document, json.dumps(knowledge), source_updated_at, app.id),
             )
             return "unchanged"
 
@@ -256,14 +268,15 @@ def upsert_catalogue_app(
             INSERT INTO catalog_apps (
                 id, checksum, revision, schema_version, payload, search_document,
                 active, source_updated_at, last_seen_run_id, searchable_at,
-                source_store_id, source_app_id
+                source_store_id, source_app_id, prepared_knowledge
             )
-            VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, NULL, %s, %s)
+            VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, NULL, %s, %s, %s::jsonb)
             ON CONFLICT (id) DO UPDATE SET
                 checksum = EXCLUDED.checksum,
                 revision = EXCLUDED.revision,
                 payload = EXCLUDED.payload,
                 search_document = EXCLUDED.search_document,
+                prepared_knowledge = EXCLUDED.prepared_knowledge,
                 active = EXCLUDED.active,
                 source_store_id = EXCLUDED.source_store_id,
                 source_app_id = EXCLUDED.source_app_id,
@@ -284,6 +297,7 @@ def upsert_catalogue_app(
                 run_id,
                 native_store,
                 native_app,
+                json.dumps(knowledge),
             ),
         )
         cursor.execute(
@@ -524,7 +538,7 @@ def get_catalogue_apps(
         params.append(store_id)
     with connection() as conn, conn.cursor() as cursor:
         cursor.execute(
-            "SELECT id, revision, payload FROM catalog_apps "
+            "SELECT id, revision, checksum, payload, prepared_knowledge FROM catalog_apps "
             f"WHERE id = ANY(%s) AND active = true AND {scope}",
             params,
         )

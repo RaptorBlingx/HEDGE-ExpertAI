@@ -51,6 +51,9 @@ def test_model_abstention_remains_abstention_at_gateway(chain, monkeypatch, stre
         'rank':1, 'relevance':'high',
     }])
     recommender = sys.modules['scrum28_expert_recommend.recommender']
+    decision = recommender._recommendation_decision
+    monkeypatch.setattr(recommender, '_recommendation_decision',
+                        lambda q, r, loc: decision(q, r, loc, allow_model=True))
     monkeypatch.setattr(recommender, 'OllamaClient', lambda: SimpleNamespace(
         chat_structured=lambda *args: '{"selected_ids":[]}',
     ))
@@ -157,6 +160,9 @@ def test_model_failure_cannot_promote_unavailable_claims_or_destroy_coherent_sup
                'abstention': '{"selected_ids":[]}', 'valid': '{"selected_ids":["qa"]}'}
     generation = Mock(side_effect=errors.get(failure), return_value=outputs.get(failure))
     recommender = sys.modules['scrum28_expert_recommend.recommender']
+    decision = recommender._recommendation_decision
+    monkeypatch.setattr(recommender, '_recommendation_decision',
+                        lambda q, r, loc: decision(q, r, loc, allow_model=True))
     monkeypatch.setattr(recommender, 'OllamaClient', lambda: SimpleNamespace(chat_structured=generation))
     response = chain.gc.post('/api/v2/chat' + ('/stream' if stream else ''),
                              json={'message': 'earthquake warnings SMS'})

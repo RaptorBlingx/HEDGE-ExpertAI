@@ -26,7 +26,7 @@ recommendation orchestration, RRF and escaped source quotations.
 Replaced: inter-service HTTP calls with local Python bridges.
 Default: regex NLU and lexical fallback; no model or fake-vector simulation.
 Optional real pinned E5: launcher --embeddings. Experimental real Rasa: --rasa.
-Default narratives: deterministic quotations. Optional --ollama: validated model-selected source sentences.
+Default replies: prepared source evidence. Optional --ollama: bounded reasoning for explicit deep requests.
 Details/comparisons resolve current published Apps; absent metadata stays absent.
 Commands: :mode chat | :mode search | :filters JSON | :records | :help | :quit
 Default: chat. 'reset' clears context. Filters persist until :filters {}.
@@ -176,6 +176,7 @@ def offline_playground():
         stack.enter_context(patch.object(recommend, "_search_apps_v2", search))
         if os.getenv("STORE_PLAYGROUND_OLLAMA") != "true":
             stack.enter_context(patch.object(recommend, "OllamaClient", unavailable))
+        from hedge_shared.store_knowledge import project
         from hedge_shared.store_v1 import StoreAppMetadata
 
         def resolve(identities):
@@ -186,16 +187,16 @@ def offline_playground():
                 if identity in rows:
                     app = StoreAppMetadata.model_validate(rows[identity]["payload"])
                     if app.id == identity and app.store_id == store_id and app.public_eligible:
-                        apps.append(app.recommendation_projection())
+                        apps.append(project(rows[identity]))
             return apps
 
         async def policy_search(**kwargs):
             return playground.recommend(**kwargs)
 
-        policy = importlib.import_module(chat.__package__ + ".store_dialogue").StoreDialogue(
-            policy_search, resolve, recommend._recommendation_narrative,
-            generate=recommend.grounded_store_response if os.getenv("STORE_PLAYGROUND_OLLAMA") == "true" else None,
-        )
+        policy_type = importlib.import_module(chat.__package__ + ".store_conversation").StoreConversation
+        answers = importlib.import_module(recommend.__package__ + ".store_conversation")
+        policy = policy_type(policy_search, resolve, recommend._recommendation_narrative,
+                             answers.plan, answers.respond, decide=recommend._recommendation_decision)
         playground = Playground(chat, recommend, models_v2, records, policy)
 
         # Retain counts/revisions from actual persistence and index operations,

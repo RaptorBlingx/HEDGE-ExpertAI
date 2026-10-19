@@ -7,6 +7,7 @@ import re
 from collections.abc import Awaitable, Callable
 
 from hedge_shared.models_v2 import ChatRequestV2
+from hedge_shared.store_language import dialogue_language, localize_prose, search_language
 
 from .routes import _ORDINALS
 
@@ -38,7 +39,7 @@ _SOURCE_READ = re.compile(
     r"(?:show|quote|list)(?: me)? (?:the )?(" + "|".join(_SOURCE_FIELDS) +
     r")(?: (?:for|of) (.+?))?[?!.]*", re.I,
 )
-_REFERENCE = re.compile(r"\b(it|that app|this app|both|them|these apps|those apps)\b", re.I)
+_REFERENCE = re.compile(r"\b(it|that app|this app|both|them|these apps|those apps|the other (?:app|one))\b", re.I)
 
 
 def _mentions(app: dict, message: str) -> bool:
@@ -58,24 +59,32 @@ class StoreDialogue:
     def __init__(self, recommend: Callable[..., Awaitable[dict]],
                  resolve: Callable[[list[str] | None], list[dict]],
                  describe: Callable[[str, list[dict], str], str],
-                 generate: Callable[..., dict] | None = None, *, catalogue_references: bool = False):
+                 generate: Callable[..., dict] | None = None, *, catalogue_references: bool = False,
+                 assess_requirements: bool = False, decide: Callable[..., dict] | None = None):
         self.recommend = recommend
         self.resolve = resolve
         self.describe = describe
         self.generate = generate
         self.catalogue_references = catalogue_references
+        self.assess_requirements = assess_requirements
+        self.decide = decide
 
     def route_intent(self, message: str, intent: str) -> str:
         """Explicit Store entities/references outrank statistical small-talk labels."""
+        message = dialogue_language(message, "tr")
         if not self.catalogue_references or intent == "reset":
             return intent
-        if re.match(r"^(?:please\s+)?compare\b", message, re.I):
+        if re.match(r"^(?:please\s+)?compare\b|^how do (?:these|those|they|the apps) differ[?!.]*$", message, re.I):
             return "compare"
         if _BROWSE.fullmatch(message.strip()):
             return "search"
+        if re.fullmatch(r"(?:please\s+)?show me (?:the )?(?:first|second|third|fourth|fifth|[1-5]) app[?!.]*", message, re.I):
+            return "detail"
         if not _SOURCE_READ.fullmatch(message.strip()) and re.match(
             r"^(?:please\s+)?(?:find|search|recommend|show me)\b", message, re.I
         ):
+            return "search"
+        if re.search(r"\buygulama(?:ları)? (?:bul|öner)[?!.]*$", message, re.I):
             return "search"
         known = any(_mentions(app, message) for app in self.resolve(None))
         reference = bool(re.search(r"\b(?:first|second|third|fourth|fifth) app\b", message, re.I) or
@@ -88,7 +97,13 @@ class StoreDialogue:
         return await self.respond(req, intent, context)
 
     async def respond(self, req: ChatRequestV2, intent: str, context: dict) -> dict:
-        response = await self._respond(req, intent, context)
+        normalized = dialogue_language(req.message, req.locale)
+        if re.fullmatch(r"how do (?:these|those|they|the apps) differ[?!.]*", normalized, re.I):
+            normalized = "Compare both"
+        # Route the normalized control grammar, retaining the actual request locale.
+        routed = self.route_intent(normalized, intent)
+        response = await self._respond(req.model_copy(update={"message": normalized}), routed, context)
+        response["message"] = localize_prose(response["message"], req.locale)
         if self.generate and response.get("intent") != "source_fields":
             rendered = await asyncio.to_thread(self.generate, req.message, response["apps"],
                                                req.locale, response["intent"], response["message"])
@@ -131,11 +146,23 @@ class StoreDialogue:
             context = {**context, "last_results": [{"app": app, "rank": i + 1}
                        for i, app in enumerate(sorted(current, key=lambda a: a["app_id"])[:5])]}
         previous = [item.get("app", item)["id"] for item in context.get("last_results", [])]
+        for app in current:
+            native = rf"(?<!\w){re.escape(app['app_id'])}(?!\w)"
+            if (re.search(native, message, re.I) and not re.search(native, message)
+                    and not (app.get("name") and re.search(
+                        rf"(?<!\w){re.escape(app['name'])}(?!\w)", message, re.I))):
+                return self._response("App IDs are case-sensitive. Please use the exact ID or the App's name.",
+                                      [], "clarify", context)
         named_apps = [app for app in current if _mentions(app, message)]
         named = [app["id"] for app in named_apps]
         ordinals = [index for token, index in _ORDINALS.items()
-                    if re.search(rf"\b{re.escape(token)}\b", message, re.I)]
+                    if (intent in {"detail", "compare"} or source_read)
+                    and re.search(rf"\b{re.escape(token)}\b", message, re.I)]
         targeted = bool(source_read) or intent in {"detail", "compare"} or bool(ordinals) or bool(_REFERENCE.search(message))
+        if targeted and len(named_apps) > 1 and not any(
+            app["app_id"] in message for app in named_apps
+        ) and len({(app.get("name") or "").casefold() for app in named_apps}) < len(named_apps):
+            return self._response("Multiple Apps have that name. Please use the exact native App ID.", [], intent, context)
         selected = named if targeted else []
         if targeted and not selected:
             if intent == "compare" and re.search(r"\bfirst (two|three|2|3)\b", message, re.I):
@@ -144,16 +171,21 @@ class StoreDialogue:
             elif ordinals:
                 # Any unresolved ordinal fails instead of silently comparing a subset.
                 selected = [previous[i] for i in sorted(set(ordinals))] if max(ordinals) < len(previous) else []
+            elif re.search(r"\bthe other (?:app|one)\b", message, re.I):
+                alternatives = [i for i in previous if i not in context.get("focused_ids", [])]
+                selected = alternatives if len(context.get("focused_ids", [])) == 1 and len(alternatives) == 1 else []
             elif _REFERENCE.search(message):
                 selected = previous if intent == "compare" or re.search(r"\b(both|them|these apps|those apps)\b", message, re.I) else context.get("focused_ids", [])
         selected = list(dict.fromkeys(selected))
-        unsupported = _PRICE.search(message) or _UNSUPPORTED_METADATA.search(message)
+        unsupported = _PRICE.search(message) or (
+            _UNSUPPORTED_METADATA.search(message) if not self.assess_requirements else False)
         filters = req.filters.model_dump(mode="json")
         if targeted or intent == "refine":
             filters = {**(context.get("filters") or {}),
                        **{k: v for k, v in filters.items() if v not in (None, [], "")}}
         invalid_filters = any(v not in (None, [], "") for k, v in filters.items() if k != "publisher")
-        if self.catalogue_references and selected and _PRICE.search(message) and not source_read:
+        if (self.catalogue_references and selected and _PRICE.search(message) and not source_read
+                and not re.search(r"\b(?:only|free|without|instead|not)\b", message, re.I)):
             # A cost question asks for supplied values, never a free/paid verdict.
             # Unsupported filters still fail closed below; this does not rank by price.
             source_read = _SOURCE_READ.fullmatch("Show billing fields")
@@ -214,8 +246,10 @@ class StoreDialogue:
                     # Statuses are normalized enums, never raw publisher strings.
                     status = status if status in {"missing", "too_large", "malformed", "unsupported_shape",
                                                    "no_supported_text", "not_projected", "extracted"} else "unavailable"
-                    lines.append(f"App {result['rank']}: requested source evidence is {status}. "
-                                 "Missing projected evidence does not establish absence of a capability.")
+                    lines.append((f"Uygulama {result['rank']}: istenen kaynak kanıtının durumu: {status}. "
+                                  "Eksik kaynak kanıtı, özelliğin bulunmadığını kanıtlamaz.") if req.locale == "tr" else
+                                 (f"App {result['rank']}: requested source evidence is {status}. "
+                                  "Missing projected evidence does not establish absence of a capability."))
             next_context = {**context, "filters": filters, "focused_ids": selected}
             return self._response("\n".join(lines), results, "source_fields", next_context)
         if (unsupported and not (self.catalogue_references and selected and not _PRICE.search(message))) or invalid_filters:
@@ -253,6 +287,18 @@ class StoreDialogue:
                 )
             results = [{"app": app, "rank": i + 1, "evidence_fields": ["reference"]}
                        for i, app in enumerate(apps)]
+            functional_question = search_language(message, req.locale)
+            if (self.decide and re.search(r"^(?:does|can)\b|\bsupports?\b|\bcompatible\b", functional_question, re.I)
+                    and not re.match(r"^can you (?:show|list|describe|explain|tell|find|search)\b", functional_question, re.I)):
+                # Reuse Expert's exact decision/abstention boundary, with only
+                # identity scaffolding removed. No second suitability checker.
+                for app in apps:
+                    for value in (app.get("name"), app["app_id"]):
+                        if value:
+                            functional_question = re.sub(rf"(?<!\w){re.escape(value)}(?!\w)", "", functional_question, flags=re.I)
+                decision = self.decide(functional_question, results, req.locale)
+                return {**decision, "intent": "detail", "context": {
+                    **context, "filters": filters, "focused_ids": selected}}
             text = "Supplied source fields only; missing metadata cannot be confirmed.\n" + self.describe(message, results, req.locale)
             if intent == "compare":
                 text = "Source-field comparison only; no superiority or suitability is inferred.\n" + text
@@ -267,7 +313,9 @@ class StoreDialogue:
 
         # Remove only request boilerplate, not content terms or negation. Dense
         # retrieval (when available) still receives the remaining natural query.
-        query = _search_query(message)
+        query = _search_query(search_language(message, req.locale))
+        if req.locale == "tr":
+            query = re.sub(r"\s+(?:for\s+)?apps?\s+(?:find|recommend)$", "", query, flags=re.I)
         # Preserve capability constraints when a request also mentions an App name.
         # Only a query consisting of names/connectors is an identity lookup.
         remainder = query
@@ -289,7 +337,7 @@ class StoreDialogue:
             response["message"] = ("Retrieved source records; order does not establish suitability.\n"
                                    + response["message"])
         if not response["apps"]:
-            response["message"] += " A missing match does not establish that a product lacks a feature."
+            response["message"] += (" Eşleşme bulunmaması ürünün bu özelliğe sahip olmadığını kanıtlamaz." if req.locale == "tr" else " A missing match does not establish that a product lacks a feature.")
         return {**response, "intent": intent, "context": next_context}
 
     @staticmethod

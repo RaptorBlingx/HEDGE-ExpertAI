@@ -49,7 +49,7 @@ def test_failed_retrieval_stream_emits_problem_and_never_success():
         assert not any(e["type"] in {"complete", "recommendations"} for e in output)
 
 
-def test_overlapping_browser_turns_are_serialized():
+def test_overlapping_browser_turns_in_one_session_are_serialized():
     active = 0
     peak = 0
 
@@ -63,7 +63,7 @@ def test_overlapping_browser_turns_are_serialized():
 
     with TestClient(create_app(playground(converse)), base_url="http://127.0.0.1:8091") as client:
         with ThreadPoolExecutor(max_workers=2) as pool:
-            responses = list(pool.map(lambda _: client.post("/api/v2/chat/stream", json={"message": "question"}), range(2)))
+            responses = list(pool.map(lambda _: client.post("/api/v2/chat/stream", json={"message": "question", "session_id": "same"}), range(2)))
         assert all("complete" in response.text for response in responses)
         assert peak == 1
 
@@ -147,3 +147,63 @@ def test_legacy_session_restores_source_number_without_reassigning_identity():
         response = client.get('/api/v2/sessions/legacy')
         assert response.status_code == 200
         assert response.json()['apps'] == [{'app': second, 'rank': 2, 'evidence_fields': ['reference']}]
+
+
+def test_catalogue_preparation_does_not_lock_out_routine_chat():
+    import asyncio
+    from threading import Event
+
+    import httpx
+
+    entered, release = Event(), Event()
+    async def converse(request):
+        return {'message':'source evidence', 'apps':[]}
+    evaluation = playground(converse)
+    def refresh():
+        entered.set()
+        if not release.wait(3):
+            raise RuntimeError('Test did not release synchronization')
+        return {'status':'updated'}
+    evaluation.refresh = refresh
+    async def probe():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app(evaluation)),
+                                     base_url='http://127.0.0.1:8091') as client:
+            pending = asyncio.create_task(client.post('/evaluation/refresh'))
+            try:
+                assert await asyncio.to_thread(entered.wait, 1)
+                response = await asyncio.wait_for(client.post('/api/v2/chat',json={'message':'list apps'}),1)
+                assert response.status_code == 200
+            finally:
+                release.set()
+                await pending
+    asyncio.run(probe())
+
+
+def test_complex_turn_cannot_block_other_sessions_but_same_session_is_serialized():
+    import asyncio
+
+    import httpx
+
+    async def probe():
+        entered, release, second_entered = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        async def converse(request):
+            if request.message == 'complex':
+                entered.set()
+                await release.wait()
+            elif request.session_id == 'same':
+                second_entered.set()
+            return {'message':'source evidence','apps':[]}
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=create_app(playground(converse))),
+                                     base_url='http://127.0.0.1:8091') as client:
+            pending = asyncio.create_task(client.post('/api/v2/chat',json={'message':'complex','session_id':'same'}))
+            await entered.wait()
+            queued = asyncio.create_task(client.post('/api/v2/chat',json={'message':'ordinary','session_id':'same'}))
+            try:
+                response = await asyncio.wait_for(client.post('/api/v2/chat',json={'message':'ordinary','session_id':'other'}),1)
+                assert response.status_code == 200 and not second_entered.is_set()
+            finally:
+                release.set()
+                await pending
+                await queued
+            assert second_entered.is_set()
+    asyncio.run(probe())

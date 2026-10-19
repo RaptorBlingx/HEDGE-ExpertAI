@@ -37,7 +37,7 @@ def browser(offline, monkeypatch):
     interpret = Mock(return_value={'action':'browse','apps':[],'query':'available Apps'})
     explain = Mock(return_value={'decision':'answer','focus':['1','2','3'],'message':'These Apps serve different purposes. [1] [2]',
         'generation':{'source':'ollama','reason':'reviewed_source_synthesis'}})
-    policy = policy_module.StoreConversation(search, resolve, recommender._recommendation_narrative, interpret, explain)
+    policy = policy_module.StoreConversation(search, resolve, recommender._recommendation_narrative, interpret, explain, routine=False)
     playground = Playground(chat, recommender, __import__('hedge_shared.models_v2',fromlist=['ChatRequestV2']), [], policy)
     playground.catalogue = resolve
     monkeypatch.setattr(chat, 'classify', lambda text:SimpleNamespace(intent='help',source='rasa',confidence=1.0))
@@ -328,7 +328,7 @@ def test_retrieved_candidates_do_not_force_unasked_comparisons_or_citations(brow
                            'evidence': {} if missing_initial_citations and len(inspected) == 1 else {target['key']: ['description']}})
     monkeypatch.setattr(expert, 'OllamaClient', lambda: SimpleNamespace(model='test', chat_structured=generate))
     explain.side_effect = expert.respond
-    request = {'message': 'Find Apps for energy'}
+    request = {'message': 'Find Apps for readings'}
     if streamed:
         output = events(client.post('/api/v2/chat/stream', json=request))
         result = output[-1]

@@ -181,3 +181,29 @@ def test_index_failure_retains_pending_work_and_lexical_retrieval(offline, monke
     monkeypatch.setattr(client, "upsert", upsert)
     repair_store_index(STORE, client, indexer, collection)
     assert store_sync.status(STORE)["index_pending"] == 0
+
+
+def test_preparation_and_embedding_versions_rebuild_without_reencoding_unchanged_apps(offline,monkeypatch):
+    from unittest.mock import Mock
+
+    from qdrant_client import models
+
+    client, collection, *_ = offline
+    observe([row('Prepared-A')])
+    encode = Mock(wraps=indexer.encode)
+    monkeypatch.setattr(indexer,'encode',encode)
+    repair_store_index(STORE,client,indexer,collection)
+    assert encode.call_count == 1
+    revision = available()[identity('Prepared-A')]['revision']
+    repair_store_index(STORE,client,indexer,collection)
+    assert encode.call_count == 1
+    for key, value in [('_index_preparation_version',0),('_index_model_revision','old')]:
+        point = client.retrieve(collection,[indexer._app_id_to_int(identity('Prepared-A'))],
+                                with_payload=True,with_vectors=True)[0]
+        client.upsert(collection,[models.PointStruct(id=point.id,vector=point.vector,
+                          payload={**point.payload,key:value})],wait=True)
+        before = encode.call_count
+        repair_store_index(STORE,client,indexer,collection)
+        assert encode.call_count == before+1
+        assert available()[identity('Prepared-A')]['revision'] == revision
+    assert store_sync.status(STORE)['index_pending'] == 0

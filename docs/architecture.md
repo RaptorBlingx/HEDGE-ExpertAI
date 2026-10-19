@@ -11,7 +11,7 @@ Widget / validation console
           |
       Chat Intent ---- Valkey session state ---- PostgreSQL impressions/events
           |
-   Expert Recommend ---- Ollama/Qwen (validated output only)
+   Expert Recommend ---- Ollama/Qwen (optional bounded reasoning)
           |
   Discovery & Ranking ---- PostgreSQL FTS (independent candidates)
           |              \\ Qdrant/E5 (independent candidates)
@@ -40,6 +40,15 @@ local fallback. The fallback is not counted as multilingual KPI evidence.
 PostgreSQL full-text search and Qdrant dense search retrieve candidates independently. Ranked vector/cache references are checked against current PostgreSQL eligibility, revision, metadata and filters before fusion; vector failure leaves lexical retrieval usable. See [outbox and retrieval consistency](outbox-retrieval-consistency.md). Weighted reciprocal-rank fusion combines ranks, avoiding the false assumption that lexical and cosine scores are probabilities. Typed filters apply to both branches; semantic boosts are bounded and provenance-aware. Public responses expose only `high`, `medium` or `low` relevance.
 
 The E5 model uses `query:` and `passage:` prefixes and is pinned to an audited repository revision. Recommendation assessment is separate from retrieval: direct functional source evidence admits Apps; unresolved candidates remain explicitly unverified. Optional structured model selection can decline admitted Apps, including all of them, but cannot promote unsupported candidates or supply served factual prose. Code renders escaped, complete source quotations and retains source paths. Store extractive generation also permits search/refine abstention. See [recommendation suitability](recommendation-suitability.md) for the conservative textual boundary and acceptance limits.
+
+Routine v1/v2 recommendations and private Store conversations default to source
+assessment and prepared quotations without runtime generation. Versioned Store
+knowledge is prepared beside the source payload during incremental reconciliation;
+existing E5 passage indexing remains derived and rebuildable. The private workspace
+warms the query encoder before serving, polls daily by default, and uses separate
+refresh/per-session turn locks. Explicit complex turns can opt into the existing
+expert with a shared deadline and useful source fallback. See
+[prepared Store discovery and measured limits](prepared-store-discovery.md).
 
 ## Conversation and streaming
 

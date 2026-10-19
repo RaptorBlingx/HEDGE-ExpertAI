@@ -101,8 +101,10 @@ def test_metadata_answers_use_current_persisted_evidence_and_keep_withdrawal(con
     storage.upsert_catalogue_app(storage.create_ingestion_run("metadata-dialogue"), changed)
     # Match evidence absent from title/description through real PostgreSQL lexical search.
     found = conversation("thermaldiagnostic")
-    assert found["apps"][0]["app"]["id"] == identity
-    assert "lexical" in found["apps"][0]["evidence_fields"]
+    assert found["apps"] == []  # Simulation-only evidence is not a recommendation.
+    candidate = next(r for r in found["candidates"] if r["app"]["id"] == identity)
+    assert "lexical" in candidate["evidence_fields"]
+    conversation(f"Tell me about {app.app_id}")  # Explicit candidate inspection binds focus.
     readme = conversation("Show README for it")
     assert "readme:" in readme["message"] and "only in the simulator" in readme["message"]
     assert "unsafeSource" not in readme["message"]

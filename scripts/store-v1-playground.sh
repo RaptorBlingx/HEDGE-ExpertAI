@@ -4,6 +4,7 @@ set -euo pipefail
 umask 077
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 browser=false
+benchmark=false
 reuse_model_image=false
 metadata_demo=false
 real_embeddings=false
@@ -18,6 +19,7 @@ store_id=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --browser) browser=true; shift ;;
+        --benchmark) benchmark=true; shift ;;
         --metadata-demo) metadata_demo=true; shift ;;
         --reuse-model-image) reuse_model_image=true; shift ;;
         --embeddings) real_embeddings=true; shift ;;
@@ -226,7 +228,7 @@ if $real_ollama; then
         --mount "type=bind,source=$ollama_runtime,target=/opt/ollama,readonly" \
         --mount "type=bind,source=/home/ubuntu/.cache/hedge-store-ollama/models,target=/ollama-models" \
         --tmpfs "/.ollama:rw,size=16m,mode=700,uid=$(id -u),gid=$(id -g)")
-    model_env+=(-e STORE_PLAYGROUND_OLLAMA=true -e "OLLAMA_MODEL=$ollama_model" \
+    model_env+=(-e STORE_REASONING_ENABLED=true -e STORE_PLAYGROUND_OLLAMA=true -e "OLLAMA_MODEL=$ollama_model" \
         -e OLLAMA_MODELS=/ollama-models -e OLLAMA_HOST=127.0.0.1:11434 \
         -e OLLAMA_BASE_URL=http://127.0.0.1:11434 -e OLLAMA_NUM_PARALLEL=1 \
         -e OLLAMA_MAX_LOADED_MODELS=1 -e OLLAMA_NO_CLOUD=true -e OLLAMA_DEBUG=false)
@@ -234,6 +236,10 @@ fi
 terminal=()
 if [[ -t 0 && -t 1 ]]; then terminal=(-t); fi
 command=(scripts/store_v1_playground.py "$@")
+if $benchmark; then
+    if $browser; then echo 'Choose --benchmark or --browser' >&2; exit 1; fi
+    command=(-m evaluation.store_performance "$@")
+fi
 ports=()
 memory=512m
 if $real_embeddings; then memory=1024m; fi

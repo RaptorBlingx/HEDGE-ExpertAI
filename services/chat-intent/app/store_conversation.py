@@ -8,31 +8,91 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 
+from hedge_shared.config import Settings
 from hedge_shared.models_v2 import ChatRequestV2
 
 from .store_dialogue import _BROWSE, _SOURCE_READ, StoreDialogue, _mentions, _search_query
 
 # Preserve the existing application's explicit discovery boundary. A generative
 # planner must not turn a constrained search command into an unfiltered listing.
+_COMPLEX = re.compile(r"^(?:reason in depth|analyze in depth|ayrıntılı değerlendir):\s*", re.I)
 _NEW_SEARCH = re.compile(r"^(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?(?:find|search|recommend)\b", re.I)
 
 
 class StoreConversation(StoreDialogue):
-    def __init__(self, recommend, resolve, describe, interpret, explain, observation=None):
-        super().__init__(recommend, resolve, describe, catalogue_references=True)
+    def __init__(self, recommend, resolve, describe, interpret, explain, observation=None, *, routine=True, decide=None):
+        super().__init__(recommend, resolve, describe, catalogue_references=True, assess_requirements=routine, decide=decide if routine else None)
+        self.routine = routine
+        self.settings = Settings()
         self.interpret = interpret
         self.explain = explain
         self.observation = observation
         self.progress = lambda stage: None
 
     def route_intent(self, message: str, intent: str) -> str:
+        if self.routine:
+            return "conversation" if _COMPLEX.match(message) else super().route_intent(message, intent)
         return "reset" if intent == "reset" else "conversation"
 
     async def respond(self, req: ChatRequestV2, intent: str, context: dict) -> dict:
         return await self.respond_with_history(req, intent, context, [])
 
+    async def _prepared_response(self, req, intent, context, history, *, nlu=None):
+        started = time.monotonic()
+        complex_request = _COMPLEX.match(req.message)
+        request = req.model_copy(update={"message": req.message[complex_request.end():]}) if complex_request else req
+        routed = super().route_intent(request.message, (nlu or {}).get("intent", intent))
+        fallback = await super().respond(request, routed, context)
+        if not fallback["apps"]:
+            fallback.setdefault("decision", {"outcome": "abstained", "reason": "insufficient_evidence"})
+        fallback["generation"] = {"source": "prepared", "reason": "source_evidence", "model_completed": False}
+        if complex_request and self.settings.STORE_REASONING_ENABLED and fallback["apps"]:
+            # A single budget covers drafting and review. The expert checks the
+            # remaining budget before every model call; no repair loops here.
+            rows = fallback["apps"]
+            self.progress("explanation")
+            budget = self.settings.STORE_REASONING_SECONDS
+            try:
+                answer = await asyncio.wait_for(asyncio.to_thread(
+                    self.explain, request.message, rows, req.locale,
+                    "compare" if routed == "compare" else "answer", history,
+                    allow_repair=False, deadline=time.monotonic() + budget,
+                ), timeout=budget + 0.1)
+                if answer["generation"].get("source") == "ollama":
+                    # Optional prose never changes the routine evidence decision,
+                    # identity, order, focus or abstention.
+                    if rows and answer.get("decision") == "answer":
+                        fallback.update(message=answer["message"], generation=answer["generation"])
+                    elif answer.get("decision") == "no_match":
+                        fallback.update(message=answer["message"], apps=[],
+                            candidates=[*fallback.get("candidates", []), *[
+                                {**r, "suitability": {**r.get("suitability", {}), "status": "uncertain",
+                                                      "reason": "model_declined"}} for r in rows]],
+                            decision={"outcome": "abstained", "reason": "model_abstention"},
+                            generation=answer["generation"])
+                        fallback["context"].update(last_results=[], focused_ids=[])
+                else:
+                    fallback["generation"]["reason"] = "reasoning_fallback"
+            except Exception:
+                fallback["generation"]["reason"] = "reasoning_fallback"
+        elif complex_request:
+            fallback["generation"]["reason"] = ("reasoning_disabled" if not self.settings.STORE_REASONING_ENABLED
+                                                 else "insufficient_evidence")
+        visible = [*fallback["apps"], *fallback.get("candidates", [])]
+        fresh = {a["id"]: a for a in self.resolve([r["app"]["id"] for r in visible])}
+        if any(fresh.get(r["app"]["id"]) != r["app"] for r in visible):
+            fallback.update(message=("Yanıt hazırlanırken katalog değişti. Lütfen yeniden arayın." if req.locale == "tr"
+                                     else "The catalogue changed while preparing this reply. Please search again."),
+                            apps=[], candidates=[], decision={"outcome": "abstained", "reason": "catalogue_changed"})
+            fallback["context"].update(last_results=[], focused_ids=[])
+        fallback.setdefault("timings", {})["complete_seconds"] = time.monotonic() - started
+        return fallback
+
     async def respond_with_history(self, req, intent, context, history, *, nlu=None):
+        if self.routine:
+            return await self._prepared_response(req, intent, context, history, nlu=nlu)
         # Explicit inspection remains a source read, not generative paraphrasing.
         if _SOURCE_READ.fullmatch(req.message.strip()):
             return await super().respond(req, "detail", context)

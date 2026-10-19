@@ -286,3 +286,44 @@ def test_qualification_trace_preserves_complete_original_source_spans():
     assert limitation.kind == 'exclusive' and limitation.scope == 'feature'
     incomplete = next(c for c in claims if c.span == compound)
     assert not incomplete.complete and incomplete.status == 'unresolved'
+
+
+@pytest.mark.parametrize(('readme','supported'), [
+    ('Vocabulary hub of Example data space. Used to publish and manage shared data models and mappings. '
+     'Developed and operated by Example Labs. Deployed instance (Vocabulary Hub): https://example.invalid '
+     'Documentation: https://example.invalid/docs '
+     'External service, accessible via its public URL. No container image in the AppStore registry.', True),
+    ('Used to publish and manage shared data models and mappings. This feature is disabled.', False),
+    ('It used to publish and manage shared data models and mappings.', False),
+    ('Used to publish and manage shared data models and mappings.', False),
+    ('Used to publish and manage shared data models and mappings. Developed and operated by another App if installed.', False),
+])
+def test_complete_readme_purpose_and_provenance_preserve_qualifications(readme, supported):
+    app = {'source_profile':'hedge-store-v1','name':'Model Studio',
+           'source_evidence':{'readme':readme}}
+    assert (policy.assess('shared data models',app,'en')['status'] == 'source_supported') is supported
+
+
+def test_container_restriction_is_retained_when_requested():
+    app = {'source_profile':'hedge-store-v1','source_evidence':{
+        'readme':'Provides container deployment. No container image in the AppStore registry.'}}
+    assert policy.assess('container deployment',app,'en')['status'] == 'uncertain'
+
+
+@pytest.mark.parametrize(('label','supported'), [('LAB demo app',True),('SMS demo app',False)])
+def test_acronym_label_uncertainty_stays_on_its_topic(label,supported):
+    app={'source_profile':'hedge-store-v1','source_evidence':{
+        'description':label,'readme':'Provides data models. Delivers data models via SMS.'}}
+    assert (policy.assess('data models SMS',app,'en')['status'] == 'source_supported') is supported
+
+
+@pytest.mark.parametrize(('query','tail','supported'), [
+    ('publish shared data models','',True),
+    ('manage shared data models','',True),
+    ('publish shared data models',' only in simulation',False),
+    ('manage shared data models',' if an external service is installed',False),
+])
+def test_explicit_coordinated_purpose_keeps_shared_object_and_conditions(query,tail,supported):
+    app={'source_profile':'hedge-store-v1','source_evidence':{'readme':
+        'Vocabulary hub of Example data space. Used to publish and manage shared data models' + tail + '.'}}
+    assert (policy.assess(query,app,'en')['status'] == 'source_supported') is supported

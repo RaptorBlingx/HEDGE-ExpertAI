@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import re
 import time
+from contextvars import ContextVar
 from copy import deepcopy
 from datetime import date, datetime
 from typing import Annotated, Literal
@@ -17,6 +18,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
 
 from .llm_client import OllamaClient
 from .recommender import _quoted_store_text, _store_evidence
+
+_DEADLINE: ContextVar[float | None] = ContextVar("store_reasoning_deadline", default=None)
 
 
 class Plan(BaseModel):
@@ -93,8 +96,16 @@ def _infer(client, messages, schema, *, timeout, max_tokens, embedded_history=Tr
         messages.pop(2)
     if size() > context_tokens:
         raise ValueError("Evidence exceeds complete context budget")
+    deadline = _DEADLINE.get()
+    if deadline is not None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Reasoning budget exhausted")
+        timeout = min(timeout, remaining)
+        max_tokens = min(max_tokens, 256)
     return client.chat_structured(messages, schema, timeout=timeout, max_tokens=max_tokens,
-                                  context_tokens=context_tokens)
+                                  context_tokens=context_tokens,
+                                  **({"deadline": deadline} if deadline is not None else {}))
 
 
 def plan(question: str, locale: str, directory: list[dict], context: dict, history: list[dict]) -> dict:
@@ -157,7 +168,7 @@ def source_context(results: list[dict]) -> list[dict]:
                         "embedded_status": app.get("dataspace_description_status")})
     return sources
 
-def respond(question: str, results: list[dict], locale: str, intent: str, history: list[dict], *, progress=None, observation=None, references=None, allow_repair=True) -> dict:
+def respond(question: str, results: list[dict], locale: str, intent: str, history: list[dict], *, progress=None, observation=None, references=None, allow_repair=True, deadline=None) -> dict:
     start = time.monotonic()
     meta = {"source": "deterministic", "reason": "model_unavailable_or_timeout", "seconds": 0.0,
             "model_completed": False}
@@ -178,6 +189,7 @@ def respond(question: str, results: list[dict], locale: str, intent: str, histor
     data = {"current_sources": sources, "observation": state, "history": _history(history),
             "locale": locale, "question": question, "reference_bindings": references or {},
             "retrieval_complete": intent == "search"}
+    deadline_token = _DEADLINE.set(deadline)
     try:
         client = OllamaClient()
         messages = [
@@ -410,5 +422,6 @@ def respond(question: str, results: list[dict], locale: str, intent: str, histor
         if meta["model_completed"] and meta["reason"] != "grounding_review_rejected":
             meta["reason"] = "invalid_or_unreviewed_output"
     finally:
+        _DEADLINE.reset(deadline_token)
         meta["seconds"] = round(time.monotonic() - start, 3)
     return response

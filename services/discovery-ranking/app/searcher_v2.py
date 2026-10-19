@@ -14,6 +14,7 @@ from hedge_shared.models_v2 import (
     SearchFilters,
 )
 from hedge_shared.storage import get_catalogue_apps, lexical_search
+from hedge_shared.store_knowledge import project
 from hedge_shared.store_v1 import StoreAppMetadata, validate_offline_store_scope
 from qdrant_client import QdrantClient
 
@@ -166,6 +167,7 @@ def reciprocal_rank_fusion(
                 app_id,
                 {
                     "app": candidate["payload"],
+                    "prepared_projection": candidate.get("prepared_projection"),
                     "fusion_score": 0.0,
                     "sources": [],
                 },
@@ -193,14 +195,11 @@ def reciprocal_rank_fusion(
             else RelevanceBand.LOW
         )
         if public_payload.get("source_profile") == "hedge-store-v1":
-            app = StoreAppMetadata.model_validate(
+            app = row.get("prepared_projection") or StoreAppMetadata.model_validate(
                 {key: value for key, value in public_payload.items()
                  if key not in {"id", "public_eligible", "checksum"}}
-            )
-            results.append({
-                "app": app.recommendation_projection(), "rank": rank,
-                "evidence_fields": row["sources"],
-            })
+            ).recommendation_projection()
+            results.append({"app": app, "rank": rank, "evidence_fields": row["sources"]})
             continue
         results.append(
             {
@@ -244,14 +243,17 @@ def _resolve_rankings(
             except ValueError:
                 del rows[key]
                 continue
+            prepared = project(row)
             if (
                 app.store_id != store_id or app.id != key
-                or not app.public_eligible or not app.to_index_text()
+                or not app.public_eligible or not any(path not in {"billable", "price"}
+                    for path in prepared.get("source_evidence", {}))
             ):
                 del rows[key]
             else:
                 # Keep the authoritative source until final fusion projects safe evidence.
                 row["payload"] = app.model_dump(mode="json", exclude={"checksum"})
+                row["prepared_projection"] = prepared
     resolved = {"dense": [], "lexical": []}
     changed = False
     for source, candidates in rankings.items():
@@ -266,7 +268,8 @@ def _resolve_rankings(
                 changed = True
                 continue
             if item["id"] not in seen:
-                resolved[source].append({**item, "payload": row["payload"]})
+                resolved[source].append({**item, "payload": row["payload"],
+                                         **({"prepared_projection": row["prepared_projection"]} if store_id is not None else {})})
                 seen.add(item["id"])
     return resolved, changed
 

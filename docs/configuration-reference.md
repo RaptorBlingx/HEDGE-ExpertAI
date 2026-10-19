@@ -142,3 +142,16 @@ pinned E5 image in uniquely labelled private resources. Its backend reads
 token replacement, and attempts scoped read-only refresh every 7,200 seconds.
 The fixed local loopback browser port is 8098. Production scheduling/public indexing
 remain disabled; no dedicated credential acquisition or renewal flow is implied.
+
+
+### Prepared Store discovery
+
+The private workspace now defaults to daily synchronization
+(`STORE_SYNC_INTERVAL_SECONDS=86400`, range 60–86400). Routine discovery, details,
+filtering and comparison use prepared source evidence without runtime generation.
+`STORE_REASONING_ENABLED=false` leaves optional reasoning disabled;
+`STORE_REASONING_SECONDS=8` bounds the combined drafting/review time when enabled
+(maximum 15 seconds). Only explicit deep-reasoning turns opt in. The settings are
+passed by `scripts/store-workspace.sh`; the existing Compose services receive the
+shared `.env` settings. See [architecture and measurement boundaries](prepared-store-discovery.md).
+The daily schedule does not establish the proposal's stricter two-hour freshness target.

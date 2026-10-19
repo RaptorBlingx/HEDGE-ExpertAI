@@ -218,7 +218,7 @@ def test_store_projection_retains_visibility_without_indexing(
     assert params[3] == "hedge-store-v1"
     assert params[6] is (visible is True)
     assert params[7] is None  # registration is not an update timestamp
-    assert params[-2:] == ("Store", "App")
+    assert params[-3:-1] == ("Store", "App")
     assert json.loads(params[4])["visible"] is visible
     assert any("INSERT INTO catalog_app_revisions" in sql for sql, _ in cursor.executed)
     assert not any("indexing_outbox" in sql for sql, _ in cursor.executed)
