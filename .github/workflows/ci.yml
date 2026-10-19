@@ -117,8 +117,15 @@ jobs:
           npm ci
           node ../scripts/check_npm_licenses.mjs node_modules --output npm-licenses.json
           npm test
-          npm audit --audit-level=high
+          node --test ../scripts/check_npm_audit.test.mjs
+          node ../scripts/check_npm_audit.mjs
           npm run build
+      - name: Retain full and production npm audit evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: npm-audit-reports
+          path: frontend/npm-audit-reports/
       - name: Upload frontend licence inventory
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

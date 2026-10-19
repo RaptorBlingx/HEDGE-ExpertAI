@@ -215,6 +215,10 @@ uses structured selection rather than those free-form templates.
 
 ## Regression and verification evidence
 
+SCRUM-58's fresh integration verification and explicitly bounded development-only
+npm exception are recorded in [integration evidence](security/SCRUM-58-integration.md).
+The original audit failure below remains historical evidence, not a clean CI claim.
+
 - 1,058 unit tests pass with 93.58% shared-package branch coverage (80% gate).
   Source admission tests cover sparse positives, negation, simulation restrictions,
   unrelated limitations, README/embedded provenance, malformed optional fields,
