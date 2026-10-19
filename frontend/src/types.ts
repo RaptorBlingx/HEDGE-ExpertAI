@@ -60,6 +60,7 @@ export type RecommendedApp = {
   app: CatalogApp;
   rank: number;
   relevance: "high" | "medium" | "low";
+  suitability?: { status: "source_supported" | "uncertain"; reason: string; evidence_fields: string[] };
   evidence_fields: string[];
 };
 

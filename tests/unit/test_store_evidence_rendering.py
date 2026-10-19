@@ -126,7 +126,9 @@ def test_normal_and_streamed_recommendations_use_the_same_omission_and_statuses(
     monkeypatch.setattr(recommend, "_search_apps_v2", lambda *args, **kwargs: results)
     normal = recommend.recommend_v2(query="MQTT", locale="en", filters={}, limit=2)
     events = list(recommend.recommend_v2_stream(query="MQTT", locale="en", filters={}, limit=2))
-    assert normal["apps"] == events[0]["apps"] == results
+    assert normal["apps"] == events[0]["apps"] == []
+    assert [row["app"] for row in normal["candidates"]] == [row["app"] for row in results]
+    assert normal["candidates"] == events[0]["candidates"]
     assert normal["message"] == "".join(e["content"] for e in events if e["type"] == "explanation_delta")
     assert normal["explanations"] == events[-1]["explanations"]
     assert "complete quotation omitted" in normal["message"] and "too large" in normal["message"]

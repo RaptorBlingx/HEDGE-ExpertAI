@@ -572,6 +572,8 @@ async def run_chat_v2(req: ChatRequestV2, *, store_dialogue: StoreDialogue | Non
         "apps": apps,
         "impression_id": impression_id,
         "timings": timings,
+        **({key: recommendation[key] for key in ("decision", "candidates") if key in recommendation}
+           if intent not in {"greeting", "help", "out_of_scope"} else {}),
         **({"nlu": {"source": result.source, "intent": result.intent, "confidence": result.confidence},
             **({"generation": recommendation["generation"]} if intent not in {"greeting", "help", "out_of_scope"} and recommendation.get("generation") else {})}
            if store_dialogue else {}),
@@ -677,6 +679,7 @@ async def chat_stream_v2(req: ChatRequestV2):
         timings: dict = {}
         impression_id = None
         completed = False
+        decision: dict = {}
         try:
             async with httpx.AsyncClient() as client:
                 async with client.stream(
@@ -700,6 +703,7 @@ async def chat_stream_v2(req: ChatRequestV2):
                             continue
                         upstream_type = upstream.get("type")
                         if upstream_type == "recommendations":
+                            decision = upstream.get("decision", {})
                             apps = upstream.get("apps", [])
                             timings.update(upstream.get("timings", {}))
                             if apps:
@@ -715,6 +719,7 @@ async def chat_stream_v2(req: ChatRequestV2):
                             yield event(
                                 {
                                     "type": "recommendations",
+                                    **{key: upstream[key] for key in ("decision", "candidates") if key in upstream},
                                     "apps": apps,
                                     "impression_id": impression_id,
                                     "timings": timings,
@@ -779,6 +784,7 @@ async def chat_stream_v2(req: ChatRequestV2):
         yield event(
             {
                 "type": "complete",
+                **({"decision": decision} if decision else {}),
                 "impression_id": impression_id,
                 "intent": intent,
                 "timings": timings,

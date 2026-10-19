@@ -21,7 +21,10 @@ of copying them here.
 
 The [SCRUM-38 metadata correction](store-v1-metadata-preservation.md) retains useful
 App connector/type/billing fields, README evidence, embedded properties and versions
-through the current boundaries. The field map distinguishes declarations/reported
+through the current boundaries. The [SCRUM-39 recommendation boundary](recommendation-suitability.md)
+separates direct source support from retrieval rank, retains unverified candidates
+and preserves validated abstention. Offline regressions do not establish live
+semantic relevance or proposal quality KPIs. The field map distinguishes declarations/reported
 shapes from unverified live population and meaning; access/publication gates remain.
 
 ## Evidence and authority

@@ -234,11 +234,15 @@ def test_successful_results_preserve_response_and_impression(chain, monkeypatch,
     assert response.status_code == 200
     if stream:
         payloads = events(response)
-        assert next(e for e in payloads if e["type"] == "recommendations")["apps"] == [result]
+        returned = next(e for e in payloads if e["type"] == "recommendations")["apps"]
+        assert [{k: v for k, v in row.items() if k != "suitability"} for row in returned] == [result]
+        assert returned[0]["suitability"]["status"] == "source_supported"
         assert payloads[-1]["type"] == "complete"
         assert payloads[-1]["impression_id"] == "qa-impression"
     else:
-        assert response.json()["apps"] == [result]
+        returned = response.json()["apps"]
+        assert [{k: v for k, v in row.items() if k != "suitability"} for row in returned] == [result]
+        assert returned[0]["suitability"]["status"] == "source_supported"
         assert response.json()["impression_id"] == "qa-impression"
     chain.updates.assert_called_once()
 
