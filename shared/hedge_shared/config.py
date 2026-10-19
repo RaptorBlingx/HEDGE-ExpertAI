@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     HEDGE_API_URL: str = ""
     HEDGE_STORE_ID: str = ""
     HEDGE_STORE_TOKEN_FILE: str = ""
+    HEDGE_STORE_ISSUER: str = ""
+    HEDGE_STORE_CLIENT_ID: str = ""
+    HEDGE_STORE_CLIENT_SECRET_FILE: str = ""
     HEDGE_STORE_TIMEOUT_SECONDS: float = Field(default=30.0, gt=0, le=120)
     HEDGE_STORE_MAX_RETRIES: int = Field(default=2, ge=0, le=3)
     # Private Store workspace. Routine requests do not use generation.

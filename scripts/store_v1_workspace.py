@@ -100,10 +100,14 @@ def workspace():
     answers = __import__(recommend.__package__ + ".store_conversation", fromlist=["respond"])
     chat = load_service("workspace_chat", "chat-intent")("routes")
     policy_module = __import__(chat.__package__ + ".store_conversation", fromlist=["StoreConversation"])
+    settings = Settings()
     client = ingest("client").HedgeApiClient(
         "https://store.haslab-dataspace.pt/backend/api/v1",
         store_id=store_id,
-        token_file="/credentials/token",
+        token_file="" if settings.HEDGE_STORE_ISSUER else "/credentials/token",
+        credentials=(ingest("client").StoreClientCredentials(
+            settings.HEDGE_STORE_ISSUER, settings.HEDGE_STORE_CLIENT_ID,
+            settings.HEDGE_STORE_CLIENT_SECRET_FILE) if settings.HEDGE_STORE_ISSUER else None),
         timeout=20,
         max_retries=1,
     )
@@ -136,6 +140,7 @@ def workspace():
             managed_source="authorized_snapshot",
             captured_at=captured_at,
         )
+    storage.rebuild_store_knowledge(store_id)
     repair_store_index(store_id, vector, indexer, collection)
     # An unchanged vector index does not load the query encoder. Warm it before
     # serving, as Discovery's existing lifespan does, rather than on a user's turn.
@@ -147,7 +152,7 @@ def workspace():
 
     def refresh() -> dict[str, Any]:
         try:
-            if not Path("/credentials/token").is_file():
+            if not settings.HEDGE_STORE_ISSUER and not Path("/credentials/token").is_file():
                 raise ingest("client").StoreApiError(
                     "Store authorization not provisioned", status_code=401
                 )

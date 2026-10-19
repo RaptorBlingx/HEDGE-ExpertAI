@@ -64,6 +64,9 @@ fixed to `en`, `de`, `fr`, `es`, `it`, `nl`, `pt`, and `tr`.
 | `HEDGE_API_URL` | empty | Manual Store v1 client base; full credential-free HTTPS URL ending in `/api/v1`. Nonempty blocks the scheduled ingestion job |
 | `HEDGE_STORE_ID` | empty | Native Store identity for the scoped App endpoints |
 | `HEDGE_STORE_TOKEN_FILE` | empty | Absolute backend token-file path; provision/rotate externally, with a read-only container mount when needed |
+| `HEDGE_STORE_ISSUER` | empty | Optional backend M2M HTTPS issuer; independent of incoming user OIDC |
+| `HEDGE_STORE_CLIENT_ID` | empty | Backend client identifier for client-credentials grant |
+| `HEDGE_STORE_CLIENT_SECRET_FILE` | empty | Absolute owned private regular secret file; no secret environment value; mutually exclusive with Bearer token file |
 | `HEDGE_STORE_TIMEOUT_SECONDS` | `30` | Operation time budget and maximum per-I/O timeout; greater than zero, at most 120 seconds |
 | `HEDGE_STORE_MAX_RETRIES` | `2` | Additional GET attempts; allowed 0–3, within the same time budget |
 | `INGEST_INTERVAL_SECONDS` | `7200` | Scheduler interval |

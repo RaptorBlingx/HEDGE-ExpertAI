@@ -1,5 +1,9 @@
 # HEDGE Store integration baseline
 
+Latest local follow-up: [M2M authentication and automatic English preparation](store-m2m-preparation.md).
+The supplied client was rejected at token issuance (401); zero Apps freshly synchronized.
+Historical access/enablement statements below describe their dated slices.
+
 Prepared 2026-10-08 against repository commit `fa06952`. This is the current
 integration planning entry point; live integration and acceptance remain pending.
 Phase 1 metadata/identity, safe source-scoped snapshot reconciliation, and

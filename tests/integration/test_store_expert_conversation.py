@@ -9,6 +9,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from hedge_shared import storage
+from hedge_shared.store_knowledge import project
 from hedge_shared.store_v1 import StoreAppMetadata
 
 from scripts.store_v1_browser import create_app
@@ -31,7 +32,7 @@ def browser(offline, monkeypatch):
     def resolve(ids):
         ids = identities if ids is None else ids
         rows = storage.get_catalogue_apps(ids, store_id=STORE)
-        return [StoreAppMetadata.model_validate(rows[i]['payload']).recommendation_projection() for i in ids if i in rows]
+        return [project(rows[i]) for i in ids if i in rows]
     async def search(**kwargs):
         return recommender.recommend_v2(**kwargs, limit=5)
     interpret = Mock(return_value={'action':'browse','apps':[],'query':'available Apps'})

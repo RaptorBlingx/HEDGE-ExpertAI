@@ -25,13 +25,14 @@ from .suitability import _NEGATION, _QUALIFIED, _terms, source_text
 _DEADLINE: ContextVar[float | None] = ContextVar("store_reasoning_deadline", default=None)
 
 
-def _explanation(row: dict) -> dict:
+def _explanation(row: dict, locale: str = "en") -> dict:
     """Preparation is an explanation of current evidence, never fresh evidence."""
-    return explanation(row["app"])
+    prepared = explanation(row["app"])
+    return prepared if locale in prepared else {}
 
 
 def _fact_text(row: dict, question: str, locale: str, *, topic: str = "", expand: bool = False) -> str:
-    prepared = _explanation(row)
+    prepared = _explanation(row, locale)
     if not prepared:
         return _excerpt(row, locale)
     terms = _terms(search_language(topic or question, locale))
@@ -155,7 +156,9 @@ def prepared_answer(question: str, response: dict, locale: str) -> str:
             quote = _quoted_store_text(passage)
             response['context']['focused_ids'] = [row['app']['id']]
             response['context']['explanation_topic'] = search_language(question, locale)
-            if _explanation(row):
+            if _explanation(row, locale).get("version") == 2:
+                return f'**{name}** — {quote}'
+            if _explanation(row, locale):
                 return f'**{name}** — {_fact_text(row, question, locale)}'
             return ((f'**{name}** açıklamasında ilgili bir bölüm var:\n\n“{quote}”\n\n'
                      'Kastettiğiniz iş akışı bu mu?') if locale == 'tr' else
@@ -197,7 +200,7 @@ def prepared_answer(question: str, response: dict, locale: str) -> str:
                 lines.append(f'**{title(row)}** için listelenen fiyat: {price}. Para birimi ve fatura dönemi belirtilmemiş.' if locale == "tr" else
                               f'**{title(row)}** lists a price of {price}; the currency and billing period aren’t specified.')
         return "\n\n".join(lines)
-    if re.search(r"get started|start using|nasıl kullan|container|kurulum", normalized, re.I) and len(rows) == 1:
+    if re.search(r"get started|start using|without installing|nasıl kullan|container|kurulum", normalized, re.I) and len(rows) == 1:
         evidence = rows[0]["app"].get("source_evidence", {})
         text = evidence.get("readme", "")
         urls = list(dict.fromkeys(re.findall(r"https?://[^\s<>\"\\]+", text)))
@@ -220,16 +223,24 @@ def prepared_answer(question: str, response: dict, locale: str) -> str:
     how = bool(re.search(r"how .*work|nasıl çalış", normalized, re.I))
     if simple:
         return "\n\n".join(
-            f'**{title(row)}**: {_explanation(row)[locale]["simple"]}'
-            if _explanation(row) else f'**{title(row)}**: {_excerpt(row, locale)}'
+            f'**{title(row)}**: {_explanation(row, locale)[locale]["simple"]}'
+            if _explanation(row, locale) else f'**{title(row)}**: {_excerpt(row, locale)}'
             for row in rows)
-    if intent == "compare" and all(_explanation(row) for row in rows):
+    if intent == "compare" and all(_explanation(row, locale) for row in rows):
         # Compare the practical tasks, not a repeated pair of source paragraphs.
         # Never invent superiority, mutual exclusivity or a missing feature.
-        tasks = [_explanation(row)[locale]["use_when"].rstrip(".") for row in rows]
+        prepared = [_explanation(row, locale) for row in rows]
+        tasks = [value[locale]["use_when"].rstrip(".") for value in prepared]
+        if locale == "en" and any(value.get("version") == 2 for value in prepared):
+            choices = []
+            for row, value, task in zip(rows, prepared, tasks, strict=True):
+                connector = "for" if value.get("noun_task") else "to"
+                choices.append(f'Choose **{title(row)}** {connector} {task[0].lower() + task[1:]}.'
+                               if value.get("task_phrase") else f'**{title(row)}**: {task}.')
+            return "\n\n".join(choices)
         if len(set(task.casefold() for task in tasks)) == 1:
             lead = ('Aynı amaca yönelikler: ' if locale == 'tr' else 'They address the same task: ') + tasks[0] + '.'
-            return lead + "\n\n" + "\n\n".join(f'**{title(row)}**: {_explanation(row)[locale]["summary"]}' for row in rows)
+            return lead + "\n\n" + "\n\n".join(f'**{title(row)}**: {_explanation(row, locale)[locale]["summary"]}' for row in rows)
         choices = [f'**{title(row)}**: {task}' for row, task in zip(rows, tasks, strict=True)]
         if len(rows) == 2:
             return (f'**{title(rows[0])}**, {tasks[0]} için; **{title(rows[1])}** ise {tasks[1]} için uygun.'

@@ -196,7 +196,7 @@ class StoreDialogue:
             context = {**context, "focused_ids": selected}
         if (self.catalogue_references and selected and not source_read and re.fullmatch(
             r"(?:how do (?:we|i) (?:get started with|start using) (?:it|this app|that app)|"
-            r"(?:could|can) (?:we|i) use (?:it|this app|that app) without installing (?:a )?container)[?!.]*",
+            r"(?:could|can) (?:we|i) (?:use|start using) (?:it|this app|that app) without installing (?:a )?container)[?!.]*",
             message, re.I,
         )):
             # This asks for documented access/setup information, not a new

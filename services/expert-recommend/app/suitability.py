@@ -498,7 +498,8 @@ def _prepared_support(query: str, app: dict, locale: str, claims: list[_Claim]) 
                 or _NEGATION.search(_fold(prose)) or _QUALIFIED.search(_fold(prose))):
             continue
         if terms and terms <= _terms(quote) and terms <= _terms(prose):
-            return {"status": "source_supported", "reason": "reviewed_source_passage",
+            return {"status": "source_supported", "reason": ("source_extracted_passage" if prepared.get("version") == 2
+                                                      else "reviewed_source_passage"),
                     "evidence_fields": [path], "evidence_spans": [quote]}
     return None
 

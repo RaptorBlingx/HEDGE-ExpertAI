@@ -74,7 +74,10 @@ def test_offline_prose_reuses_current_source_and_cannot_publish_after_source_cha
         prepare_store_explanations.prepare(app.store_id, [{**record, 'checksum':'stale'}])
     changed = app.model_copy(update={'description':'Displays district heat readings.'})
     saved(changed)
-    assert not store_knowledge.explanation(store_knowledge.project(saved(changed)))
+    refreshed = store_knowledge.explanation(store_knowledge.project(saved(changed)))
+    assert refreshed['review']['method'] == 'source_extraction'
+    assert refreshed['en']['summary'] == changed.description
+    assert app.description not in str(refreshed)
     record = {**record, 'checksum':changed.checksum}
     with pytest.raises(ValueError, match='unbound quotations'):
         prepare_store_explanations.prepare(app.store_id, [record])
@@ -88,3 +91,85 @@ def test_offline_prose_reuses_current_source_and_cannot_publish_after_source_cha
     with pytest.raises(ValueError, match='Source changed'):
         prepare_store_explanations.prepare(app.store_id, [record])
     assert saved(changed.model_copy(update={'visible':False})) is None
+
+
+def test_automatic_english_upgrade_preserves_source_revision_and_rebuilds_after_changes(database):
+    import json
+
+    migrate.main()
+    app = StoreAppMetadata(store_id='Preparation', app_id='New-App', name='Registry',
+                           readme='<p>Used to publish device registers.</p>', active=True, visible=True)
+    initial = saved(app)
+    prose = initial['prepared_knowledge']['explanation']
+    assert prose['review']['method'] == 'source_extraction'
+    assert 'publish device registers' in prose['en']['simple']
+    with storage.connection() as conn:
+        conn.execute('UPDATE catalog_apps SET prepared_knowledge=%s::jsonb WHERE id=%s',
+                     (json.dumps({'version':0}), app.id))
+    assert storage.rebuild_store_knowledge(app.store_id) == 1
+    assert storage.rebuild_store_knowledge(app.store_id) == 0
+    rebuilt = storage.get_catalogue_apps([app.id], store_id=app.store_id)[app.id]
+    assert rebuilt['revision'] == initial['revision']
+    assert rebuilt['checksum'] == initial['checksum']
+    assert rebuilt['prepared_knowledge']['explanation'] == prose
+    updated = saved(app.model_copy(update={'readme':'<p>Used to manage laboratory samples.</p>'}))
+    assert updated['revision'] == initial['revision'] + 1
+    assert 'device registers' not in str(updated['prepared_knowledge']['explanation'])
+
+
+def test_m2m_managed_sync_prepares_new_and_changed_apps_and_preserves_observation_on_denial(database, tmp_path):
+    import time
+
+    import httpx
+    import pytest
+    from hedge_shared import store_sync
+
+    from .test_store_v1_recommendations import client_module, snapshot
+
+    migrate.main()
+    issuer = 'https://identity.invalid/realm'
+    secret = tmp_path/'secret'
+    secret.write_text('integration-test-only')
+    secret.chmod(0o600)
+    rejected = False
+    def identity(request):
+        if request.method == 'GET':
+            return httpx.Response(200, json={'issuer':issuer, 'token_endpoint':issuer+'/token'})
+        if rejected:
+            return httpx.Response(401, json={'error':'unauthorized_client'})
+        return httpx.Response(200, json={'access_token':'test-token', 'token_type':'Bearer',
+                                        'expires_in':300})
+    auth = client_module.StoreClientCredentials(issuer, 'client', str(secret),
+                                                transport=httpx.MockTransport(identity))
+    raw = {'appId':'opaque-native', 'fkAppStoreId':'M2M-Test', 'name':'Registry',
+           'readme':'<p>Used to publish device registers.</p>', 'active':True, 'visible':True}
+    def source(request):
+        assert request.headers['authorization'] == 'Bearer test-token'
+        return httpx.Response(200, json=[raw])
+    api = client_module.HedgeApiClient('https://store.invalid/api/v1', store_id='M2M-Test',
+                                      credentials=auth, transport=httpx.MockTransport(source))
+    def sync():
+        return snapshot.reconcile_catalogue_snapshot('m2m-test', api.fetch_catalogue_records,
+                    store_id='M2M-Test', managed_source='authorized_api')
+    assert sync()['created'] == 1
+    app = client_module.normalize_store_v1_app(raw)
+    first = storage.get_catalogue_apps([app.id], store_id=app.store_id)[app.id]
+    assert first['prepared_knowledge']['explanation']['en']['simple'] == 'It helps you publish device registers.'
+    assert sync()['unchanged'] == 1
+    assert storage.get_catalogue_apps([app.id], store_id=app.store_id)[app.id] == first
+    raw['readme'] = '<p>Used to manage laboratory samples.</p>'
+    assert sync()['updated'] == 1
+    updated = storage.get_catalogue_apps([app.id], store_id=app.store_id)[app.id]
+    assert updated['revision'] == first['revision'] + 1
+    assert 'device registers' not in str(updated['prepared_knowledge']['explanation'])
+    observed = store_sync.status(app.store_id)
+    rejected = True
+    auth._expires = time.monotonic() - 1
+    with pytest.raises(client_module.StoreApiError) as failure:
+        sync()
+    assert failure.value.status_code == 401
+    store_sync.failed(app.store_id, failure.value.status_code)
+    failed = store_sync.status(app.store_id)
+    assert failed['snapshot_at'] == observed['snapshot_at']
+    assert failed['available'] == 1 and failed['last_error'] == 'authorization_required'
+    assert storage.get_catalogue_apps([app.id], store_id=app.store_id)[app.id] == updated

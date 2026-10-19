@@ -49,7 +49,9 @@ def test_preparation_keeps_exact_facts_and_rejects_stale_versions():
     knowledge = prepare(app)
     row = {'id':app.id, 'checksum':app.checksum, 'payload':app.model_dump(exclude={'id','checksum','public_eligible'}),
            'prepared_knowledge':knowledge}
-    assert project(row) == app.recommendation_projection()
+    projected = project(row)
+    assert projected.pop("prepared_explanation") == knowledge["explanation"]
+    assert projected == app.recommendation_projection()
     for mutation in [{'version':-1}, {'checksum':'stale'}, {'projection':{}}]:
         assert project({**row, 'prepared_knowledge':{**knowledge, **mutation}}) == app.recommendation_projection()
     assert 'source_evidence' not in row['payload']

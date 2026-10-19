@@ -164,7 +164,7 @@ def dialogue_language(message: str, locale: str) -> str:
     ):
         return "Explain it simply"
     if re.fullmatch(
-        r"how (?:are|do) (?:those|these|the) (?:two |apps? )?(?:different|differ)|"
+        r"how (?:are|do) (?:those|these|they|the) (?:two |apps? )?(?:different|differ)|"
         r"(?:bunların|ikisinin|aralarındaki) farkı (?:ne|nedir)|"
         r"(?:ikisi|bunlar) arasındaki (?:fark|farklar) (?:ne|nedir)",
         clean,

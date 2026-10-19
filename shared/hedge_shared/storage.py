@@ -244,7 +244,15 @@ def upsert_catalogue_app(
                             and isinstance(knowledge.get("projection"), dict)
                             and knowledge["projection"].get("id") == app.id)
         if store_app and not prepared_current:
+            previous = knowledge
             knowledge = prepare(app)
+            if (isinstance(previous, dict) and previous.get("checksum") == checksum
+                    and isinstance(previous.get("explanation"), dict)
+                    and previous["explanation"].get("version") == 1):
+                from .store_knowledge import explanation
+                if explanation({**knowledge["projection"],
+                                "prepared_explanation": previous["explanation"]}):
+                    knowledge["explanation"] = previous["explanation"]
         search_document = knowledge["index_text"] if store_app else app.to_index_text("en")
         if existing and existing["checksum"] == checksum and existing["active"] == active:
             cursor.execute(
@@ -861,3 +869,38 @@ def apply_data_retention(*, as_of: datetime | None = None) -> dict[str, int]:
         "expired_impressions": expired_impressions,
         "expired_transcripts": expired_transcripts,
     }
+
+
+def rebuild_store_knowledge(store_id: str) -> int:
+    """Upgrade derived preparation from retained source without claiming a refresh.
+
+    Row locks bind every write to the current source. No source revision, sync
+    timestamp, membership or public indexing/outbox operation is changed.
+    """
+    from .store_knowledge import PREPARATION_VERSION, explanation, prepare
+    from .store_v1 import StoreAppMetadata
+
+    changed = 0
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT id, checksum, payload, prepared_knowledge FROM catalog_apps "
+            "WHERE source_store_id = %s AND active = true FOR UPDATE", (store_id,),
+        ).fetchall()
+        for row in rows:
+            previous = row["prepared_knowledge"]
+            if (isinstance(previous, dict) and previous.get("version") == PREPARATION_VERSION
+                    and previous.get("checksum") == row["checksum"]):
+                continue
+            knowledge = prepare(StoreAppMetadata.model_validate(row["payload"]))
+            if (isinstance(previous, dict) and previous.get("checksum") == row["checksum"]
+                    and isinstance(previous.get("explanation"), dict)
+                    and previous["explanation"].get("version") == 1
+                    and explanation({**knowledge["projection"],
+                                     "prepared_explanation": previous["explanation"]})):
+                knowledge["explanation"] = previous["explanation"]
+            conn.execute(
+                "UPDATE catalog_apps SET prepared_knowledge = %s::jsonb, search_document = %s "
+                "WHERE id = %s", (json.dumps(knowledge), knowledge["index_text"], row["id"]),
+            )
+            changed += 1
+    return changed

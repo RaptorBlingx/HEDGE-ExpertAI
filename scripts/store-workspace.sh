@@ -2,13 +2,18 @@
 # Private, durable development workspace. Never uses Compose, .env or demo resources.
 set -euo pipefail
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-prefix=expertai-store-private
-label=expertai.workspace=store-private
+prefix=${STORE_WORKSPACE_NAME:-expertai-store-private}
+[[ "$prefix" =~ ^expertai-store-[a-z0-9-]+$ ]] || { echo 'Invalid private workspace name' >&2; exit 1; }
+owner=$prefix
+if [[ "$prefix" == expertai-store-private ]]; then owner=store-private; fi
+label=expertai.workspace=$owner
+port=${STORE_WORKSPACE_PORT:-8098}
+[[ "$port" =~ ^[0-9]{4,5}$ ]] && (( port >= 1024 && port <= 65535 )) || exit 1
 store_id=${HEDGE_STORE_ID:-56779afa-bdcc-4abe-a8b0-d306dc07bed1}
-private_dir=/home/ubuntu/.local/share/hedge-store-live
+private_dir=${STORE_WORKSPACE_DIR:-/home/ubuntu/.local/share/hedge-store-live}
 command=${1:-status}
 check_owner() {
-  [[ $(docker inspect "$1" --format '{{index .Config.Labels "expertai.workspace"}}') == store-private ]] || {
+  [[ $(docker inspect "$1" --format '{{index .Config.Labels "expertai.workspace"}}') == "$owner" ]] || {
     echo 'Resource ownership mismatch; refusing operation' >&2; exit 1;
   }
 }
@@ -60,7 +65,7 @@ for net in private ui; do
   if ! docker network inspect "$prefix-$net" >/dev/null 2>&1; then
     options=(); if [[ "$net" == private ]]; then options=(--internal); fi
     docker network create --label "$label" "${options[@]}" "$prefix-$net" >/dev/null
-  elif [[ $(docker network inspect "$prefix-$net" --format '{{index .Labels "expertai.workspace"}}') != store-private ]]; then
+  elif [[ $(docker network inspect "$prefix-$net" --format '{{index .Labels "expertai.workspace"}}') != "$owner" ]]; then
     echo 'Network ownership mismatch' >&2; exit 1
   fi
 done
@@ -76,7 +81,7 @@ ensure() {
 for volume in postgres qdrant sessions; do
   if ! docker volume inspect "$prefix-$volume" >/dev/null 2>&1; then
     docker volume create --label "$label" "$prefix-$volume" >/dev/null
-  elif [[ $(docker volume inspect "$prefix-$volume" --format '{{index .Labels "expertai.workspace"}}') != store-private ]]; then
+  elif [[ $(docker volume inspect "$prefix-$volume" --format '{{index .Labels "expertai.workspace"}}') != "$owner" ]]; then
     echo 'Volume ownership mismatch' >&2; exit 1
   fi
 done
@@ -100,7 +105,7 @@ for ((attempt=0; attempt<30; attempt++)); do
   if docker exec "$prefix-database" pg_isready -U postgres -d hedge_store_workspace >/dev/null 2>&1; then break; fi
   sleep 1
 done
-ensure runner --network "$prefix-private" --network "$prefix-ui" -p 127.0.0.1:8098:8091 \
+ensure runner --network "$prefix-private" --network "$prefix-ui" -p "127.0.0.1:$port:8091" \
   --user "$(id -u):$(id -g)" --memory "$runner_memory" --cpus 2 --read-only --tmpfs /tmp:rw,size=128m --tmpfs /.ollama:rw,size=16m,mode=1777 \
   --mount "type=bind,source=$repo,target=/repo,readonly" \
   --mount "type=bind,source=$credential_dir,target=/credentials,readonly" \
@@ -116,8 +121,11 @@ ensure runner --network "$prefix-private" --network "$prefix-ui" -p 127.0.0.1:80
   -e DATABASE_URL=postgresql://postgres@database/hedge_store_workspace \
   -e VALKEY_SESSION_URL=redis://sessions:6379/0 -e RASA_ENABLED=true -e RASA_URL=http://rasa:5005 \
   -e "HEDGE_STORE_ID=$store_id" \
+  -e "HEDGE_STORE_ISSUER=${HEDGE_STORE_ISSUER:-}" \
+  -e "HEDGE_STORE_CLIENT_ID=${HEDGE_STORE_CLIENT_ID:-}" \
+  -e "HEDGE_STORE_CLIENT_SECRET_FILE=${HEDGE_STORE_CLIENT_SECRET_FILE:-}" \
   -e STORE_PLAYGROUND_E5=true -e EMBEDDING_MODEL=/opt/e5-model \
   -e EMBEDDING_MODEL_REVISION=614241f622f53c4eeff9890bdc4f31cfecc418b3 \
   -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1 -e OMP_NUM_THREADS=1 -e TOKENIZERS_PARALLELISM=false \
   "$image" "${runner_command[@]}"
-printf '%s\n' 'Private durable Store workspace: http://127.0.0.1:8098 (startup may take a moment)'
+printf 'Private durable Store workspace: http://127.0.0.1:%s (startup may take a moment)\n' "$port"
