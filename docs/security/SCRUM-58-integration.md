@@ -1,8 +1,8 @@
 # SCRUM-58 integration evidence and temporary npm exception
 
-Prepared 19 October 2026. Status: verified integration candidate; maintainer
-acceptance and server CI/protection verification remain pending. This document
-does not assert that the target integration branch has been updated.
+Prepared 19 October 2026. Status: verified integration candidate, accepted by
+the sole HEDGE maintainer. Publication to the target is subject to Forgejo's
+normal server checks; the final published SHA and outcome are recorded in Jira.
 
 ## Exact scope and prior review
 
@@ -53,8 +53,9 @@ temporarily; it does not relabel the original audit as passing or remove finding
 The task owner explicitly authorized an unchanged development-only exception in
 the SCRUM-58 request and follow-up. It applies only to the named candidate and
 target integration branches and expires **26 October 2026 00:00 UTC / 03:00
-Istanbul**, without automatic renewal. Required maintainer approval is still
-required before target integration. Remediation is tracked independently in
+Istanbul**, without automatic renewal. The sole maintainer explicitly accepted
+this exception and the existing automated verification for integration.
+Remediation is tracked independently in
 [SCRUM-60](https://aartimuhendislik.atlassian.net/browse/SCRUM-60).
 
 `scripts/check_npm_audit.mjs` runs full and production audits and retains their raw
@@ -97,16 +98,27 @@ Python audits, licence inventory, history secret scanning, SBOM/Grype and full
 production-path E2E were not newly certified by these local checks. No production
 deployment or preserved demo operations were performed.
 
-## Remaining acceptance
+## Maintainer acceptance and integration workflow
+
+On 19 October 2026, the user confirmed they are the sole HEDGE maintainer and
+decision-maker, approved PR #1 integration, accepted the existing automated
+verification and temporary npm exception, and explicitly waived additional
+independent Tolga QA for SCRUM-58. This supersedes the earlier Jira handoff's
+pending acceptance wording; that wording was not evidence of repository policy.
+No separate reviewer approval is required by the maintainer's decision.
 
 Authenticated Git fetch/push is available. Private Forgejo web/API reads return
 404; no configured Forgejo CLI/API credential is available. Before submission,
 Git advertised no existing pull-request refs. Consequently server protection settings, current
-review approvals and CI statuses cannot be verified through the available access.
-Do not infer approval from permission to push or bypass protection with a direct
-target push. Submit this candidate for maintainer review; verify required checks
-and record independent QA against its pinned SHA before closing
-[SCRUM-58](https://aartimuhendislik.atlassian.net/browse/SCRUM-58).
+review approvals and CI statuses cannot be read through the available access.
+With explicit maintainer acceptance now recorded, use an ordinary, non-forced
+Git merge push to the intended integration branch. This invokes Forgejo's normal
+receive checks. Do not use force, skip-validation options, administrative bypass,
+or changes to protection settings. If the server rejects the update, retain the
+exact rejection as the enforced restriction; if it accepts, fetch the target and
+verify its ancestry and tree before closing
+[SCRUM-58](https://aartimuhendislik.atlassian.net/browse/SCRUM-58). Server acceptance
+does not establish that every configured remote CI job ran or passed.
 
 The candidate was published using authenticated Git. Forgejo's AGit submission to
 `refs/for/feat/hedge-store-v1-integration` returned
