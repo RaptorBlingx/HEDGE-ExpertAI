@@ -181,3 +181,53 @@ def test_generator_cannot_replace_authoritative_app_results(dialogue):
                                       'apps':[{'app':{'id':'fabricated'}}]}
     result=ask(dialogue,'Compare both','compare')
     assert [r['app']['id'] for r in result['apps']]==['local-edge','local-tree']
+
+
+def test_model_abstention_clears_recommendations_without_discarding_candidate_identity(dialogue):
+    policy, apps, search, context = dialogue
+    policy.generate = lambda *args: {'message':'Insufficient source evidence.', 'abstained':True,
+        'generation':{'source':'ollama','reason':'model_abstention'}}
+    response = ask(dialogue, 'Show me EdgeConnect and Semantic Treehouse', 'search')
+    assert response['apps'] == []
+    assert [r['app']['id'] for r in response['candidates']] == [a['id'] for a in apps]
+    assert response['decision']['reason'] == 'model_abstention'
+    assert response['context']['last_results'] == response['context']['focused_ids'] == []
+    assert 'Validated model abstention' in response['message']
+
+
+@pytest.mark.parametrize("message", [
+    "Find EdgeConnect for earthquake warnings", "Show me EdgeConnect with earthquake warnings",
+])
+def test_named_capability_request_keeps_constraints_in_recommendation_query(dialogue, message):
+    ask(dialogue, message, "search")
+    query = dialogue[2].await_args.kwargs["query"]
+    assert "earthquake warnings" in query and "EdgeConnect" in query
+    assert query != '\"EdgeConnect\"'
+
+
+def test_late_store_withdrawal_covers_unverified_candidates_too(dialogue):
+    policy, apps, search, _ = dialogue
+    search.return_value = {"apps": [{"app": apps[0], "rank": 1}],
+                           "candidates": [{"app": apps[1], "rank": 2}], "message": "source facts"}
+
+    def generate(*args):
+        apps.pop()
+        return {"message": "generated facts", "generation": {"source": "ollama"}}
+
+    policy.generate = generate
+    response = ask(dialogue, "Find readings", "search")
+    assert response["apps"] == response["candidates"] == []
+    assert "generated facts" not in response["message"]
+    assert response["decision"] == {"outcome": "abstained", "reason": "catalogue_changed"}
+
+
+def test_store_generation_keeps_unverified_candidate_evidence_visible(dialogue):
+    policy, apps, search, _ = dialogue
+    search.return_value = {"apps": [{"app": apps[0], "rank": 1}],
+                           "candidates": [{"app": apps[1], "rank": 2}], "message": "source facts"}
+    policy.generate = lambda *args: {"message": "Supported source excerpts",
+                                    "generation": {"source": "ollama"}}
+    response = ask(dialogue, "Find readings", "search")
+    assert "Supported source excerpts" in response["message"]
+    assert "Unverified retrieval candidates" in response["message"]
+    assert response["candidates"][0]["app"] == apps[1]

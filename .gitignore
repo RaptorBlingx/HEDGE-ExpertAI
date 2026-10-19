@@ -133,3 +133,5 @@ backups/
 .cache/
 tmp/
 temp/
+# Raw reports are retained as CI artifacts, not source.
+frontend/npm-audit-reports/

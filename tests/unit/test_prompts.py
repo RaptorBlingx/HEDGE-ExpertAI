@@ -62,3 +62,12 @@ class TestPrompts:
         messages = build_explanation_messages("what does it do", app)
         assert len(messages) == 2
         assert "App1" in messages[1]["content"]
+
+
+def test_retained_prompt_helpers_allow_abstention_and_never_cut_evidence():
+    text = "MQTT is supported" + "x" * 1200 + " only in simulation."
+    messages = build_recommendation_messages("earthquake warnings", [{"app": {"description": text}}])
+    prompt = " ".join(m["content"] for m in messages)
+    assert "Abstention is valid" in prompt
+    assert "MQTT is supported" not in prompt
+    assert "Complete source text omitted" in prompt

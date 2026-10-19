@@ -754,7 +754,7 @@ export default function App() {
                           >
                             <div className="flex items-center justify-between gap-2">
                               <span className="font-display text-sm text-white">{localized(item.app.title, locale)}</span>
-                              <span className="text-xs capitalize text-cyan-200">{item.relevance} relevance</span>
+                              <span className="text-xs capitalize text-cyan-200">{item.suitability ? (item.suitability.status === "source_supported" ? "Source evidence" : "Unverified candidate") : `${item.relevance} relevance`}</span>
                             </div>
                             <div className="mt-2 inline-flex items-center gap-1.5 text-xs">
                               {catalogHit ? (
