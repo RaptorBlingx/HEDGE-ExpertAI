@@ -100,10 +100,17 @@ deployment or preserved demo operations were performed.
 ## Remaining acceptance
 
 Authenticated Git fetch/push is available. Private Forgejo web/API reads return
-404; no configured Forgejo CLI/API credential is available. Git advertises no
-existing pull-request refs. Consequently server protection settings, current
+404; no configured Forgejo CLI/API credential is available. Before submission,
+Git advertised no existing pull-request refs. Consequently server protection settings, current
 review approvals and CI statuses cannot be verified through the available access.
 Do not infer approval from permission to push or bypass protection with a direct
 target push. Submit this candidate for maintainer review; verify required checks
 and record independent QA against its pinned SHA before closing
 [SCRUM-58](https://aartimuhendislik.atlassian.net/browse/SCRUM-58).
+
+The candidate was published using authenticated Git. Forgejo's AGit submission to
+`refs/for/feat/hedge-store-v1-integration` returned
+[PR #1](https://code.arti.ac/europe/HEDGE-IoT/pulls/1); its advertised
+`refs/pull/1/head` matched the published candidate `46f8c9e`. This is publication
+evidence, not proof of maintainer approval or successful remote CI. The target
+remained at `eddb179` after submission.
