@@ -14,7 +14,6 @@ import uuid
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
-from types import ModuleType
 from typing import Any
 from unittest.mock import patch
 from urllib.parse import urlparse
@@ -22,65 +21,12 @@ from urllib.parse import urlparse
 from fastapi import FastAPI, HTTPException
 from hedge_shared import models_v2, storage, store_sync
 from hedge_shared.config import Settings
-from hedge_shared.store_knowledge import PREPARATION_VERSION, project
-from hedge_shared.store_v1 import StoreAppMetadata
-from qdrant_client import QdrantClient, models
+from hedge_shared.store_index import repair_store_index
+from hedge_shared.store_knowledge import project
+from qdrant_client import QdrantClient
 
 from scripts.store_v1_browser import create_app
 from scripts.store_v1_playground import ROOT, Playground, load_service
-
-
-def repair_store_index(
-    store_id: str, vector: QdrantClient, indexer: ModuleType, collection: str
-) -> None:
-    # Reconcile durable desired state with actual derived points, including
-    # recovery after a crash, failed write or complete Qdrant data loss.
-    if not vector.collection_exists(collection):
-        vector.create_collection(
-            collection,
-            vectors_config=models.VectorParams(size=384, distance=models.Distance.COSINE),
-        )
-    rows = store_sync.members(store_id)
-    for start in range(0, len(rows), 128):
-        batch = rows[start : start + 128]
-        points = {
-            p.id: p
-            for p in vector.retrieve(
-                collection, [indexer._app_id_to_int(r["id"]) for r in batch], with_payload=True
-            )
-        }
-        for row in batch:
-            app = StoreAppMetadata.model_validate(row["payload"])
-            point = points.get(indexer._app_id_to_int(row["id"]))
-            desired = row["available"] and bool(app.to_index_text())
-            if desired:
-                if (
-                    not point
-                    or point.payload.get("_index_revision") != row["revision"]
-                    or point.payload.get("store_id") != store_id
-                    or point.payload.get("app_id") != app.app_id
-                    or point.payload.get("_index_preparation_version") != PREPARATION_VERSION
-                    or point.payload.get("_index_model") != os.getenv("EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
-                    or point.payload.get("_index_model_revision") != os.getenv("EMBEDDING_MODEL_REVISION", "main")
-                ):
-                    applied = indexer.apply_operations(
-                        vector,
-                        [
-                            {
-                                "app_id": row["id"],
-                                "revision": row["revision"],
-                                "operation": "upsert",
-                                "app": row["payload"],
-                            }
-                        ],
-                        store_id=store_id,
-                        collection_name=collection,
-                    )
-                    if applied != 1:
-                        raise RuntimeError("Scoped index revision was not applied")
-            elif point:
-                indexer.delete_app(vector, row["id"], collection_name=collection)
-            store_sync.indexed(store_id, row["id"], row["revision"], row["available"])
 
 
 @contextmanager

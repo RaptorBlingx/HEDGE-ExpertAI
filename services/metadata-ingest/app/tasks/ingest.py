@@ -81,8 +81,12 @@ def deliver_pending_outbox(limit: int = 100) -> dict[str, int]:
 
 
 @celery_app.task(name="app.tasks.ingest.deliver_outbox")
-def deliver_outbox_task() -> dict[str, int]:
+def deliver_outbox_task() -> dict[str, Any]:
     """Replay pending vector operations independently of source ingestion."""
+    from hedge_shared.private_store import scope
+    if scope():
+        from ..private_store import repair
+        return repair()
     return deliver_pending_outbox(limit=100)
 
 
@@ -96,7 +100,11 @@ def apply_data_retention_task() -> dict[str, int]:
 
 @celery_app.task(name="app.tasks.ingest.ingest_all", bind=True, max_retries=2)
 def ingest_all(self: Any) -> dict[str, Any]:
-    """Reconcile the synthetic source; Store v1 transport remains unwired."""
+    """Reconcile synthetic data by default, or an explicitly private Store deployment."""
+    from hedge_shared.private_store import scope
+    if scope():
+        from ..private_store import refresh
+        return refresh()
     if HEDGE_API_URL:
         # Credentials/configuration do not authorize scheduled live ingestion.
         return {"status": "disabled", "reason": "Store v1 ingestion is not enabled"}

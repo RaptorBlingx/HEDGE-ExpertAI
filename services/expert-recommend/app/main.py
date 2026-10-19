@@ -7,6 +7,7 @@ import os
 
 import httpx
 from fastapi import FastAPI, Response, status
+from hedge_shared.private_store import scope
 
 from .routes import router, v2_router
 
@@ -29,6 +30,10 @@ if _HAS_METRICS:
 
 app.include_router(router)
 app.include_router(v2_router)
+
+if scope():
+    from .private_store import router as private_router
+    app.include_router(private_router)
 
 
 @app.get("/health")

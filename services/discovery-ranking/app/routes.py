@@ -11,6 +11,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
 from hedge_shared.models_v2 import AppMetadataV2, ReindexRequestV2, SearchFilters, SearchRequestV2
+from hedge_shared.private_store import scope
 from hedge_shared.saref import app_to_jsonld
 from hedge_shared.storage import (
     current_catalogue_revision,
@@ -147,6 +148,7 @@ def search_apps_v2_route(req: SearchRequestV2) -> dict[str, Any]:
             filters=req.filters,
             limit=req.limit,
             catalogue_revision=current_catalogue_revision(),
+            **scope(),
         )
     except Exception as exc:
         logger.exception("Catalogue search unavailable")

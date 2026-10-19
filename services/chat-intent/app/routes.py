@@ -463,7 +463,11 @@ async def chat_v2(req: ChatRequestV2) -> dict:
 
 
 async def run_chat_v2(req: ChatRequestV2, *, store_dialogue: StoreDialogue | None = None) -> dict:
-    """Application-owned dialogue; explicit Store policy is for isolated runners only."""
+    """Application-owned dialogue; Store policy requires explicit private scope."""
+    from hedge_shared.private_store import scope
+    if store_dialogue is None and scope():
+        from .private_store import policy
+        store_dialogue = policy()
     session_id, history = get_or_create_session(req.session_id)
     context = _context_for(session_id)
     result = classify(req.message)
@@ -606,6 +610,27 @@ async def chat_stream_v2(req: ChatRequestV2):
 
     async def generate():
         import json
+
+        from hedge_shared.private_store import scope
+
+        if scope():
+            yield _sse_v2("1", {"type": "stage", "stage": "retrieval"})
+            try:
+                result = await run_chat_v2(req)
+                for payload in [
+                    {"type": "recommendations", "apps": result["apps"],
+                     **{k: result[k] for k in ("decision", "candidates", "impression_id") if k in result}},
+                    {"type": "explanation_delta", "content": result["message"]},
+                    {"type": "complete", **{k: result[k] for k in
+                     ("session_id", "intent", "nlu", "generation", "decision", "timings", "impression_id") if k in result}},
+                ]:
+                    yield _sse_v2(str(uuid.uuid4()), payload)
+            except HTTPException as exc:
+                yield _sse_v2("error", {"type": "problem", "status": exc.status_code, "title": exc.detail})
+            except Exception:
+                logger.exception("Private Store dialogue failed")
+                yield _sse_v2("error", {"type": "problem", "status": 503, "title": "Conversation unavailable"})
+            return
 
         request_id = str(uuid.uuid4())
         session_id, history = get_or_create_session(req.session_id)
