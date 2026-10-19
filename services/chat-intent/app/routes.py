@@ -498,7 +498,7 @@ async def run_chat_v2(req: ChatRequestV2, *, store_dialogue: StoreDialogue | Non
     if store_dialogue and intent not in {"greeting", "help", "out_of_scope"}:
         recommendation = await store_dialogue.respond_with_history(
             req, intent, context, history,
-            nlu={"intent": result.intent, "confidence": result.confidence, "source": result.source},
+            nlu={"intent": result.intent, "confidence": result.confidence, "source": result.source, "entities": result.entities},
         )
         intent = recommendation["intent"]
         filters = recommendation["context"].get("filters", {})

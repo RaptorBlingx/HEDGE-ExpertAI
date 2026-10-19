@@ -4,10 +4,11 @@ from functools import lru_cache
 
 import httpx
 from fastapi import HTTPException
+from hedge_shared.config import Settings
 
 from .store_conversation import StoreConversation
 
-client = httpx.Client(timeout=30, trust_env=False,
+client = httpx.Client(timeout=Settings().STORE_MODEL_TIMEOUT_SECONDS * 4 + 10, trust_env=False,
                       headers={"X-API-Key": os.environ.get("GATEWAY_API_KEY", "")})
 
 
@@ -40,13 +41,22 @@ def present(question, response, locale):
 def policy():
     from .routes import _recommend_v2
 
-    def unavailable(*args, **kwargs):
-        raise RuntimeError("Optional generation is disabled in private service testing")
+    def interpret(question, locale, directory, context, history):
+        return call("EXPERT_RECOMMEND_URL", "/internal/store/interpret", {
+            "question": question, "locale": locale, "directory": directory,
+            "context": context, "history": history})
+
+    def explain(question, rows, locale, action, history, **kwargs):
+        # Progress callbacks are local; only typed conversation data crosses HTTP.
+        return call("EXPERT_RECOMMEND_URL", "/internal/store/reason", {
+            "question": question, "rows": rows, "locale": locale,
+            "action": action, "history": history, "references": kwargs.get("references", {}),
+            "nlu": kwargs.get("nlu_hint", {})})
 
     return StoreConversation(
         _recommend_v2, resolve,
         lambda q, rows, locale: compose("describe", q, rows, locale)["message"],
-        unavailable, unavailable,
+        interpret, explain,
         decide=lambda q, rows, locale: compose("decide", q, rows, locale),
         present=present,
     )

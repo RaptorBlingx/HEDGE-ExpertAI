@@ -185,11 +185,13 @@ class _Selection(BaseModel):
     selected_ids: list[StrictStr] = Field(max_length=10)
 
 
-def _recommendation_decision(query: str, results: list[dict], locale: str, *, allow_model: bool = False) -> dict:
-    assessed = [{**result, "suitability": assess(search_language(query, locale), result["app"], locale)} for result in results]
+def _recommendation_decision(query: str, results: list[dict], locale: str, *, allow_model: bool = False, reviewed_support: dict | None = None) -> dict:
+    assessed = [{**result, "suitability": assess(search_language(query, locale), result["app"], locale,
+                 reviewed_support=(reviewed_support or {}).get(result["app"]["id"]))} for result in results]
     eligible = [result for result in assessed if result["suitability"]["status"] == "source_supported"]
     selected = eligible
-    reason = "direct_source_evidence" if eligible else "insufficient_evidence"
+    reason = ("reviewed_source_support" if any(r["suitability"]["reason"] == "semantically_reviewed_source_support" for r in eligible)
+              else "direct_source_evidence" if eligible else "insufficient_evidence")
     # Reuse existing bounded structured generation. Selection can veto, never add evidence.
     if allow_model and eligible and not all(r["app"].get("source_profile") == "hedge-store-v1" for r in eligible):
         allowed = [r["app"]["id"] for r in eligible]

@@ -159,3 +159,35 @@ filtering and comparison use prepared source evidence without runtime generation
 passed by `scripts/store-workspace.sh`; the existing Compose services receive the
 shared `.env` settings. See [architecture and measurement boundaries](prepared-store-discovery.md).
 The daily schedule does not establish the proposal's stricter two-hour freshness target.
+
+
+### Contextual English Store reasoning
+
+`STORE_SEMANTIC_ENABLED=false` keeps the accepted prepared path. Explicitly enabling
+it activates contextual interpretation and source-grounded recovery in the existing
+Expert service for uncertain English turns; Rasa intent/entities are fallible hints,
+not extra user requirements. No new inference provider, dependency or migration is
+required. `OLLAMA_BASE_URL` and `OLLAMA_MODEL` select the private inference endpoint
+and model. `OLLAMA_THINK=false` is configurable for structured calls: enable it
+only for models supporting boolean thinking mode, with sufficient output/time
+budgets. Model quality is not constrained to the VM's cached 2B model. For longer
+metadata and multiple candidates, configure a larger supported context (for example
+32768 tokens); complete-field context allocation scales with that budget.
+The private Compose profile forwards these settings; provide a permitted
+private network route when the endpoint is on another host.
+
+`STORE_MODEL_CONTEXT_TOKENS=16384` bounds complete evidence, schema and output;
+`STORE_MODEL_OUTPUT_TOKENS=2048` bounds generated output (including model reasoning);
+`STORE_MODEL_TIMEOUT_SECONDS=120` bounds each inference call; and
+`STORE_MODEL_THREADS=1` controls structured CPU inference threads. The normal flow
+uses a draft and separate grounding review, with at most one correction/review pair;
+contextual routing can add one interpretation call. Gateway/private Expert HTTP
+budgets account for these bounded stages. No source field is silently truncated to
+fit context. Unknown identities, missing citations, changed sources or rejected
+review do not publish generated prose. Model failure is observable in generation
+metadata and yields a prepared answer or clarification, not a claimed negative
+catalogue result.
+
+These settings are off by default and do not modify the existing 8096 environment.
+See [T2 evaluation protocol](../evaluation/t2/README.md) for separate model, retrieval,
+evidence, dialogue and latency measurements before activation on suitable hardware.

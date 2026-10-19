@@ -8,6 +8,7 @@ import os
 import httpx
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from hedge_shared.config import Settings
 from hedge_shared.models_v2 import (
     ChatRequestV2,
     RecommendationEventRequest,
@@ -151,6 +152,12 @@ async def _get_json(
 # ---------------------------------------------------------------------------
 
 
+def _chat_timeout_v2() -> float:
+    settings = Settings()
+    return (settings.STORE_MODEL_TIMEOUT_SECONDS * 5 + 15
+            if settings.PRIVATE_STORE_ENABLED and settings.STORE_SEMANTIC_ENABLED else 300.0)
+
+
 @router.post("/api/v2/chat")
 async def proxy_chat_v2(body: ChatRequestV2):
     """Proxy strict v2 chat requests."""
@@ -158,7 +165,7 @@ async def proxy_chat_v2(body: ChatRequestV2):
         f"{CHAT_INTENT_URL}/api/v2/chat",
         body.model_dump(mode="json"),
         "Chat service",
-        300.0,
+        _chat_timeout_v2(),
     )
 
 
@@ -177,7 +184,7 @@ async def proxy_chat_stream_v2(body: ChatRequestV2):
                     "POST",
                     f"{CHAT_INTENT_URL}/api/v2/chat/stream",
                     json=body.model_dump(mode="json"),
-                    timeout=300.0,
+                    timeout=_chat_timeout_v2(),
                 ) as response:
                     if response.status_code >= 400:
                         payload = {

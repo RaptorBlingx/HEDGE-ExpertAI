@@ -5,6 +5,7 @@ from pathlib import Path
 import httpx
 from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import FileResponse
+from hedge_shared.config import Settings
 
 router = APIRouter()
 ROOT = Path(os.environ.get("PRIVATE_STORE_SOURCE", "/source"))
@@ -35,9 +36,14 @@ def favicon():
 @router.get("/api/v2/status")
 async def status():
     state = await upstream("METADATA_INGEST_URL", "/internal/store/status")
-    return {"source": "authorized-store-services", "catalogue": "Authorized HEDGE Store applications",
+    source_kind = state.get("synchronization", {}).get("source_kind", "none")
+    return {"source": source_kind, "catalogue": ("Authorized HEDGE Store applications" if source_kind == "authorized_api"
+                          else "Saved authorized Store observation" if source_kind == "authorized_snapshot"
+                          else "Authored evaluation catalogue — not live Store evidence" if source_kind == "authored_evaluation_fixture"
+                          else "Store catalogue not initialized"),
             "intent": "Real Rasa over HTTP", "embeddings": "Pinned E5 and private Qdrant",
-            "generation": "Prepared English explanations; generation-free requests",
+            "generation": ("Prepared fast path with contextual LLM recovery" if Settings().STORE_SEMANTIC_ENABLED
+                           else "Prepared English explanations; generation-free requests"),
             "managed_workspace": True, "simulation_controls": False,
             "deployed_commit": os.environ.get("DEPLOYED_COMMIT", "unknown"), **state}
 

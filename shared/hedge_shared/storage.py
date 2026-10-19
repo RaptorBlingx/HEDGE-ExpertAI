@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
@@ -612,6 +613,7 @@ def lexical_search(
         filter_params.append(filters.data_classifications)
 
     document = "search_document"
+    lexical_query = query
     if store_id is not None:
         # No supported taxonomy/language/license assertions exist in Store Apps.
         if any(value for key, value in filters.model_dump().items() if key != "publisher"):
@@ -627,6 +629,11 @@ def lexical_search(
         if filters.publisher:
             where.append("payload->>'provider' ILIKE %s")
             filter_params.append(f"%{filters.publisher}%")
+        # Long natural requests rarely share EVERY word with a document. An
+        # OR candidate pool provides an independent sparse signal; full request
+        # constraints are still assessed by Expert, never relaxed by retrieval.
+        words = list(dict.fromkeys(re.findall(r"[^\W_]+", query, re.UNICODE)))[:64]
+        lexical_query = " OR ".join('"' + word + '"' for word in words) or query
         # Ingestion derives this document with the shared Store evidence extractor.
         # Reingesting also refreshes legacy documents when source values are unchanged.
 
@@ -645,7 +652,7 @@ def lexical_search(
         ORDER BY lexical_score DESC, id
         LIMIT %s
     """
-    params = [query, *filter_params, query, limit]
+    params = [lexical_query, *filter_params, lexical_query, limit]
     with connection() as conn, conn.cursor() as cursor:
         cursor.execute(sql, params)
         return cursor.fetchall()

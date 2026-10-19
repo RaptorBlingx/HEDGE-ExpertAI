@@ -9,6 +9,7 @@ import asyncio
 import json
 import re
 import time
+from copy import deepcopy
 
 from hedge_shared.config import Settings
 from hedge_shared.models_v2 import ChatRequestV2
@@ -58,6 +59,7 @@ class StoreConversation(StoreDialogue):
 
     async def _prepared_response(self, req, intent, context, history, *, nlu=None):
         started = time.monotonic()
+        context = deepcopy(context)
         complex_request = _COMPLEX.match(req.message)
         request = req.model_copy(update={"message": req.message[complex_request.end():]}) if complex_request else req
         if re.fullmatch(
@@ -125,7 +127,35 @@ class StoreConversation(StoreDialogue):
 
     async def respond_with_history(self, req, intent, context, history, *, nlu=None):
         if self.routine:
-            return await self._prepared_response(req, intent, context, history, nlu=nlu)
+            # Run the proven low-latency route first. A synopsis is not proof that
+            # an arbitrary question was understood. Uncertain substantive turns
+            # get contextual semantic interpretation, not more lexical exceptions.
+            fallback = await self._prepared_response(req, intent, context, history, nlu=nlu)
+            fast = not _COMPLEX.match(req.message) and (fallback.get("decision", {}).get("outcome") == "recommended"
+                    or fallback["intent"] == "source_fields"
+                    or bool(_BROWSE.fullmatch(req.message.strip()))
+                    or (not context.get("semantic_context")
+                        and fallback.get("context", {}).get("simplification") != context.get("simplification")))
+            if not self.settings.STORE_SEMANTIC_ENABLED or req.locale != "en" or fast:
+                return fallback
+            recovery_started = time.monotonic()
+            answer = await self._model_response(req, intent, context, history, nlu=nlu)
+            answer.setdefault("timings", {})["recovery_seconds"] = time.monotonic() - recovery_started
+            answer["timings"]["complete_seconds"] = (answer["timings"]["recovery_seconds"]
+                                                        + fallback.get("timings", {}).get("complete_seconds", 0))
+            if answer.get("generation", {}).get("source") != "ollama":
+                if not fallback["apps"]:
+                    fallback.update(intent="clarify", message="Could you narrow this down to the main function you need, or name an App to explore?",
+                                    decision={"outcome": "abstained", "reason": "semantic_recovery_unavailable"})
+                fallback["timings"] = answer["timings"]
+                fallback["generation"].update(reason="semantic_recovery_unavailable",
+                                             recovery=answer.get("generation", {}).get("reason"),
+                                             recovery_metadata=answer.get("generation", {}))
+                return fallback
+            return answer
+        return await self._model_response(req, intent, context, history, nlu=nlu)
+
+    async def _model_response(self, req, intent, context, history, *, nlu=None):
         # Explicit inspection remains a source read, not generative paraphrasing.
         if _SOURCE_READ.fullmatch(req.message.strip()):
             return await super().respond(req, "detail", context)
@@ -165,36 +195,52 @@ class StoreConversation(StoreDialogue):
                         "focus": [keys[i] for i in focus if i in keys], "nlu": nlu,
                         "unavailable_reference": any(i not in keys for i in previous_ids + focus)}
         self.progress("intent")
+        plan_started = time.monotonic()
         try:
             named = [a["id"] for a in current if _mentions(a, req.message)]
             known = list(dict.fromkeys(previous_ids + focus))
             if _NEW_SEARCH.search(req.message.strip()):
+                # An explicit constrained discovery command cannot become an
+                # unfiltered browse because of a planner classification error.
                 plan = {"action": "search", "apps": [], "query": req.message}
-            elif _BROWSE.fullmatch(req.message.strip()):
-                plan = {"action": "browse", "apps": [], "query": req.message}
-            elif named or (known and not plan_context["unavailable_reference"]):
-                # A known App set is evidence for the expert, not a request for
-                # a thin classifier to guess the final subject without the facts.
-                scope = list(dict.fromkeys(named + [i for i in known if i in keys]))[:5]
-                plan = {"action": "compare" if len(scope) > 1 and (nlu or {}).get("intent") == "compare" else "answer",
-                        "apps": [keys[i] for i in scope], "query": req.message}
-            elif known and plan_context["unavailable_reference"]:
-                return self._response("An earlier App is no longer available in this catalogue. Please name a current App or browse again.",
-                                      [], "clarify", context)
+            elif self.settings.STORE_SEMANTIC_ENABLED and not known and not history and not named:
+                # A first substantive turn needs discovery, not a catalogue-wide
+                # planner. Expert interprets the full request and Rasa hint
+                # against the retrieved evidence and may still ask a clarification.
+                plan = {"action": "search", "apps": [], "query": req.message}
+            elif not self.settings.STORE_SEMANTIC_ENABLED:
+                if _BROWSE.fullmatch(req.message.strip()):
+                    plan = {"action": "browse", "apps": [], "query": req.message}
+                elif named or (known and not plan_context["unavailable_reference"]):
+                    selected_scope = list(dict.fromkeys(named + [i for i in known if i in keys]))[:5]
+                    plan = {"action": "compare" if len(selected_scope) > 1 and (nlu or {}).get("intent") == "compare" else "answer",
+                            "apps": [keys[i] for i in selected_scope], "query": req.message}
+                elif known and plan_context["unavailable_reference"]:
+                    return self._response("An earlier App is no longer available in this catalogue. Please name a current App or browse again.",
+                                          [], "clarify", context)
+                else:
+                    plan = await asyncio.to_thread(self.interpret, req.message, req.locale, directory, plan_context, history)
             else:
                 plan = await asyncio.to_thread(self.interpret, req.message, req.locale, directory, plan_context, history)
             chosen = [bindings[key] for key in plan["apps"]]
+            if self.settings.STORE_SEMANTIC_ENABLED and named and plan["action"] == "answer" and len(named) == 1:
+                chosen = named
         except Exception:
             return {**self._response("I couldn't quite resolve that turn. Please try again, or name the App you mean.",
                                      [], "clarify", context),
                     "generation": {"source": "deterministic", "reason": "interpretation_unavailable"}}
         action = plan["action"]
-        timings = {}
+        timings = {"interpretation_seconds": time.monotonic() - plan_started}
+        retrieval_trace = []
         async def retrieve(query):
             # Do not catch search failures as no-match: preserve SCRUM-28 errors.
             self.progress("retrieval")
             retrieved = await self.recommend(query=_search_query(query), locale=req.locale, filters=filters)
-            return retrieved["apps"][:5], retrieved.get("timings", {})
+            pool = {r["app"]["id"]: r for r in [*retrieved["apps"], *retrieved.get("candidates", [])]}
+            rows = sorted(pool.values(), key=lambda r: r["rank"])[:5]
+            retrieval_trace[:] = [{"id": r["app"]["id"], "rank": r["rank"],
+                                  "sources": r.get("evidence_fields", [])} for r in rows]
+            return rows, {**timings, **retrieved.get("timings", {})}
         if action == "search":
             results, timings = await retrieve(plan["query"] or req.message)
         elif action == "browse":
@@ -214,8 +260,12 @@ class StoreConversation(StoreDialogue):
             results = [{"app": by_id[identity], "rank": i + 1, "evidence_fields": ["reference"]}
                        for i, identity in enumerate(chosen)]
         elif action == "clarify":
-            return self._response("Which App or earlier comparison do you mean? You can name an App, or ask me to list them.",
-                                  [], "clarify", context)
+            # A valid clarification plan makes no App claims. Distinguish it
+            # from an unavailable interpreter; do not fabricate a no-match.
+            return {**self._response("Which App or earlier comparison do you mean? You can name an App, or ask me to list them.",
+                                    [], "clarify", context),
+                    "timings": timings,
+                    "generation": {"source": "ollama", "reason": "interpreted_clarification", "model_completed": True}}
         else:
             results = []
         for attempt in range(2):
@@ -228,7 +278,8 @@ class StoreConversation(StoreDialogue):
             self.progress("explanation")
             answer = await asyncio.to_thread(self.explain, req.message, results, req.locale, action, history,
                                              progress=self.progress,
-                                             observation=self.observation() if self.observation else None, references=references)
+                                             observation=self.observation() if self.observation else None, references=references,
+                                             **({"nlu_hint": nlu} if self.settings.STORE_SEMANTIC_ENABLED else {}))
             if answer["decision"] != "search":
                 break
             if action == "search" or attempt:
@@ -237,12 +288,16 @@ class StoreConversation(StoreDialogue):
             action = "search"
             plan["query"] = req.message
             results, timings = await retrieve(req.message)
+        answer.setdefault("generation", {}).update(retrieval=retrieval_trace,
+            interpretation={"action": action, "query": plan["query"], "apps": chosen})
+        reviewed = {r["app"]["id"]: r for r in answer.get("reviewed_rows", [])}
+        results = [reviewed.get(r["app"]["id"], r) for r in results]
         fresh = {a["id"]: a for a in self.resolve([r["app"]["id"] for r in results])}
         if any(fresh.get(r["app"]["id"]) != r["app"] for r in results):
             return {**self._response("The catalogue changed while I was answering. Please ask again so I can use the updated information.",
                                     [], "clarify", {**context, "last_results": [], "focused_ids": []}),
                     "generation": {"source": "deterministic", "reason": "catalogue_changed"}}
-        next_context = {**context, "filters": filters}
+        next_context = {**context, "filters": filters, "semantic_context": True}
         if named and action not in {"search", "browse"}:
             next_context["focused_ids"] = named
         if action in {"search", "browse"} or not previous_ids:
@@ -269,4 +324,5 @@ class StoreConversation(StoreDialogue):
                                 "clarify" if answer["decision"] == "clarify" else
                                 "detail" if action == "answer" else
                                 "conversation" if action == "chat" else action, next_context),
+                **({"decision": answer["recommendation_decision"]} if "recommendation_decision" in answer else {}),
                 "timings": timings, "generation": {**answer["generation"], "focus_ids": [r["app"]["id"] for r in focal] if answer["decision"] in {"answer", "chat"} else []}}

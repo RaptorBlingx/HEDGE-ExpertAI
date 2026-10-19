@@ -1,7 +1,7 @@
 """Ollama LLM client.
 
 CRITICAL:
-    - Always pass "think": false in API calls (Qwen3.5 non-thinking mode)
+    - Regular legacy calls use non-thinking mode; structured Store calls honor OLLAMA_THINK.
     - Strip any <think> tags from response as safety measure
     - Timeout: 180s for CPU inference with swap (qwen3.5:4b ~3 tok/s)
     - If generation stops due to output length, request one continuation automatically
@@ -18,6 +18,7 @@ import time
 from collections.abc import Iterator
 
 import httpx
+from hedge_shared.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -233,8 +234,14 @@ class OllamaClient:
         """One bounded Store request; no retries, continuation or raw-output logging."""
         payload = self._build_payload(messages, 0, max_tokens, stream=False)
         payload["format"] = schema
+        settings = Settings()
+        payload["think"] = settings.OLLAMA_THINK
         payload["keep_alive"] = "2m"
-        payload["options"].update(num_ctx=context_tokens, num_thread=1)
+        # Model presets may include creative repetition penalties. Structured
+        # evidence copying/classification must not penalize repeated source terms,
+        # App keys or JSON field names.
+        payload["options"].update(num_ctx=context_tokens, num_thread=settings.STORE_MODEL_THREADS,
+                                  repeat_penalty=1.0, presence_penalty=0.0, frequency_penalty=0.0)
         if deadline is not None:
             async def request():
                 remaining = deadline - time.monotonic()

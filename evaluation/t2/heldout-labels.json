@@ -1,0 +1,27 @@
+{
+  "note": "Agent-authored labels, frozen before running. Not jointly HEDGE-labelled pilot acceptance. All Store observations retained separately from authored fixtures.",
+  "sessions": {
+    "heldout-market-submission": [
+      "EdgeConnect",
+      "explain EdgeConnect",
+      "EdgeConnect settlement contribution ratios"
+    ],
+    "heldout-shared-dictionary": [
+      "Semantic Treehouse",
+      "unknown automatic rewrite",
+      "EdgeConnect",
+      "EdgeConnect role-based access"
+    ],
+    "heldout-compound": [
+      "no single documented match",
+      "possible complementary roles; integration unverified"
+    ],
+    "heldout-unsupported-limits": [
+      "no guaranteed throughput match",
+      "practical validation next steps"
+    ],
+    "heldout-commercial": [
+      "no guaranteed free match"
+    ]
+  }
+}

@@ -7,6 +7,8 @@ engine, translator or real-corpus quality metric.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import unicodedata
 from collections.abc import Iterator
@@ -534,7 +536,24 @@ def _prepared_support(query: str, app: dict, locale: str, claims: list[_Claim]) 
     return None
 
 
-def assess(query: str, app: dict[str, Any], locale: str) -> dict[str, Any]:
+MAX_SEMANTIC_SUPPORT_FIELDS = 20
+
+
+@dataclass(frozen=True)
+class ReviewedSupport:
+    """Internal result of semantic grounding review, never a request contract."""
+    request: str
+    app_id: str
+    source_digest: str
+    quotes: tuple[tuple[str, str], ...]
+
+
+def source_digest(app: dict, locale: str) -> str:
+    return hashlib.sha256(json.dumps(source_text(app, locale), sort_keys=True,
+                                     ensure_ascii=False).encode()).hexdigest()
+
+
+def assess(query: str, app: dict[str, Any], locale: str, *, reviewed_support: ReviewedSupport | None = None) -> dict[str, Any]:
     """Require owned feature/constraint evidence and no applicable qualification."""
     title = app.get("name") if app.get("source_profile") == "hedge-store-v1" else app.get("title")
     identity_path = "name" if app.get("source_profile") == "hedge-store-v1" else "title"
@@ -551,6 +570,20 @@ def assess(query: str, app: dict[str, Any], locale: str) -> dict[str, Any]:
     if identity and identity_query and identity_match:
         return {"status": "source_supported", "reason": "requested_identity",
                 "evidence_fields": [identity_path]}
+    # Only the expert's separately reviewed, request-bound receipt may extend
+    # lexical assessment. Exact citations are checked here again; retrieval
+    # neighbours and model confidence alone can never establish suitability.
+    if (isinstance(reviewed_support, ReviewedSupport)
+            and reviewed_support.request == query and reviewed_support.app_id == app.get("id")
+            and reviewed_support.source_digest == source_digest(app, locale)):
+        quotes = reviewed_support.quotes
+        fields = source_text(app, locale)
+        if (1 <= len(quotes) <= MAX_SEMANTIC_SUPPORT_FIELDS and len(set(quotes)) == len(quotes) and all(
+                len(quote.strip()) >= 16 and quote in fields.get(path, "")
+                for path, quote in quotes)):
+            return {"status": "source_supported", "reason": "semantically_reviewed_source_support",
+                    "evidence_fields": list(dict.fromkeys(path for path, _ in quotes)),
+                    "evidence_spans": list(dict.fromkeys(quote for _, quote in quotes))}
     terms = _terms(query)
     if not terms or _NEGATION.search(_fold(query)) or re.search(r"\b(?:except|only|cheapest|best|better|apenas|nur)\b", _fold(query)):
         return {"status": "uncertain", "reason": "request_needs_clarification", "evidence_fields": []}
