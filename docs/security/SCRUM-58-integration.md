@@ -1,5 +1,7 @@
 # SCRUM-58 integration evidence and temporary npm exception
 
+> Historical acceptance record. The current [frontend dependency policy](frontend-dependency-policy.md) supersedes the temporary npm gate and remediation dependency below.
+
 Prepared 19 October 2026. Status: verified integration candidate, accepted by
 the sole HEDGE maintainer. Publication to the target is subject to Forgejo's
 normal server checks; the final published SHA and outcome are recorded in Jira.

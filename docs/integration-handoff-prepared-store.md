@@ -1,6 +1,11 @@
 # Fast Store integration handoff
 
 Local finalization of `perf/prepared-store-discovery`, starting at `3c25351`.
+
+**Integration follow-up:** [accepted Store integration](store-fast-integration.md)
+reconciles this handoff with the remote head. Its permanent
+[frontend dependency policy](security/frontend-dependency-policy.md) supersedes
+the temporary npm exception described in this historical handoff.
 The remote `feat/hedge-store-v1-integration` head was checked with authenticated
 Git and remains `0a02b5ad2da74222fd85b10b6a3b2c998025db9d`. No push, branch merge,
 deployment, Jira operation or upstream Store mutation was performed.

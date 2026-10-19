@@ -16,27 +16,24 @@ function validateReport(report) {
     Object.keys(report.vulnerabilities).length, "inconsistent audit report");
 }
 
-export function checkAudit({ all, production, exception, lock, hashes, branch, now }) {
+export function checkAudit({ all, production, baseline, lock, hashes }) {
   validateReport(all);
   validateReport(production);
   assert.equal(production.metadata.vulnerabilities.total, 0,
     "production vulnerabilities are never exempt");
   if (all.metadata.vulnerabilities.total === 0) return "npm audit: no findings";
-  assert.ok(exception.branches.includes(branch), "exception does not apply to this branch");
-  assert.ok(Number.isFinite(Date.parse(exception.expires)) && now < Date.parse(exception.expires),
-    "development dependency exception expired");
-  assert.deepEqual(hashes, exception.sha256, "dependency manifests changed; exception invalid");
-  assert.deepEqual(all.vulnerabilities, exception.vulnerabilities,
+  assert.deepEqual(hashes, baseline.sha256, "dependency manifests changed; development baseline review required");
+  assert.deepEqual(all.vulnerabilities, baseline.vulnerabilities,
     "audit findings changed; maintainer review required");
   for (const finding of Object.values(all.vulnerabilities)) {
-    assert.ok(["moderate", "high"].includes(finding.severity), "severity outside exception");
+    assert.ok(["moderate", "high"].includes(finding.severity), "severity outside reviewed development baseline");
     assert.ok(finding.nodes?.length, "missing affected dependency paths");
     for (const node of finding.nodes) {
       assert.equal(lock.packages[node]?.dev, true, `${node} is not development-only`);
     }
   }
-  return `EXCEPTION ${exception.issue}: unchanged development-only findings accepted until ` +
-    `${exception.expires}; remediation ${exception.remediation}. Production audit: zero findings.`;
+  return "ACCEPTED DEVELOPMENT RISK: exact reviewed development-only findings remain; " +
+    "production audit: zero findings. See docs/security/frontend-dependency-policy.md.";
 }
 
 function audit(frontend, output, name, args) {
@@ -63,12 +60,10 @@ function main() {
   const hashes = Object.fromEntries(["package.json", "package-lock.json"].map(name => [
     name, createHash("sha256").update(fs.readFileSync(path.join(frontend, name))).digest("hex"),
   ]));
-  const branch = process.env.GITHUB_HEAD_REF || process.env.GITHUB_REF_NAME ||
-    spawnSync("git", ["branch", "--show-current"], { cwd: root, encoding: "utf8" }).stdout?.trim();
   console.log(checkAudit({
-    all, production, hashes, branch, now: Date.now(),
+    all, production, hashes,
     lock: JSON.parse(fs.readFileSync(path.join(frontend, "package-lock.json"))),
-    exception: JSON.parse(fs.readFileSync(path.join(root, "docs/security/SCRUM-58-npm-exception.json"))),
+    baseline: JSON.parse(fs.readFileSync(path.join(root, "docs/security/frontend-development-audit.json"))),
   }));
 }
 
