@@ -14,12 +14,243 @@ from copy import deepcopy
 from datetime import date, datetime
 from typing import Annotated, Literal
 
+from hedge_shared.store_knowledge import explanation
+from hedge_shared.store_language import dialogue_language, search_language
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
 
 from .llm_client import OllamaClient
 from .recommender import _quoted_store_text, _store_evidence
+from .suitability import _NEGATION, _QUALIFIED, _terms, source_text
 
 _DEADLINE: ContextVar[float | None] = ContextVar("store_reasoning_deadline", default=None)
+
+
+def _explanation(row: dict) -> dict:
+    """Preparation is an explanation of current evidence, never fresh evidence."""
+    return explanation(row["app"])
+
+
+def _fact_text(row: dict, question: str, locale: str, *, topic: str = "", expand: bool = False) -> str:
+    prepared = _explanation(row)
+    if not prepared:
+        return _excerpt(row, locale)
+    terms = _terms(search_language(topic or question, locale))
+    facts = prepared["facts"]
+    scored = [(len(terms & _terms(fact["quote"])) / max(1, len(terms)), fact)
+              for fact in facts]
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    score, selected = scored[0]
+    if score < .4:
+        return (" ".join(fact[locale] for fact in facts[:2]) if expand else
+                prepared[locale]["summary"])
+    parts = [selected[locale]]
+    if expand:
+        for extra_score, extra in scored[1:]:
+            if extra_score > 0 and extra[locale] != selected[locale]:
+                parts.append(extra[locale])
+                break
+    return " ".join(parts)
+
+
+def _excerpt(row: dict, locale: str) -> str:
+    """A complete source sentence, never a truncated or generated capability.
+
+    Recommendation spans come from the existing assessor. Exploratory detail
+    views may quote other source sentences without asserting suitability.
+    """
+    app = row["app"]
+    spans = row.get("suitability", {}).get("evidence_spans", [])
+    evidence = app.get("source_evidence", {})
+    if not spans:
+        text = evidence.get("readme") or evidence.get("description") or ""
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n", text)]
+        spans = [s for s in sentences
+                 if 15 <= len(s) <= 700 and not re.search(
+                     r"https?://|release (?:version|type)|product:|ignore.*instructions", s, re.I)]
+        # Prefer purpose over release headings, without depending on App names.
+        spans.sort(key=lambda s: bool(re.search(r"^(?:used to |.{1,80}?facilitates |this app (?:provides|supports|is designed to) )", s, re.I)), reverse=True)
+        # A complete sentence can still have its qualification in the next one.
+        # Preserve that adjacent sentence rather than making a cleaner but
+        # misleading capability excerpt. Over-bound text is omitted, never cut.
+        if spans:
+            index = sentences.index(spans[0])
+            if index + 1 < len(sentences) and (
+                _NEGATION.search(sentences[index + 1].casefold())
+                or _QUALIFIED.search(sentences[index + 1].casefold())
+            ):
+                spans[0] += ' ' + sentences[index + 1]
+    text = spans[0] if spans else app.get("description") or ""
+    if locale == "tr":
+        # A deliberately closed translation grammar. Unknown source wording is
+        # quoted in its original language rather than mistranslated or embellished.
+        match = re.fullmatch(r"Used to (publish|manage)(?: and (publish|manage))? (.+?)\.?", text, re.I)
+        objects = {"shared data models": "ortak veri modellerini",
+                   "shared data models and mappings": "ortak veri modellerini ve eşlemeleri"}
+        if match and match[3].rstrip(".").casefold() in objects:
+            verbs = {"publish": "yayımlamak", "manage": "yönetmek"}
+            actions = " ve ".join(verbs[v.casefold()] for v in (match[1], match[2]) if v)
+            return objects[match[3].rstrip(".").casefold()].capitalize() + " " + actions + " için kullanılır."
+    quote = _quoted_store_text(text)
+    return f'“{quote}”' if quote else (
+        "Açıklamayı uygulama kartında inceleyebilirsiniz." if locale == "tr" else "You can inspect the description in its App card.")
+
+
+def _related_passage(question: str, candidates: list[dict], locale: str):
+    """Find a useful passage for clarification, never promote a recommendation.
+
+    All request terms must occur in adjacent complete source sentences. Strict,
+    negative, numeric or deployment requirements need an actual suitability
+    decision; lexical overlap cannot establish those. Unknown terms survive.
+    """
+    query = search_language(question, locale)
+    if _NEGATION.search(query.casefold()) or _QUALIFIED.search(query.casefold()) or re.search(
+        r"\d|\b(?:production|offline|real.time|best|better|cheapest)\b", query, re.I
+    ):
+        return None
+    terms = _terms(query)
+    if len(terms) < 2:
+        return None
+    for row in candidates:
+        if row.get('suitability', {}).get('reason') != 'no_coherent_source_support':
+            continue
+        for text in source_text(row['app'], locale).values():
+            sentences = re.split(r'(?<=[.!?])\s+|\n', text)
+            for index in range(len(sentences)):
+                passage = ' '.join(sentences[index:index + 2]).strip()
+                following = sentences[index + 2] if index + 2 < len(sentences) else ''
+                qualification = following if (
+                    _NEGATION.search(following.casefold())
+                    or _QUALIFIED.search(following.casefold())
+                ) else ''
+                complete = passage + (' ' + qualification if qualification else '')
+                if (len(complete) <= 900 and terms <= _terms(passage)
+                        and not _NEGATION.search(passage.casefold())
+                        and not _QUALIFIED.search(passage.casefold())
+                        and not re.search(r'ignore.*instructions|https?://', complete, re.I)):
+                    return row, complete
+    return None
+
+
+def prepared_answer(question: str, response: dict, locale: str) -> str:
+    """Present current evidence without changing recommendation eligibility.
+
+    A named exploratory passage can bind focus for subsequent source inspection;
+    it does not become a recommendation, card or recommendation impression.
+    """
+    locale = "tr" if locale == "tr" else "en"
+    rows = response.get("apps", [])
+    intent = response["intent"]
+    normalized = dialogue_language(question, locale)
+    if (intent == "source_fields" and re.match(r"^(?:show|quote|list)\b", normalized, re.I)
+            and not re.search(r"\b(?:cost|price|billing)\b", normalized, re.I)):
+        # Drop the server's generic inspection preface; keep every source line.
+        _, separator, body = response["message"].partition("\n")
+        return body.lstrip("\n") if separator else response["message"]
+    if not rows:
+        candidates = response.get("candidates", [])
+        related = _related_passage(question, candidates, locale)
+        if related:
+            row, passage = related
+            name = _quoted_store_text(row['app'].get('name') or row['app']['app_id'])
+            quote = _quoted_store_text(passage)
+            response['context']['focused_ids'] = [row['app']['id']]
+            response['context']['explanation_topic'] = search_language(question, locale)
+            if _explanation(row):
+                return f'**{name}** — {_fact_text(row, question, locale)}'
+            return ((f'**{name}** açıklamasında ilgili bir bölüm var:\n\n“{quote}”\n\n'
+                     'Kastettiğiniz iş akışı bu mu?') if locale == 'tr' else
+                    (f'Here’s a relevant passage from **{name}**:\n\n“{quote}”\n\n'
+                     'Is that the workflow you have in mind?'))
+        if intent == "detail" and len(candidates) == 1:
+            name = _quoted_store_text(candidates[0]["app"].get("name") or candidates[0]["app"]["app_id"])
+            row = candidates[0]
+            answer = (f'**{name}** için bu özellik açıklanmamış.' if locale == 'tr' else
+                      f'That feature isn’t described for **{name}**.')
+            evidence = row['app'].get('source_evidence', {}).get('readme', '')
+            if re.search(r"offline|self.host|container|install", normalized, re.I) and re.search(
+                r"External service, accessible via its public URL", evidence, re.I,
+            ):
+                answer += (' Açıklanan erişim yöntemi web adresi üzerinden kullanımdır.' if locale == 'tr' else
+                           ' The documented access method is through its hosted web address.')
+            return answer
+        if intent in {"detail", "compare", "clarify"}:
+            return ("Hangi uygulamayı kastediyorsunuz? Adını söyleyebilir veya uygulamaları listeleyebilirsiniz." if locale == "tr" else
+                    "Which App do you mean? You can name it or ask me to list the Apps.")
+        return ("Bu istekle eşleşen bir uygulama bulamadım." if locale == "tr" else
+                "I couldn’t find a matching App for that request.")
+    def title(row):
+        return _quoted_store_text(row["app"].get("name") or row["app"]["app_id"]) or "App"
+    if len(rows) == 1 and re.search(r"\bwho (?:makes|provides|developed|operates)\b|sağlayıcısı kim|kim geliştirdi", normalized, re.I):
+        provider = _quoted_store_text(rows[0]['app'].get('provider') or '')
+        return ((f'**{title(rows[0])}** sağlayıcısı: **{provider}**.' if locale == 'tr' else
+                 f'**{title(rows[0])}** is provided by **{provider}**.') if provider else
+                ('Sağlayıcı belirtilmemiş.' if locale == 'tr' else 'No provider is listed.'))
+    if re.search(r"\b(?:cost|price|billing)\b", normalized, re.I):
+        lines = []
+        for row in rows:
+            price = row["app"].get("source_evidence", {}).get("price")
+            if price is None:
+                lines.append(f'**{title(row)}** için fiyat belirtilmemiş. Ücret bilgisini sağlayıcıdan istemenizi öneririm.' if locale == "tr" else
+                              f'No price is listed for **{title(row)}**. I’d check the cost with the provider.')
+            else:
+                price = _quoted_store_text(str(price)) or "—"
+                lines.append(f'**{title(row)}** için listelenen fiyat: {price}. Para birimi ve fatura dönemi belirtilmemiş.' if locale == "tr" else
+                              f'**{title(row)}** lists a price of {price}; the currency and billing period aren’t specified.')
+        return "\n\n".join(lines)
+    if re.search(r"get started|start using|nasıl kullan|container|kurulum", normalized, re.I) and len(rows) == 1:
+        evidence = rows[0]["app"].get("source_evidence", {})
+        text = evidence.get("readme", "")
+        urls = list(dict.fromkeys(re.findall(r"https?://[^\s<>\"\\]+", text)))
+        urls = [url.rstrip(".,;)") for url in urls if not re.search(r"[\[\]()]", url.rstrip(".,;)"))]
+        if urls:
+            hosted = bool(re.search(r"External service, accessible via its public URL", text, re.I))
+            direct = bool(re.search(r"without installing|yapmadan", normalized, re.I))
+            if hosted:
+                lead = (("Evet. " if direct else "") + f"**{title(rows[0])}** uygulamasını yayımlanmış web adresinden kullanabilirsiniz." if locale == "tr" else
+                        ("Yes. " if direct else "") + f"You can use **{title(rows[0])}** at its hosted web address.")
+            else:
+                lead = (f'**{title(rows[0])}** için başlangıç bağlantıları:' if locale == "tr" else f'Here’s where to start with **{title(rows[0])}**:')
+            lines = [lead]
+            lines += [f'- [{url}]({url})' for url in urls[:3]]
+            # Hosted access does not establish whether self-hosting is possible.
+            return "\n".join(lines)
+        return (f'**{title(rows[0])}** için kurulum adımları belirtilmemiş. Hangi ortamda kullanmak istiyorsunuz?' if locale == "tr" else
+                f'Installation steps aren’t listed for **{title(rows[0])}**. What environment are you planning to use?')
+    simple = normalized == "Explain it simply"
+    how = bool(re.search(r"how .*work|nasıl çalış", normalized, re.I))
+    if simple:
+        return "\n\n".join(
+            f'**{title(row)}**: {_explanation(row)[locale]["simple"]}'
+            if _explanation(row) else f'**{title(row)}**: {_excerpt(row, locale)}'
+            for row in rows)
+    if intent == "compare" and all(_explanation(row) for row in rows):
+        # Compare the practical tasks, not a repeated pair of source paragraphs.
+        # Never invent superiority, mutual exclusivity or a missing feature.
+        tasks = [_explanation(row)[locale]["use_when"].rstrip(".") for row in rows]
+        if len(set(task.casefold() for task in tasks)) == 1:
+            lead = ('Aynı amaca yönelikler: ' if locale == 'tr' else 'They address the same task: ') + tasks[0] + '.'
+            return lead + "\n\n" + "\n\n".join(f'**{title(row)}**: {_explanation(row)[locale]["summary"]}' for row in rows)
+        choices = [f'**{title(row)}**: {task}' for row, task in zip(rows, tasks, strict=True)]
+        if len(rows) == 2:
+            return (f'**{title(rows[0])}**, {tasks[0]} için; **{title(rows[1])}** ise {tasks[1]} için uygun.'
+                    if locale == 'tr' else
+                    f'Use **{title(rows[0])}** for {tasks[0]}, and **{title(rows[1])}** for {tasks[1]}.')
+        return ('Yapmak istediğiniz işe göre seçin:\n\n' if locale == 'tr' else
+                'Choose by the task you need:\n\n') + "\n\n".join(choices)
+    expand = how or bool(re.search(r"\bmore\b|daha fazla", question, re.I))
+    topic = response.get('context', {}).get('explanation_topic', '') if expand else ''
+    if response.get('decision', {}).get('outcome') == 'recommended':
+        response['context']['explanation_topic'] = search_language(question, locale)
+    lines = [f'**{title(row)}** — {_fact_text(row, question, locale, topic=topic, expand=expand)}' for row in rows]
+    if response.get('decision', {}).get('outcome') == 'recommended':
+        direct = bool(re.match(r"(?:can|does|could)\b", normalized, re.I))
+        intro = ('Evet.' if locale == 'tr' else 'Yes.') if direct else (
+            'Bu iş için önerim:' if locale == 'tr' else 'For that, I recommend:')
+        return intro + "\n\n" + "\n\n".join(lines)
+    if intent == 'detail' and len(rows) == 1 and not how and rows[0]['app'].get('provider'):
+        lines.append(('Sağlayıcı: ' if locale == 'tr' else 'Provider: ') +
+                     (_quoted_store_text(rows[0]['app']['provider']) or ''))
+    return "\n\n".join(lines)
 
 
 class Plan(BaseModel):

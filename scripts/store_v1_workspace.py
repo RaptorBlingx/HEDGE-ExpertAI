@@ -206,6 +206,7 @@ def workspace():
             search, resolve, recommend._recommendation_narrative,
             answers.plan, answers.respond, lambda: store_sync.status(store_id),
             decide=recommend._recommendation_decision,
+            present=answers.prepared_answer,
         )
         playground = Playground(chat, recommend, models_v2, [], policy)
         playground.source = "managed-authorized-store"

@@ -39,7 +39,7 @@ _SOURCE_READ = re.compile(
     r"(?:show|quote|list)(?: me)? (?:the )?(" + "|".join(_SOURCE_FIELDS) +
     r")(?: (?:for|of) (.+?))?[?!.]*", re.I,
 )
-_REFERENCE = re.compile(r"\b(it|that app|this app|both|them|these apps|those apps|the other (?:app|one))\b", re.I)
+_REFERENCE = re.compile(r"\b(it|that app|this app|both|them|these apps|those apps|the other (?:app|one)|bu uygulama|bunu)\b", re.I)
 
 
 def _mentions(app: dict, message: str) -> bool:
@@ -145,7 +145,9 @@ class StoreDialogue:
         if seeded:
             context = {**context, "last_results": [{"app": app, "rank": i + 1}
                        for i, app in enumerate(sorted(current, key=lambda a: a["app_id"])[:5])]}
+            context["comparison_ids"] = [r["app"]["id"] for r in context["last_results"]]
         previous = [item.get("app", item)["id"] for item in context.get("last_results", [])]
+        comparison = previous if len(previous) > 1 else context.get("comparison_ids", previous)
         for app in current:
             native = rf"(?<!\w){re.escape(app['app_id'])}(?!\w)"
             if (re.search(native, message, re.I) and not re.search(native, message)
@@ -167,15 +169,16 @@ class StoreDialogue:
         if targeted and not selected:
             if intent == "compare" and re.search(r"\bfirst (two|three|2|3)\b", message, re.I):
                 count = 3 if re.search(r"\b(three|3)\b", message, re.I) else 2
-                selected = previous[:count] if len(previous) >= count else []
+                selected = comparison[:count] if len(comparison) >= count else []
             elif ordinals:
                 # Any unresolved ordinal fails instead of silently comparing a subset.
                 selected = [previous[i] for i in sorted(set(ordinals))] if max(ordinals) < len(previous) else []
             elif re.search(r"\bthe other (?:app|one)\b", message, re.I):
-                alternatives = [i for i in previous if i not in context.get("focused_ids", [])]
+                group = context.get("comparison_ids") or previous
+                alternatives = [i for i in group if i not in context.get("focused_ids", [])]
                 selected = alternatives if len(context.get("focused_ids", [])) == 1 and len(alternatives) == 1 else []
             elif _REFERENCE.search(message):
-                selected = previous if intent == "compare" or re.search(r"\b(both|them|these apps|those apps)\b", message, re.I) else context.get("focused_ids", [])
+                selected = comparison if intent == "compare" or re.search(r"\b(both|them|these apps|those apps)\b", message, re.I) else context.get("focused_ids", [])
         selected = list(dict.fromkeys(selected))
         unsupported = _PRICE.search(message) or (
             _UNSUPPORTED_METADATA.search(message) if not self.assess_requirements else False)
@@ -189,6 +192,16 @@ class StoreDialogue:
             # A cost question asks for supplied values, never a free/paid verdict.
             # Unsupported filters still fail closed below; this does not rank by price.
             source_read = _SOURCE_READ.fullmatch("Show billing fields")
+            source_target = None
+            context = {**context, "focused_ids": selected}
+        if (self.catalogue_references and selected and not source_read and re.fullmatch(
+            r"(?:how do (?:we|i) (?:get started with|start using) (?:it|this app|that app)|"
+            r"(?:could|can) (?:we|i) use (?:it|this app|that app) without installing (?:a )?container)[?!.]*",
+            message, re.I,
+        )):
+            # This asks for documented access/setup information, not a new
+            # capability recommendation. Other deployment constraints stay searches.
+            source_read = _SOURCE_READ.fullmatch("Show readme")
             source_target = None
             context = {**context, "focused_ids": selected}
         if source_read and not invalid_filters:
@@ -274,6 +287,8 @@ class StoreDialogue:
                 text += "\n" + self.describe(message, results, req.locale)
             next_context = {"last_query": "", "filters": filters, "last_results": results,
                             "focused_ids": [apps[0]["id"]] if len(apps) == 1 else []}
+            if self.catalogue_references:
+                next_context["comparison_ids"] = [app["id"] for app in apps]
             return self._response(text, results, "browse", next_context)
 
         if selected or targeted:
@@ -288,7 +303,7 @@ class StoreDialogue:
             results = [{"app": app, "rank": i + 1, "evidence_fields": ["reference"]}
                        for i, app in enumerate(apps)]
             functional_question = search_language(message, req.locale)
-            if (self.decide and re.search(r"^(?:does|can)\b|\bsupports?\b|\bcompatible\b", functional_question, re.I)
+            if (self.decide and re.search(r"^(?:does|can|could)\b|\b(?:supports?|sends?|delivers?|compatible)\b", functional_question, re.I)
                     and not re.match(r"^can you (?:show|list|describe|explain|tell|find|search)\b", functional_question, re.I)):
                 # Reuse Expert's exact decision/abstention boundary, with only
                 # identity scaffolding removed. No second suitability checker.
@@ -303,6 +318,8 @@ class StoreDialogue:
             if intent == "compare":
                 text = "Source-field comparison only; no superiority or suitability is inferred.\n" + text
             next_context = {**context, "filters": filters, "focused_ids": selected}
+            if self.catalogue_references and intent == "compare":
+                next_context["comparison_ids"] = selected
             if seeded and named:
                 next_context["last_results"] = results
             if seeded and not named:
@@ -330,9 +347,15 @@ class StoreDialogue:
         if intent == "refine" and context.get("last_query"):
             query = context["last_query"] + " " + query
         response = await self.recommend(query=query, locale=req.locale, filters=filters)
+        references = context if self.catalogue_references else {}
         next_context = {"last_query": query, "filters": filters,
-                        "last_results": response["apps"][:5],
-                        "focused_ids": [response["apps"][0]["app"]["id"]] if len(response["apps"]) == 1 else []}
+                        "last_results": response["apps"][:5] or references.get("last_results", []),
+                        "explanation_topic": references.get("explanation_topic", ""),
+                        "focused_ids": [response["apps"][0]["app"]["id"]] if len(response["apps"]) == 1 else (
+                            [] if response["apps"] else references.get("focused_ids", []))}
+        if self.catalogue_references:
+            next_context["comparison_ids"] = ([r["app"]["id"] for r in response["apps"][:5]]
+                if len(response["apps"]) > 1 else references.get("comparison_ids", previous))
         if response["apps"]:
             response["message"] = ("Retrieved source records; order does not establish suitability.\n"
                                    + response["message"])

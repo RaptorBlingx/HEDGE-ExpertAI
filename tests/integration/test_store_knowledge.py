@@ -49,3 +49,42 @@ def test_old_or_mismatched_knowledge_falls_back_and_repairs_without_source_revis
     repaired = saved(app)
     assert repaired['revision'] == row['revision']
     assert repaired['prepared_knowledge'] == store_knowledge.prepare(app)
+
+
+
+def test_offline_prose_reuses_current_source_and_cannot_publish_after_source_change(database, monkeypatch):
+    import pytest
+
+    from scripts import prepare_store_explanations
+
+    migrate.main()
+    app = StoreAppMetadata(store_id='Preparation', app_id='Prose', name='Meter',
+                           description='Displays energy readings.', active=True, visible=True)
+    saved(app)
+    prose = {'summary':'Displays energy readings.', 'simple':'See energy readings.',
+             'use_when':'viewing energy readings'}
+    artifact = {'version':1, 'en':prose, 'tr':prose, 'facts':[{
+        'path':'description', 'quote':app.description, 'en':prose['summary'], 'tr':prose['summary']}]}
+    record = {'id':app.id, 'checksum':app.checksum, 'explanation':artifact,
+              'review':{'method':'agent_source_review', 'reviewer':'Test reviewer',
+                        'note':'Compared both language explanations to complete source.'}}
+    assert prepare_store_explanations.prepare(app.store_id, [record])[0]['status'] == 'source_review_import'
+    assert prepare_store_explanations.prepare(app.store_id, [record])[0]['status'] == 'reused'
+    with pytest.raises(ValueError, match='current checksum'):
+        prepare_store_explanations.prepare(app.store_id, [{**record, 'checksum':'stale'}])
+    changed = app.model_copy(update={'description':'Displays district heat readings.'})
+    saved(changed)
+    assert not store_knowledge.explanation(store_knowledge.project(saved(changed)))
+    record = {**record, 'checksum':changed.checksum}
+    with pytest.raises(ValueError, match='unbound quotations'):
+        prepare_store_explanations.prepare(app.store_id, [record])
+    record['explanation']['facts'][0]['quote'] = changed.description
+    original = prepare_store_explanations.explanation
+    def concurrent_change(projection):
+        checked = original(projection)
+        saved(changed.model_copy(update={'visible':False}))
+        return checked
+    monkeypatch.setattr(prepare_store_explanations, 'explanation', concurrent_change)
+    with pytest.raises(ValueError, match='Source changed'):
+        prepare_store_explanations.prepare(app.store_id, [record])
+    assert saved(changed.model_copy(update={'visible':False})) is None

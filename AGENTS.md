@@ -31,6 +31,12 @@
 - Reuse established patterns. Add abstractions, wrappers, configuration, dependencies, or layers only for real requirements or demonstrated reuse. Avoid speculative flexibility, boilerplate, duplication, unrelated refactoring, and complexity without demonstrated value.
 - Before finishing, review the diff as a maintainer: every change must serve the requirement; remove unnecessary code and verify meaningful behavior and failure cases in proportion to risk. Passing tests alone does not establish good design.
 
+## ExpertAI conversational experience
+
+- Answer directly and naturally. Keep validation internal; avoid repetitive disclaimers, defensive language, robotic templates and explanations of implementation limits.
+- Recommend and explain Apps confidently when source evidence supports the user's need. Interpret unfamiliar wording and follow-ups in context; ask a useful clarification when needed, without excessive abstention or invented capabilities.
+- Judge changes through complete English and Turkish conversations in the actual widget: understanding, useful recommendations, natural wording, continuity and latency. Automated tests support this product evaluation; they do not replace it. Preserve source grounding and the existing recommendation architecture.
+
 ## Engineering and verification
 
 - Code conventions: typed Python, Pydantic contracts, shared helpers, Ruff, and Pytest. Each service has an `app` package; follow existing test import isolation.

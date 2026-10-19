@@ -196,7 +196,8 @@ def offline_playground():
         policy_type = importlib.import_module(chat.__package__ + ".store_conversation").StoreConversation
         answers = importlib.import_module(recommend.__package__ + ".store_conversation")
         policy = policy_type(policy_search, resolve, recommend._recommendation_narrative,
-                             answers.plan, answers.respond, decide=recommend._recommendation_decision)
+                             answers.plan, answers.respond, decide=recommend._recommendation_decision,
+                             present=answers.prepared_answer)
         playground = Playground(chat, recommend, models_v2, records, policy)
 
         # Retain counts/revisions from actual persistence and index operations,

@@ -3,6 +3,11 @@
 Implementation and local evaluation, 2026-10-19. This work is local only: no push,
 branch merge, deployment, source catalogue mutation or Jira transition.
 
+The [local conversational UX follow-up](evidence/2026-10-19-conversational-ux.md)
+records actual EN/TR widget conversations, fixes and 20/100/300-App synthetic
+runtime measurements. SCRUM-39 has since been integrated at `0a02b5a`; its
+application changes are already in this branch and were not copied or merged again.
+
 ## Source baseline and review boundaries
 
 The isolated `perf/prepared-store-discovery` worktree starts at `c881c6d`, including
@@ -35,8 +40,8 @@ service, model, dependency or public Store indexing surface is introduced.
    the preparation version, source checksum, original source projection, explicit
    field ordering and embedding input. Extraction strips unsafe markup while
    retaining full bounded source text, extraction uncertainty, native identity,
-   connector/type/billing fields and source version order. This is source-derived
-   knowledge, not generated capability claims or fabricated translations.
+   connector/type/billing fields and source version order. This base document is source-derived knowledge. Optional reviewed explanations
+   can be prepared separately as described below; generated text is never indexed.
 2. **Incremental synchronization/indexing.** Unchanged source checksums and
    preparation versions reuse that document. Missing/outdated preparation repairs
    during reconciliation without inventing a new source revision. The existing
@@ -52,8 +57,9 @@ service, model, dependency or public Store indexing surface is introduced.
    v1/v2 recommendation routes also default to that evidence decision, without
    model selection. Ranking never establishes suitability; unsupported candidates
    remain distinct from recommendations.
-4. **Source-grounded explanations.** Deterministic explanations attribute exact
-   Store field values. No generated summary can silently remove a qualification. README provenance
+4. **Source-grounded explanations.** The original quotation fallback attributes
+   exact Store field values. Offline reviewed bilingual prose can explain the same
+   evidence without repeatedly displaying quotations. README provenance
    headings/URLs do not become capabilities; deployment restrictions remain
    scoped restrictions. Ambiguous historical purpose statements remain uncertain
    without an explicit descriptive context.
@@ -150,3 +156,58 @@ files, and **no credentials**. Reuse of a populated workspace is rejected before
 migration or preparation. The retained managed run used a separate task-owned
 Rasa container and the same cached model images; the existing private workspace
 and demo were never endpoints of these probes.
+
+## Offline conversational explanations
+
+Ordinary chat reads reusable, source-reviewed bilingual preparation stored in the
+existing `prepared_knowledge` document. It adds a short purpose, a genuinely
+simpler explanation, a practical task label and up to five facts per App. Each
+fact retains an exact complete quotation and field path. Original source metadata
+and the vector/lexical index remain authoritative and unchanged.
+
+```sh
+python -m scripts.prepare_store_explanations --store-id <native-store-id> \
+  --reviewed-file /private/reviewed-explanations.json
+```
+
+Run inside the intended isolated local workspace environment after reconciliation;
+never point it at the preserved demo. The owned mode-0600 file must live outside
+the repository. It contains a list of `{id, checksum, explanation, review}` records.
+`explanation` has `version: 1`, `en`/`tr` objects with `summary`, `simple`, `use_when`,
+and a `facts` array containing `path`, exact original `quote`, `en`, `tr`.
+`review` records `method` (`human_source_review` or `agent_source_review`),
+`reviewer` and a concrete `note`. This explicitly records editorial provenance;
+it does not assert independent maintainer acceptance or local-model approval.
+
+The importer validates current Store membership, checksum, review provenance,
+bounded prose and exact quotation bindings, then uses a checksum/version
+compare-and-set. A concurrent source change/withdrawal prevents publication.
+Identical preparation is reused. Source updates invalidate it; missing, outdated
+or unbound preparation falls back to original evidence. Importing prose does not
+fetch upstream, invoke a model, modify source payloads or rebuild vectors. Review
+cost is separate from import time and ordinary request latency.
+
+The existing suitability assessor can interpret a reviewed compound passage when
+its normal grammar cannot: every request term must occur in both the original
+passage and its reviewed English explanation. Generated/edited text is not a new
+retrieval source. Concrete parsed restrictions, uninterpreted negative claims,
+qualified passages and strict/negative requests cannot be cleared by preparation.
+Cards, ranking, Store scope and final source-change checks retain their existing
+paths. This extends source interpretation in the existing assessor.
+
+Comparisons contrast user tasks instead of repeating source descriptions.
+Simplification replaces jargon instead of appending a glossary. Access and provider
+questions answer directly. Contextual detail can add relevant workflow facts.
+Failed searches preserve prior reference identities in the current catalogue
+conversation mode; subsequent turns resolve current rows. Turkish prose uses
+reviewed translations. Explicit source inspection remains verbatim.
+
+The two-App widget evaluation uses **Codex-authored, agent-source-reviewed**
+preparation, retained privately outside Git with source bindings and review notes.
+No App-specific prose or test questions are in application code. Local-model
+preparation experiments failed quotation/semantic checks, including an overcautious
+pilot-count interpretation; rejected output was not used. The unsuccessful automatic
+writer is not part of the committed implementation. Reliable unattended preparation
+across a large real catalogue remains open. Actual complete widget conversations
+are the acceptance evidence; synthetic timing tests cannot establish recommendation
+or translation quality. The configured runtime models and services are preserved.

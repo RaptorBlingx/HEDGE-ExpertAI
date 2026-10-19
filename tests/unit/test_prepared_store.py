@@ -86,6 +86,12 @@ def test_browse_followups_comparison_and_publisher_keep_current_identity(routine
     assert 'sağlanan' in second['message']
     compared = ask(policy, 'İkisini karşılaştır', context=first['context'],locale='tr')
     assert len(compared['apps']) == 2 and 'karşılaştırılıyor' in compared['message']
+    focused = ask(policy, 'Find shared data models', context=first['context'])
+    other = ask(policy, 'Tell me about the other one', context=focused['context'])
+    assert other['apps'][0]['app']['id'] == apps[0]['id']
+    failed = ask(policy, 'Find earthquake predictions', context=first['context'])
+    assert not failed['apps']
+    assert len(ask(policy, 'Compare them', context=failed['context'])['apps']) == 2
     filtered = ask(policy,'Show me all available applications',filters={'publisher':'Provider B'})
     assert [r['app']['id'] for r in filtered['apps']] == [apps[1]['id']]
     assert not ask(policy,'Tell me more about the fifth app', context=first['context'])['apps']
@@ -226,3 +232,92 @@ def test_named_capability_questions_use_the_existing_source_decision(routine,mes
     assert result['decision']['outcome'] == ('recommended' if supported else 'abstained')
     assert all(r['app']['id'] == apps[0]['id'] for r in [*result['apps'],*result.get('candidates',[])])
     model.assert_not_called()
+
+
+@pytest.mark.parametrize('wrong_intent', ['greeting', 'help', 'reset', 'detail', 'compare'])
+def test_statistical_labels_cannot_discard_a_substantive_goal(routine, wrong_intent):
+    policy, model, _ = routine
+    assert policy.route_intent('Could you help our team manage shared data models?', wrong_intent) == 'search'
+    assert policy.route_intent('reset', wrong_intent) == 'reset'
+    assert policy.route_intent('Hangi uygulamalar var?', wrong_intent) == 'search'
+    assert policy.route_intent('Bunların farkı ne?', wrong_intent) == 'compare'
+    model.assert_not_called()
+
+
+def test_aliases_preserve_unknown_constraints_quoted_identity_and_prior_requirements():
+    assert search_language('"Common Vocabulary" without quantumtelepathy', 'en') == '"Common Vocabulary" without quantumtelepathy'
+    query = 'Our teams need offline access. Is there something for shared data models?'
+    assert 'offline' in search_language(query, 'en')
+    query = 'Our teams use MQTT. Could you help us manage data models?'
+    assert 'MQTT' in search_language(query, 'en')
+    query = 'Our teams use different names for the same data. Could you help us manage data models?'
+    assert search_language(query, 'en') == 'Could you help us manage data models?'
+
+
+def test_concise_presentation_keeps_unverified_apps_out_of_recommendations(routine):
+    policy, model, _ = routine
+    answers = load_service('ux_answers', 'expert-recommend')('store_conversation')
+    policy.present = answers.prepared_answer
+    first = ask(policy, 'Find apps for shared data models')
+    assert first['apps'] and 'recommend' in first['message']
+    assert 'Deployment-specific' not in first['message'] and 'Unverified retrieval' not in first['message']
+    follow = ask(policy, 'Tell me more about that one', context=first['context'])
+    assert 'Model Studio' in follow['message'] and 'Provider B' in follow['message']
+    unsupported = ask(policy, 'Does Model Studio support satellite crop prediction?', context=first['context'])
+    assert not unsupported['apps'] and unsupported['decision']['outcome'] == 'abstained'
+    assert 'Model Studio' in unsupported['message'] and 'Which App' not in unsupported['message']
+    model.assert_not_called()
+
+
+def test_exploratory_passage_does_not_change_decision_or_invent_a_card():
+    answers = load_service('ux_passage', 'expert-recommend')('store_conversation')
+    app = StoreAppMetadata(store_id='Store', app_id='Bids', name='Bid Workshop',
+        description='Handles regional bids from multiple aggregators. Those bids are combined under a common bid.',
+        active=True, visible=True).recommendation_projection()
+    response = {'intent':'search', 'message':'old', 'apps':[], 'context':{},
+        'decision':{'outcome':'abstained','reason':'insufficient_evidence'},
+        'candidates':[{'app':app,'suitability':{'reason':'no_coherent_source_support'}}]}
+    text = answers.prepared_answer('combining bids from several aggregators', response, 'en')
+    assert 'Bid Workshop' in text and 'Is that the workflow' in text
+    assert response['apps'] == [] and response['decision']['outcome'] == 'abstained'
+    assert response['context']['focused_ids'] == [app['id']]
+    for query in ['production bids', 'bids without MQTT', '100 aggregators', 'quantumtelepathy bids']:
+        assert answers._related_passage(query, response['candidates'], 'en') is None
+
+
+def test_summary_keeps_adjacent_source_qualifications():
+    answers = load_service('ux_qualification', 'expert-recommend')('store_conversation')
+    app = StoreAppMetadata(store_id='Store', app_id='Simulator', name='Simulator',
+        description='Provides energy readings. These readings are only available in simulation.',
+        active=True, visible=True).recommendation_projection()
+    summary = answers._excerpt({'app':app}, 'en')
+    assert 'only available in simulation' in summary
+
+
+def test_reviewed_compound_passage_requires_current_original_support():
+    assessor = load_service('prepared_semantics', 'expert-recommend')('suitability')
+    app = StoreAppMetadata(store_id='Store', app_id='Compound', name='Compound',
+        description='Regional readings from multiple meters are combined under a common record.',
+        active=True, visible=True)
+    projection = app.recommendation_projection()
+    prose = {'summary':'Combines readings from multiple meters.',
+             'simple':'Brings meter readings together.', 'use_when':'combining meter readings'}
+    artifact = {'version':1, 'review':{'method':'agent_source_review', 'reviewer':'Fixture', 'note':'Checked source.'}, 'en':prose, 'tr':prose, 'facts':[{
+        'path':'description', 'quote':app.description,
+        'en':prose['summary'], 'tr':prose['summary']}]}
+    projection['prepared_explanation'] = artifact
+    assert assessor.assess('combine readings from multiple meters', projection, 'en')['status'] == 'source_supported'
+    assert assessor.assess('combine earthquake predictions', projection, 'en')['status'] == 'uncertain'
+    assert assessor.assess('combine readings without MQTT', projection, 'en')['status'] == 'uncertain'
+    assert assessor.assess('combine no readings from multiple meters', projection, 'en')['status'] == 'uncertain'
+    answers = load_service('prepared_locale', 'expert-recommend')('store_conversation')
+    response = {'intent':'detail', 'apps':[{'app':projection}], 'context':{}}
+    assert 'Combines readings' in answers.prepared_answer('Tell me about it', response, 'de')
+    projection['source_evidence']['readme'] = 'This app does not combine readings from multiple meters.'
+    assert assessor.assess('combine readings from multiple meters', projection, 'en')['status'] == 'uncertain'
+    projection['source_evidence'].pop('readme')
+    projection['source_evidence']['description'] = 'The earlier workflow has been removed.'
+    assert assessor.assess('combine readings from multiple meters', projection, 'en')['status'] == 'uncertain'
+    knowledge = {**prepare(app), 'explanation':artifact}
+    row = {'id':app.id, 'checksum':'changed', 'payload':app.model_dump(exclude={'id','checksum','public_eligible'}), 'prepared_knowledge':knowledge}
+    assert 'prepared_explanation' not in project(row)

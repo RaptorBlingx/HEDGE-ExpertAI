@@ -98,6 +98,8 @@ def main():
                 options['routine'] = not args.legacy
             if not args.legacy:
                 options['decide'] = pg.recommender._recommendation_decision
+                if 'present' in inspect.signature(module.StoreConversation).parameters:
+                    options['present'] = expert.prepared_answer
             pg.policy = module.StoreConversation(
                 search,
                 pg.policy.resolve,

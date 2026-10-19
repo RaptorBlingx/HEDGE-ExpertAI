@@ -12,6 +12,7 @@ import time
 
 from hedge_shared.config import Settings
 from hedge_shared.models_v2 import ChatRequestV2
+from hedge_shared.store_language import dialogue_language
 
 from .store_dialogue import _BROWSE, _SOURCE_READ, StoreDialogue, _mentions, _search_query
 
@@ -22,18 +23,34 @@ _NEW_SEARCH = re.compile(r"^(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?(?:fi
 
 
 class StoreConversation(StoreDialogue):
-    def __init__(self, recommend, resolve, describe, interpret, explain, observation=None, *, routine=True, decide=None):
+    def __init__(self, recommend, resolve, describe, interpret, explain, observation=None, *, routine=True, decide=None, present=None):
         super().__init__(recommend, resolve, describe, catalogue_references=True, assess_requirements=routine, decide=decide if routine else None)
         self.routine = routine
         self.settings = Settings()
         self.interpret = interpret
         self.explain = explain
         self.observation = observation
+        self.present = present
         self.progress = lambda stage: None
 
     def route_intent(self, message: str, intent: str) -> str:
         if self.routine:
-            return "conversation" if _COMPLEX.match(message) else super().route_intent(message, intent)
+            if _COMPLEX.match(message):
+                return "conversation"
+            # Statistical labels must not discard a substantive request or reset
+            # its session. Reserve those actions for explicit conversational controls.
+            clean = message.strip().rstrip("?!.,").casefold()
+            if re.fullmatch(r"reset|start over|new search|clear|sıfırla", clean):
+                return "reset"
+            if re.fullmatch(r"hi|hello|hey|merhaba|selam", clean):
+                return "greeting"
+            if re.fullmatch(r"(?:(?:hi|hello|merhaba)[, ]+)?(?:help|yardım|what can you (?:do|help me with)|burada neler yapabilirim)", clean):
+                return "help"
+            if intent == "out_of_scope" and re.search(r"write (?:me )?a poem|medical diagnosis|political advice|legal advice", clean):
+                return intent
+            normalized = dialogue_language(message, "tr")
+            fallback = "refine" if re.match(r"^(?:only|without|instead|sadece|yalnızca)\b", normalized, re.I) else "search"
+            return super().route_intent(normalized, fallback)
         return "reset" if intent == "reset" else "conversation"
 
     async def respond(self, req: ChatRequestV2, intent: str, context: dict) -> dict:
@@ -43,11 +60,27 @@ class StoreConversation(StoreDialogue):
         started = time.monotonic()
         complex_request = _COMPLEX.match(req.message)
         request = req.model_copy(update={"message": req.message[complex_request.end():]}) if complex_request else req
-        routed = super().route_intent(request.message, (nlu or {}).get("intent", intent))
+        if re.fullmatch(
+            r"(?:(?:i'm|i am) not sure|i don't know)(?: where to start| what to choose)?[?!.]*|"
+            r"what (?:would you|do you) (?:suggest|recommend)[?!.]*|"
+            r"(?:ne önerirsin|nereden başlayacağımı bilmiyorum)[?!.]*",
+            request.message.strip(), re.I,
+        ):
+            # Offer concrete starting points for an unspecified goal, without
+            # pretending that an unfiltered list is a recommendation.
+            request = request.model_copy(update={"message": (
+                "Compare both" if len(context.get("last_results", [])) > 1
+                else "Tell me about it" if context.get("focused_ids")
+                else "Show me all available apps")})
+        routed = self.route_intent(request.message, intent)
         fallback = await super().respond(request, routed, context)
+        if self.present:
+            fallback["message"] = self.present(request.message, fallback, req.locale)
         if not fallback["apps"]:
             fallback.setdefault("decision", {"outcome": "abstained", "reason": "insufficient_evidence"})
-        fallback["generation"] = {"source": "prepared", "reason": "source_evidence", "model_completed": False}
+        fallback["generation"] = {"source": "prepared", "reason": (
+            "reviewed_preparation" if any(r["app"].get("prepared_explanation") for r in fallback["apps"])
+            else "source_evidence"), "model_completed": False}
         if complex_request and self.settings.STORE_REASONING_ENABLED and fallback["apps"]:
             # A single budget covers drafting and review. The expert checks the
             # remaining budget before every model call; no repair loops here.

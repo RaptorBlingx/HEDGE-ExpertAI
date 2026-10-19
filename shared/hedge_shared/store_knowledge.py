@@ -1,11 +1,12 @@
 """Versioned, rebuildable Store knowledge. Source metadata remains authoritative."""
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .store_v1 import StoreAppMetadata
 
-# Bump whenever source extraction/projection semantics change. No generated claims.
+# Bump whenever source extraction/projection semantics change.
 PREPARATION_VERSION = 1
 
 
@@ -41,5 +42,45 @@ def project(row: dict[str, Any]) -> dict[str, Any]:
         # deterministic explanations remain stable across persistence.
         projection["source_evidence"] = {path: evidence[path]
             for path in knowledge.get("evidence_paths", evidence) if path in evidence}
+        if isinstance(knowledge.get("explanation"), dict):
+            projection["prepared_explanation"] = knowledge["explanation"]
         return projection
     return StoreAppMetadata.model_validate(row["payload"]).recommendation_projection()
+
+
+def explanation(app: dict[str, Any]) -> dict[str, Any]:
+    """Read accepted preparation only while its exact quotations remain current."""
+    value = app.get("prepared_explanation")
+    if not isinstance(value, dict) or value.get("version") != 1:
+        return {}
+    review = value.get("review", {})
+    if (not isinstance(review, dict) or
+            review.get("method") not in ("human_source_review", "agent_source_review") or
+            any(not isinstance(review.get(key), str) or not review[key].strip()
+                for key in ("reviewer", "note"))):
+        return {}
+    for language in ("en", "tr"):
+        prose = value.get(language)
+        if not isinstance(prose, dict) or any(
+            not isinstance(prose.get(key), str) or not 1 <= len(prose[key]) <= 900
+            or re.search(r"https?://|<|>|\[|\]", prose[key])
+            for key in ("summary", "simple", "use_when")
+        ):
+            return {}
+    facts = value.get("facts")
+    if not isinstance(facts, list) or not 1 <= len(facts) <= 5:
+        return {}
+    source = app.get("source_evidence", {})
+    for fact in facts:
+        if not isinstance(fact, dict) or any(
+            not isinstance(fact.get(key), str) or not fact[key]
+            for key in ("path", "quote", "en", "tr")
+        ):
+            return {}
+        if any(len(fact[lang]) > 900 or re.search(r"https?://|<|>|\[|\]", fact[lang])
+               for lang in ("en", "tr")):
+            return {}
+        original = source.get(fact["path"])
+        if not isinstance(original, str) or fact["quote"] not in original:
+            return {}
+    return value

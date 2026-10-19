@@ -13,11 +13,16 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from hedge_shared.store_knowledge import explanation
+
 # Only request scaffolding, not source limitations or functional requirements.
 _REQUEST_WORDS = set((
     "a an the app apps application applications please find search show me for to "
     "that can could you i need looking recommend about with support supports does which "
     "do give want some available in on and "
+    "we us our would help useful here there something anything please software tool "
+    "choose pick option use have trying "
+    "teams team partners partner agree same could any what how more me way different "
     "preciso quero encontre encontrar procure mostre mostrar recomende por favor "
     "um uma os as o para de da do que pode podem voce aplicacao aplicacoes e "
     "ich suche brauche bitte empfehlen empfehle zeige mir eine ein der die das "
@@ -90,6 +95,8 @@ def _fold(text: str) -> str:
 def _terms(text: str) -> set[str]:
     terms = set()
     for word in re.findall(r"[^\W_]+", _fold(text)):
+        word = {"publishes": "publish", "managing": "manage", "combining": "combine",
+                "combined": "combine", "combines": "combine"}.get(word, word)
         if word in _REQUEST_WORDS or word in _SOURCE_WORDS:
             continue
         if len(word) > 3 and word.endswith("s") and not word.endswith(("ss", "us")):
@@ -464,6 +471,38 @@ def source_text(app: dict[str, Any], locale: str) -> dict[str, str]:
     return evidence
 
 
+def _prepared_support(query: str, app: dict, locale: str, claims: list[_Claim]) -> dict | None:
+    """Interpret reviewed coherent passages within the existing assessor.
+
+    Preparation may explain compound prose the bounded clause grammar cannot
+    interpret. Require request coverage in BOTH the explanation and its original
+    quotation, so generated keywords never become independent feature evidence.
+    Strict/negative requests remain on the normal conservative path. A source
+    change invalidates preparation in the authoritative projection reader.
+    """
+    prepared = explanation(app)
+    if not prepared:
+        return None
+    terms = _terms(query)
+    if any(c.kind not in {'affirmation', 'unresolved', 'no_prerequisite'}
+           and _applies(c, frozenset(terms), terms, set()) for c in claims):
+        return None
+    # Uninterpreted negative assertions are not cleared by positive preparation.
+    if any(c.kind == 'unresolved' and _NEGATION.search(_fold(c.span)) for c in claims):
+        return None
+    for fact in prepared.get("facts", []):
+        path, quote, prose = fact.get("path"), fact.get("quote", ""), fact.get("en", "")
+        if not quote or quote not in source_text(app, locale).get(path, ""):
+            continue
+        if (_NEGATION.search(_fold(quote)) or _QUALIFIED.search(_fold(quote))
+                or _NEGATION.search(_fold(prose)) or _QUALIFIED.search(_fold(prose))):
+            continue
+        if terms and terms <= _terms(quote) and terms <= _terms(prose):
+            return {"status": "source_supported", "reason": "reviewed_source_passage",
+                    "evidence_fields": [path], "evidence_spans": [quote]}
+    return None
+
+
 def assess(query: str, app: dict[str, Any], locale: str) -> dict[str, Any]:
     """Require owned feature/constraint evidence and no applicable qualification."""
     title = app.get("name") if app.get("source_profile") == "hedge-store-v1" else app.get("title")
@@ -482,7 +521,7 @@ def assess(query: str, app: dict[str, Any], locale: str) -> dict[str, Any]:
         return {"status": "source_supported", "reason": "requested_identity",
                 "evidence_fields": [identity_path]}
     terms = _terms(query)
-    if not terms or re.search(r"\b(?:not|without|except|only|cheapest|best|better|nao|sem|apenas|nicht|ohne|nur)\b", _fold(query)):
+    if not terms or _NEGATION.search(_fold(query)) or re.search(r"\b(?:except|only|cheapest|best|better|apenas|nur)\b", _fold(query)):
         return {"status": "uncertain", "reason": "request_needs_clarification", "evidence_fields": []}
     titles = app.get('title')
     names = [app.get('name')] if app.get('source_profile') == 'hedge-store-v1' else (
@@ -519,6 +558,11 @@ def assess(query: str, app: dict[str, Any], locale: str) -> dict[str, Any]:
             covered.add(index)
     if len(covered) != len(requirements):
         support = []
+    if not support:
+        prepared = _prepared_support(query, app, locale, claims)
+        if prepared:
+            return prepared
     return {"status": "source_supported" if support else "uncertain",
             "reason": "coherent_source_support" if support else "no_coherent_source_support",
-            "evidence_fields": list(dict.fromkeys(c.path for c in support))}
+            "evidence_fields": list(dict.fromkeys(c.path for c in support)),
+            "evidence_spans": list(dict.fromkeys(c.span for c in support))}
