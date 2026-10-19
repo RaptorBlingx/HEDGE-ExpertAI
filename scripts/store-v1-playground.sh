@@ -4,6 +4,9 @@ set -euo pipefail
 umask 077
 repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 browser=false
+benchmark=false
+reuse_model_image=false
+metadata_demo=false
 real_embeddings=false
 real_rasa=false
 real_ollama=false
@@ -16,6 +19,9 @@ store_id=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --browser) browser=true; shift ;;
+        --benchmark) benchmark=true; shift ;;
+        --metadata-demo) metadata_demo=true; shift ;;
+        --reuse-model-image) reuse_model_image=true; shift ;;
         --embeddings) real_embeddings=true; shift ;;
         --rasa) real_rasa=true; shift ;;
         --ollama) real_ollama=true; shift ;;
@@ -33,9 +39,15 @@ if ! [[ "$port" =~ ^[0-9]{4,5}$ ]] || ((port < 1024 || port > 65535)); then
     echo 'Choose a nonprivileged loopback port' >&2; exit 1
 fi
 if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
-    echo "Launcher: --browser [--port 8091] [--embeddings] [--rasa] [--ollama]; CLI: [--examples]; input: --store-token-file /private/token OR --apps-json /private/apps.json, with --store-id ID"
+    echo "Launcher: --browser [--metadata-demo] [--port 8091] [--embeddings [--reuse-model-image]] [--rasa] [--ollama]; CLI: [--examples]; input: --store-token-file /private/token OR --apps-json /private/apps.json, with --store-id ID"
     python3 "$repo/scripts/store_v1_playground.py" --help
     exit 0
+fi
+if $reuse_model_image && ! $real_embeddings; then
+    echo '--reuse-model-image requires --embeddings' >&2; exit 1
+fi
+if $metadata_demo && [[ -n "$input_kind" ]]; then
+    echo 'Choose authored metadata demo OR private input' >&2; exit 1
 fi
 if [[ -n "$input_kind" ]]; then
     if [[ -z "$store_id" ]]; then echo 'Private input requires --store-id' >&2; exit 1; fi
@@ -110,7 +122,7 @@ for dependency_image in "$postgres_image" "$qdrant_image" "$valkey_image"; do
     }
 done
 build_args=()
-if $real_embeddings; then
+if $real_embeddings && ! $reuse_model_image; then
     # Reuse the existing pinned CPU model dependencies.
     # These are image reads, with no connection to their running demo containers.
     docker image inspect hedge-discovery-ranking:latest >/dev/null
@@ -131,10 +143,22 @@ ENV EMBEDDING_MODEL=/opt/e5-model
 USER 10001
 MODEL
 fi
-docker build -q --memory 1024m --cpu-period 100000 --cpu-quota 100000 "${build_args[@]}" -t "$image" "$work" >/dev/null
+if $reuse_model_image; then
+    # Explicit opt-in to the previously prepared local pinned-model image. Do
+    # not rebuild large model layers merely to mount changed application source.
+    image=$(docker image inspect hedge-store-models:local --format '{{.Id}}')
+    docker run --rm --network none --read-only --entrypoint python "$image" -c \
+        "from pathlib import Path; from importlib.util import find_spec; assert find_spec('sentence_transformers'); assert Path('/opt/e5-model/modules.json').is_file()"
+    echo "Using cached developer model image: $image"
+else
+    docker build -q --memory 1024m --cpu-period 100000 --cpu-quota 100000 "${build_args[@]}" -t "$image" "$work" >/dev/null
+fi
 
 input_mounts=()
 input_env=()
+if $metadata_demo; then
+    input_env=(-e STORE_PLAYGROUND_METADATA_DEMO=true)
+fi
 if [[ -n "$input_kind" ]]; then
     fetch_option=--apps-json
     input_network=none
@@ -204,7 +228,7 @@ if $real_ollama; then
         --mount "type=bind,source=$ollama_runtime,target=/opt/ollama,readonly" \
         --mount "type=bind,source=/home/ubuntu/.cache/hedge-store-ollama/models,target=/ollama-models" \
         --tmpfs "/.ollama:rw,size=16m,mode=700,uid=$(id -u),gid=$(id -g)")
-    model_env+=(-e STORE_PLAYGROUND_OLLAMA=true -e "OLLAMA_MODEL=$ollama_model" \
+    model_env+=(-e STORE_REASONING_ENABLED=true -e STORE_PLAYGROUND_OLLAMA=true -e "OLLAMA_MODEL=$ollama_model" \
         -e OLLAMA_MODELS=/ollama-models -e OLLAMA_HOST=127.0.0.1:11434 \
         -e OLLAMA_BASE_URL=http://127.0.0.1:11434 -e OLLAMA_NUM_PARALLEL=1 \
         -e OLLAMA_MAX_LOADED_MODELS=1 -e OLLAMA_NO_CLOUD=true -e OLLAMA_DEBUG=false)
@@ -212,6 +236,10 @@ fi
 terminal=()
 if [[ -t 0 && -t 1 ]]; then terminal=(-t); fi
 command=(scripts/store_v1_playground.py "$@")
+if $benchmark; then
+    if $browser; then echo 'Choose --benchmark or --browser' >&2; exit 1; fi
+    command=(-m evaluation.store_performance "$@")
+fi
 ports=()
 memory=512m
 if $real_embeddings; then memory=1024m; fi

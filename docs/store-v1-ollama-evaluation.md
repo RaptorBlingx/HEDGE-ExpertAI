@@ -1,5 +1,7 @@
 # Isolated Store Ollama evaluation
 
+Local performance work on 2026-10-19 changes the default request path; see [prepared Store discovery](prepared-store-discovery.md). Routine replies now use prepared source evidence, with explicit bounded reasoning opt-in. The implementation and measurements below describe their earlier revision; the running workspace has not been changed by the local performance task.
+
 This opt-in path reuses the existing Ollama client and Store dialogue/recommendation
 pipeline. It reads the already authorized private JSON snapshot; it makes no Store
 requests, enables no public results and adds no production service or dependency.

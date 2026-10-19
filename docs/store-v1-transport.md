@@ -1,5 +1,9 @@
 # Store v1 transport and outbound authentication
 
+The [19 October local M2M follow-up](store-m2m-preparation.md) adds optional backend
+client credentials and bounded renewal. Token acquisition and live catalogue access
+now succeed; the external-token implementation below remains supported.
+
 Implemented locally on 2026-10-08; tested with mocked HTTP and disposable
 PostgreSQL. No request was made to the live Store, and no credentials were
 provisioned. External facts remain those in the [integration baseline](integration-baseline.md).

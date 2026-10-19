@@ -12,6 +12,7 @@ from typing import Any
 
 import httpx
 from fastapi import HTTPException
+from hedge_shared.store_language import search_language
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 
 from .llm_client import OllamaClient
@@ -111,7 +112,8 @@ def _evidence_explanations(
                 quoted = _quoted_store_text(value)
                 parts.append(
                     f'{field}: "{quoted}"' if quoted is not None else
-                    f"{field}: complete quotation omitted (exceeds 1,200 characters)."
+                    (f"{field}: tam alıntı gösterilmedi (1.200 karakterden uzun)." if locale == "tr" else
+                     f"{field}: complete quotation omitted (exceeds 1,200 characters).")
                 )
             statuses = {
                 "readme": app.get("readme_status"),
@@ -125,12 +127,15 @@ def _evidence_explanations(
                     "versions",
                 ))
                 missing = not supplied and all(status == "missing" for status in statuses.values())
-                parts.append("The Store supplied no descriptive metadata." if missing else
-                             "No descriptive source text could be extracted or projected.")
+                parts.append(("Mağaza açıklayıcı bilgi sağlamadı." if missing else
+                              "Açıklayıcı kaynak metni çıkarılamadı veya gösterilemedi.") if locale == "tr" else
+                             ("The Store supplied no descriptive metadata." if missing else
+                              "No descriptive source text could be extracted or projected."))
             for field, status in statuses.items():
                 if status not in (None, "missing", "extracted"):
                     safe_status = _quoted_store_text(str(status).replace("_", " ")) or "status unavailable"
-                    parts.append(f"{field}: source text was not projected ({safe_status}).")
+                    parts.append(f"{field}: kaynak metni gösterilemedi ({safe_status})." if locale == "tr" else
+                              f"{field}: source text was not projected ({safe_status}).")
             explanations.append({
                 "app_id": app["id"], "source_profile": app["source_profile"],
                 "store_id": app["store_id"], "source_app_id": app["app_id"],
@@ -150,7 +155,8 @@ def _evidence_explanations(
         for field, value in evidence.items():
             quoted = _quoted_store_text(value)
             parts.append(f'{field}: "{quoted}"' if quoted is not None else
-                         f"{field}: complete quotation omitted (exceeds 1,200 characters).")
+                         (f"{field}: tam alıntı gösterilmedi (1.200 karakterden uzun)." if locale == "tr" else
+                     f"{field}: complete quotation omitted (exceeds 1,200 characters)."))
         explanations.append({"app_id": app.get("id"), "text": " ".join(parts) or
                              "No descriptive source text is available in this projection.",
                              "evidence_fields": list(evidence)})
@@ -169,7 +175,8 @@ def _recommendation_narrative(query: str, results: list[dict[str, Any]], locale:
     """Source facts only; this renderer makes no suitability or superiority claim."""
     del query
     explanations = _evidence_explanations(results, locale)
-    return "\n".join(f'- App {result.get("rank", index)}: {explanation["text"]}'
+    label = "Uygulama" if locale == "tr" else "App"
+    return "\n".join(f'- {label} {result.get("rank", index)}: {explanation["text"]}'
                      for index, (result, explanation) in enumerate(zip(results, explanations, strict=True), 1))
 
 
@@ -178,13 +185,13 @@ class _Selection(BaseModel):
     selected_ids: list[StrictStr] = Field(max_length=10)
 
 
-def _recommendation_decision(query: str, results: list[dict], locale: str) -> dict:
-    assessed = [{**result, "suitability": assess(query, result["app"], locale)} for result in results]
+def _recommendation_decision(query: str, results: list[dict], locale: str, *, allow_model: bool = False) -> dict:
+    assessed = [{**result, "suitability": assess(search_language(query, locale), result["app"], locale)} for result in results]
     eligible = [result for result in assessed if result["suitability"]["status"] == "source_supported"]
     selected = eligible
     reason = "direct_source_evidence" if eligible else "insufficient_evidence"
     # Reuse existing bounded structured generation. Selection can veto, never add evidence.
-    if eligible and not all(r["app"].get("source_profile") == "hedge-store-v1" for r in eligible):
+    if allow_model and eligible and not all(r["app"].get("source_profile") == "hedge-store-v1" for r in eligible):
         allowed = [r["app"]["id"] for r in eligible]
         messages = [
             {"role": "system", "content": "Assess the request against the supplied source evidence. "
@@ -212,17 +219,17 @@ def _recommendation_decision(query: str, results: list[dict], locale: str) -> di
                    "reason": "model_declined" if r in eligible else r["suitability"]["reason"]}}
                   for r in assessed if r["app"]["id"] not in selected_ids]
     if selected:
-        intro = "These Apps have direct source evidence for the requested topic. Deployment-specific suitability is not established."
+        intro = ("Bu uygulamalar için istenen konuya ilişkin doğrudan kaynak kanıtı var. Kurulumunuza uygunluk doğrulanmış değildir." if locale == "tr" else "These Apps have direct source evidence for the requested topic. Deployment-specific suitability is not established.")
     elif not results:
-        intro = "No supported catalogue match was found. The retrieved results are empty."
+        intro = ("Desteklenen bir katalog eşleşmesi bulunamadı. Arama sonucu boş." if locale == "tr" else "No supported catalogue match was found. The retrieved results are empty.")
         reason = "no_candidates"
     else:
-        intro = "I cannot recommend an App with the current evidence assessment for this request."
+        intro = ("Mevcut kaynak kanıtıyla bu istek için bir uygulama öneremiyorum." if locale == "tr" else "I cannot recommend an App with the current evidence assessment for this request.")
     message = intro
     if selected:
         message += "\n" + _recommendation_narrative(query, selected, locale)
     if candidates:
-        message += "\nUnverified retrieval candidates, retained for inspection; they are not confirmed matches:\n"
+        message += ("\nİnceleme için doğrulanmamış adaylar; bunlar doğrulanmış eşleşmeler değildir:\n" if locale == "tr" else "\nUnverified retrieval candidates, retained for inspection; they are not confirmed matches:\n")
         message += _recommendation_narrative(query, candidates, locale)
     return {"apps": selected, "candidates": candidates, "message": message,
             "decision": {"outcome": "recommended" if selected else "abstained", "reason": reason},

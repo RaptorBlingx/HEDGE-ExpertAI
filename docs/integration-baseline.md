@@ -1,5 +1,12 @@
 # HEDGE Store integration baseline
 
+Latest integration review: [fast Store handoff against `0a02b5a`](integration-handoff-prepared-store.md).
+
+Earlier local follow-up: [M2M authentication and automatic English preparation](store-m2m-preparation.md).
+The service client obtained tokens and synchronized two current published Apps;
+cached reuse, early renewal and automatic polling were verified locally.
+Historical access/enablement statements below describe their dated slices.
+
 Prepared 2026-10-08 against repository commit `fa06952`. This is the current
 integration planning entry point; live integration and acceptance remain pending.
 Phase 1 metadata/identity, safe source-scoped snapshot reconciliation, and
@@ -26,6 +33,12 @@ separates direct source support from retrieval rank, retains unverified candidat
 and preserves validated abstention. Offline regressions do not establish live
 semantic relevance or proposal quality KPIs. The field map distinguishes declarations/reported
 shapes from unverified live population and meaning; access/publication gates remain.
+
+The [private managed Store workspace](store-v1-managed-integration.md) now persists
+authorized observations, reconciles scoped indexes and supports whole-observation
+browsing and refresh. Current live refresh returns 401 with the expired user token;
+the browser uses the dated authorized two-App snapshot, not authored fixtures.
+No current-live catalogue completeness, public activation or proposal KPI is claimed.
 
 ## Evidence and authority
 
@@ -175,3 +188,13 @@ multilingual dialogue, training or proposal KPIs.
    complete sessions. Define denominators, timing boundaries, and retained
    evidence before declaring success. See [evaluation guide](evaluation-and-testing.md)
    and [traceability](traceability-matrix.md); no KPI is newly marked achieved here.
+
+
+## Local performance implementation — 2026-10-19
+
+[Prepared Store discovery](prepared-store-discovery.md) extends the existing private
+workspace and SCRUM-39 boundary with incremental source preparation and routine
+responses without generation. It is local, undeployed work; its dependency
+composition and measured timing boundary are documented explicitly. It does not
+authorize public indexing, establish real-corpus suitability KPIs or resolve the
+daily-sync/two-hour freshness conflict.

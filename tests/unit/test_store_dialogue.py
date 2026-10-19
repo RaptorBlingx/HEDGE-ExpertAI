@@ -231,3 +231,71 @@ def test_store_generation_keeps_unverified_candidate_evidence_visible(dialogue):
     assert "Supported source excerpts" in response["message"]
     assert "Unverified retrieval candidates" in response["message"]
     assert response["candidates"][0]["app"] == apps[1]
+
+
+def test_private_catalogue_references_work_without_a_prior_chat_turn(dialogue):
+    policy, apps, search, _ = dialogue
+    policy.catalogue_references = True
+    for message, intent, count in [("Tell me about the first app", "detail", 1),
+                                   ("Compare the first two apps", "compare", 2)]:
+        result = asyncio.run(policy.respond(ChatRequestV2(message=message), intent, {}))
+        assert len(result["apps"]) == count
+        assert result["apps"][0]["app"]["id"] == apps[0]["id"]
+        assert "catalogue order" in result["message"]
+    search.assert_not_awaited()
+
+
+def test_private_store_entities_override_rasa_smalltalk_but_not_reset(dialogue):
+    policy = dialogue[0]
+    policy.catalogue_references = True
+    assert policy.route_intent("Tell me about EdgeConnect", "help") == "detail"
+    assert policy.route_intent("Compare EdgeConnect and Semantic Treehouse", "help") == "compare"
+    assert policy.route_intent("Compare the first two apps", "help") == "compare"
+    assert policy.route_intent("Find apps for semantic models", "help") == "search"
+    assert policy.route_intent("hello", "greeting") == "greeting"
+    assert policy.route_intent("reset", "reset") == "reset"
+    assert policy.route_intent("Show README for NATIVE-EDGE", "search") == "detail"
+    result = asyncio.run(policy.respond(ChatRequestV2(message="Show README for NATIVE-EDGE"), "detail", {}))
+    assert not result["apps"]  # opaque IDs never case-fold
+
+
+def test_named_private_detail_establishes_reference_context_and_focus(dialogue):
+    policy = dialogue[0]
+    policy.catalogue_references = True
+    result = asyncio.run(policy.respond(ChatRequestV2(message="Describe Semantic Treehouse"), "detail", {}))
+    assert [r["app"]["id"] for r in result["context"]["last_results"]] == ["local-tree"]
+    follow = asyncio.run(policy.respond(ChatRequestV2(message="Describe it"), "detail", result["context"]))
+    assert follow["apps"] == result["apps"]
+
+
+def test_private_empty_search_does_not_silently_reseed_catalogue_references(dialogue):
+    policy = dialogue[0]
+    policy.catalogue_references = True
+    result = asyncio.run(policy.respond(ChatRequestV2(message="Describe the first app"), "detail",
+                                        {"turn": 2, "last_results": [], "last_query": "no match"}))
+    assert not result["apps"]
+    assert "cannot resolve" in result["message"]
+
+
+def test_private_natural_cost_question_preserves_source_values_and_unknown_terms(dialogue):
+    policy, apps, search, context = dialogue
+    policy.catalogue_references = True
+    apps[1]["source_evidence"] = {"billable": "false", "price": "0.0"}
+    descriptions = []
+    policy.describe = lambda query, results, locale: descriptions.append(results) or "exact source values"
+    result = ask(dialogue, "How much does it cost?")
+    assert result["intent"] == "source_fields"
+    assert result["apps"][0]["app"]["id"] == "local-tree"
+    assert "Currency, billing period, taxes and licence terms are unspecified" in result["message"]
+    assert "does not establish that an App is free" in result["message"]
+    assert descriptions[0][0]["app"]["source_evidence"] == {"billable": "false", "price": "0.0"}
+    search.assert_not_awaited()
+
+
+def test_private_explicit_named_search_preserves_retrieval_architecture(dialogue):
+    policy = dialogue[0]
+    policy.catalogue_references = True
+    assert policy.route_intent("Show me EdgeConnect and Semantic Treehouse", "help") == "search"
+    result = ask(dialogue, "Find EdgeConnect", "search")
+    assert result["apps"]
+    dialogue[2].assert_awaited_once()

@@ -197,7 +197,7 @@
     "/health": {
       "get": {
         "summary": "Health",
-        "description": "Health check \u2014 verifies generation and retrieval dependencies.",
+        "description": "Routine readiness depends on retrieval; generation is optional.",
         "operationId": "health_health_get",
         "responses": {
           "200": {

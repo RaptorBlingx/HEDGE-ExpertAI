@@ -15,6 +15,7 @@ from urllib.parse import quote
 
 import httpx
 from hedge_shared.config import settings
+from hedge_shared.store_auth import StoreAuthError, StoreClientCredentials
 from hedge_shared.store_v1 import STORE_APP_FIELDS, NativeIdentifier, StoreAppMetadata
 from pydantic import SecretStr, TypeAdapter
 
@@ -158,8 +159,7 @@ def _unique_json_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
 class HedgeApiClient(AppStoreClient):
     """Read-only Store v1 transport; never infers catalogue completeness.
 
-    HEDGE supplies the backend Bearer token. Acquisition/renewal is external
-    until its Keycloak client contract is confirmed. No browser credentials,
+    Supports an externally rotated Bearer token or backend client credentials. No browser credentials,
     redirect following, ambient proxies, guessed pagination or asset join.
     """
 
@@ -175,6 +175,7 @@ class HedgeApiClient(AppStoreClient):
         store_id: str,
         token: str | SecretStr | None = None,
         token_file: str = "",
+        credentials: StoreClientCredentials | None = None,
         timeout: float = 30.0,
         max_retries: int = 2,
         transport: httpx.BaseTransport | None = None,
@@ -194,8 +195,8 @@ class HedgeApiClient(AppStoreClient):
         if not valid:
             raise ValueError("Store base URL must be credential-free HTTPS ending in /api/v1")
         _path_identifier(store_id)
-        if (token is None) == (not token_file):
-            raise ValueError("provide exactly one backend Bearer token or token file")
+        if sum((token is not None, bool(token_file), credentials is not None)) != 1:
+            raise ValueError("provide exactly one backend token, token file or client credentials")
         if token_file and not Path(token_file).is_absolute():
             raise ValueError("Store token file must use an absolute path")
         if isinstance(timeout, bool) or not math.isfinite(timeout) or not 0 < timeout <= 120:
@@ -208,6 +209,7 @@ class HedgeApiClient(AppStoreClient):
         if token is not None:
             self._token = token if isinstance(token, SecretStr) else SecretStr(token)
         self._token_file = token_file
+        self._credentials = credentials
         self.timeout = timeout
         self.max_retries = max_retries
         self._transport = transport
@@ -238,17 +240,27 @@ class HedgeApiClient(AppStoreClient):
             trust_env=False,
             transport=self._transport,
         ) as client:
-            for attempt in range(self.max_retries + 1):
+            attempt = 0
+            refreshed = False
+            while attempt <= self.max_retries:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     raise StoreApiError("Store API request time budget exhausted")
                 retry = False
                 try:
+                    try:
+                        bearer = (self._credentials.token(deadline) if self._credentials
+                                  else self._bearer_token())
+                    except StoreAuthError as error:
+                        raise StoreApiError(str(error), status_code=error.status_code) from None
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise StoreApiError("Store API request time budget exhausted")
                     with client.stream(
                         "GET",
                         self.base_url + path,
                         headers={
-                            "Authorization": "Bearer " + self._bearer_token(),
+                            "Authorization": "Bearer " + bearer,
                             "Accept": "application/json",
                         },
                         timeout=remaining,
@@ -256,6 +268,10 @@ class HedgeApiClient(AppStoreClient):
                         if time.monotonic() >= deadline:
                             raise StoreApiError("Store API request time budget exhausted")
                         status = response.status_code
+                        if status == 401 and self._credentials and not refreshed:
+                            self._credentials.invalidate(bearer)
+                            refreshed = True
+                            continue
                         if status in (401, 403):
                             raise StoreApiError(
                                 "Store backend authorization rejected", status_code=status
@@ -310,17 +326,23 @@ class HedgeApiClient(AppStoreClient):
                         ) from None
                     retry = True
                 if retry:
+                    attempt += 1
                     # Fixed bounded backoff when the server supplied no retry delay.
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
                         raise StoreApiError("Store API request time budget exhausted")
-                    time.sleep(min(0.25 * 2**attempt, remaining))
+                    time.sleep(min(0.25 * 2**(attempt - 1), remaining))
         raise StoreApiError("Store API request failed")
 
-    def fetch_all_apps(self) -> list[dict[str, Any]]:
+    def fetch_catalogue_records(self) -> list[Any]:
+        """Bounded array transport; reconciliation quarantines individual records."""
         data = self._request_json(f"/store/{_path_identifier(self.store_id)}/app/all")
         if not isinstance(data, list):
             raise StoreApiError("Store catalogue response must be an App array")
+        return data
+
+    def fetch_all_apps(self) -> list[dict[str, Any]]:
+        data = self.fetch_catalogue_records()
         identities: set[str] = set()
         try:
             for raw in data:
@@ -364,6 +386,9 @@ def get_client(mock_url: str, hedge_url: str | None = None) -> AppStoreClient:
             base_url=hedge_url,
             store_id=settings.HEDGE_STORE_ID,
             token_file=settings.HEDGE_STORE_TOKEN_FILE,
+            credentials=(StoreClientCredentials(settings.HEDGE_STORE_ISSUER,
+                         settings.HEDGE_STORE_CLIENT_ID, settings.HEDGE_STORE_CLIENT_SECRET_FILE)
+                         if settings.HEDGE_STORE_ISSUER else None),
             timeout=settings.HEDGE_STORE_TIMEOUT_SECONDS,
             max_retries=settings.HEDGE_STORE_MAX_RETRIES,
         )

@@ -9,6 +9,7 @@ CRITICAL:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -227,16 +228,32 @@ class OllamaClient:
         return accumulated.strip()
 
     def chat_structured(self, messages: list[dict[str, str]], schema: dict,
-                        *, timeout: float = 40, max_tokens: int = 256) -> str:
+                        *, timeout: float = 40, max_tokens: int = 256, context_tokens: int = 2048,
+                        deadline: float | None = None) -> str:
         """One bounded Store request; no retries, continuation or raw-output logging."""
         payload = self._build_payload(messages, 0, max_tokens, stream=False)
         payload["format"] = schema
         payload["keep_alive"] = "2m"
-        payload["options"].update(num_ctx=2048, num_thread=1)
-        with httpx.Client(timeout=httpx.Timeout(timeout, connect=3), trust_env=False) as client:
-            response = client.post(f"{self.base_url}/api/chat", json=payload)
-            response.raise_for_status()
-            data = response.json()
+        payload["options"].update(num_ctx=context_tokens, num_thread=1)
+        if deadline is not None:
+            async def request():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("Reasoning budget exhausted")
+                # A wall-clock deadline also covers a slowly trickling body;
+                # cancelling closes the connection instead of leaving a worker.
+                async with asyncio.timeout(remaining), httpx.AsyncClient(
+                    timeout=httpx.Timeout(timeout, connect=min(3, timeout)), trust_env=False,
+                ) as client:
+                    response = await client.post(f"{self.base_url}/api/chat", json=payload)
+                    response.raise_for_status()
+                    return response.json()
+            data = asyncio.run(request())
+        else:
+            with httpx.Client(timeout=httpx.Timeout(timeout, connect=min(3, timeout)), trust_env=False) as client:
+                response = client.post(f"{self.base_url}/api/chat", json=payload)
+                response.raise_for_status()
+                data = response.json()
         if not data.get("done") or _hit_output_limit(data, max_tokens):
             raise ValueError("Incomplete grounded generation")
         return _clean_content(data.get("message", {}).get("content", "")).strip()

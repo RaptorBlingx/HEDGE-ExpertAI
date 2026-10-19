@@ -13,11 +13,16 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from hedge_shared.store_knowledge import explanation
+
 # Only request scaffolding, not source limitations or functional requirements.
 _REQUEST_WORDS = set((
     "a an the app apps application applications please find search show me for to "
-    "that can could you i need looking recommend about with support supports does "
+    "that can could you i need looking recommend about with support supports does which "
     "do give want some available in on and "
+    "we us our would help useful here there something anything please software tool "
+    "choose pick option use have trying "
+    "teams team partners partner agree same could any what how more me way different "
     "preciso quero encontre encontrar procure mostre mostrar recomende por favor "
     "um uma os as o para de da do que pode podem voce aplicacao aplicacoes e "
     "ich suche brauche bitte empfehlen empfehle zeige mir eine ein der die das "
@@ -26,7 +31,7 @@ _REQUEST_WORDS = set((
 _ACTIONS = (
     r"provides?|supports?|sends?|issues?|warns?|monitors?|displays?|shows?|collects?|"
     r"connects?|detects?|organizes?|measures?|forecasts?|predicts?|ingests?|notifies|notify|"
-    r"controls?|optimizes?|exports?|delivers?|reads?|logs?|works?|operates?|runs?|uses?|"
+    r"controls?|optimizes?|exports?|delivers?|reads?|logs?|works?|operates?|runs?|uses?|publishes|publish|manages|manage|"
     r"envia|enviam|fornece|fornecem|suporta|suportam|emite|emitem|avisa|avisam|"
     r"monitoriza|mostra|recolhe|conecta|deteta|detecta|preve|funciona|opera|usa|"
     r"unterstutzt|unterstutzen|sendet|senden|warnt|warnen|liefert|liefern|"
@@ -62,7 +67,7 @@ _SOURCE_WORDS = set((
 # Sparse functional labels are accepted only when the whole label is understood,
 # not simply because a requested word occurs somewhere in arbitrary prose.
 _LABEL_WORDS = set("energy sensor meter consumption reading readings monitoring forecasting prediction "
-                   "warning warnings alert alerts ingestion dashboard dashboards data telemetry "
+                   "warning warnings alert alerts ingestion dashboard dashboards data telemetry shared model models mapping mappings "
                    "demand remote control real time supplied sensor sensors trend analysis timestamped observations derived operator review evidence".split())
 _IGNORED_NOTE = re.compile(r"^(?:documentation|docs|see documentation|see docs)\.?$")
 _OPERATING = set("work works operate operates run runs use uses funciona opera usa arbeitet funktioniert".split())
@@ -90,6 +95,8 @@ def _fold(text: str) -> str:
 def _terms(text: str) -> set[str]:
     terms = set()
     for word in re.findall(r"[^\W_]+", _fold(text)):
+        word = {"publishes": "publish", "managing": "manage", "combining": "combine",
+                "combined": "combine", "combines": "combine"}.get(word, word)
         if word in _REQUEST_WORDS or word in _SOURCE_WORDS:
             continue
         if len(word) > 3 and word.endswith("s") and not word.endswith(("ss", "us")):
@@ -124,8 +131,23 @@ class _Claim:
 def _source_clauses(text: str) -> Iterator[tuple[str, str]]:
     """Keep original spans even when a supported action coordination is split."""
     for span in re.split(r'(?<=[.!?])\s+|[;\n]', text):
-        for clause in re.split(rf'\s+(?:but|however|and|e|und)\s+(?=(?:does\s+not\s+|nao\s+)?(?:{_ACTIONS})\b)', _fold(span)):
-            yield span, clause
+        # HTML extraction can flatten adjacent metadata paragraphs. Recognize
+        # their explicit headings; retain the whole original span for evidence.
+        segments = re.split(r"\s+(?=(?:deployed instance(?: \(|:)|documentation:|"
+                            r"external service, accessible via its public url))", span, flags=re.I)
+        for segment in segments:
+            folded = _fold(segment)
+            shared_object = re.fullmatch(
+                rf"(?P<prefix>used to )?(?P<first>{_ACTIONS}) and (?P<second>{_ACTIONS}) (?P<body>.+)", folded)
+            if shared_object:
+                # Explicit coordinated predicates share their complete object,
+                # including its restrictions. Never share objects across sentences.
+                body = shared_object['body']
+                yield span, (shared_object['prefix'] or '') + shared_object['first'] + ' ' + body
+                yield span, shared_object['second'] + ' ' + body
+                continue
+            for clause in re.split(rf'\s+(?:but|however|and|e|und)\s+(?=(?:does\s+not\s+|nao\s+)?(?:{_ACTIONS})\b)', _fold(segment)):
+                yield span, clause
 
 
 def _qualification(clause: str, status: str, attributes: frozenset[str], *, channel_subject: bool,
@@ -209,10 +231,74 @@ def _claims(path: str, text: str, query_terms: set[str], names: list[str], synth
     labels = _terms(' '.join(_LABEL_WORDS))
     for paragraph in re.split(r"\n\s*\n", text):
         previous = []
+        purpose_context = False
         for span, clause in _source_clauses(paragraph):
             clause = re.sub(r"^(?:telemetry|features|capabilities|functionality|functionalidade|funktionen)\s+(?=(?:supports?|provides?|envia|unterstutzt)\b)", "", clause)
             clause = clause.strip().rstrip('.!')
             if not clause or _IGNORED_NOTE.fullmatch(clause):
+                previous = []
+                continue
+            # README provenance is not a functional predicate or an App-wide
+            # restriction. Recognize only complete bounded metadata forms;
+            # negation/qualifications/instructions still require assessment.
+            provenance = clause
+            for name in names:
+                if provenance.startswith(_fold(name) + ' '):
+                    provenance = provenance[len(_fold(name)) + 1:]
+                    break
+            if (not _NEGATION.search(provenance) and not _QUALIFIED.search(provenance)
+                    and not re.search(r"\b(?:ignore|disregard)\b", provenance)
+                    and re.fullmatch(
+                        r"(?:developed and operated by [\w -]{1,100}|"
+                        r"(?:deployed instance(?: \([^()]{1,100}\))?|documentation): https?://\S+|"
+                        r"vocabulary hub of [\w .-]{1,100} data space)", provenance)):
+                purpose_context = provenance.startswith('vocabulary hub of ')
+                previous = []
+                continue
+            # A clearly contrasted test population is not a platform capacity
+            # ceiling. Retain it on the pilot/trial topic only when the same
+            # sentence explicitly states the platform accommodates more units.
+            capacity = re.fullmatch(
+                r"although the (?:[\w-]+ ){0,4}(?P<sample>pilot|trial|test) "
+                r"(?:only )?(?:includes?|uses?|has) (?:only )?(?P<count>\d+) (?P<units>[\w -]+), "
+                r"the (?:platform|app|service|system) is prepared to "
+                r"(?:accommodate|support|handle) more than (?P=count)", provenance)
+            if capacity and not _NEGATION.search(provenance):
+                claims.append(_Claim(path, span, frozenset({capacity['sample']}), frozenset(),
+                                     'environment', 'feature'))
+                previous = []
+                continue
+            # A structured feature-list item is a declaration about that topic,
+            # not an App-wide restriction on unrelated README capabilities.
+            # Unknown flat labels retain uncertainty on their own words. Negative,
+            # conditional, relational and sentence-shaped items still use the
+            # full parser below; this never promotes an unparsed feature.
+            declared = _terms(clause)
+            if (path.startswith('dataspaceAppDescription.properties.featureList[')
+                    and re.fullmatch(r"[\w -]{1,180}", clause)
+                    and not _NEGATION.search(clause) and not _QUALIFIED.search(clause)
+                    and not re.search(r"\b(?:another|other|external|is|are|was|were|has|have)\b", clause)
+                    and declared - (query_terms | named | labels)):
+                claims.append(_Claim(path, span, frozenset(declared), frozenset(),
+                                     'unresolved', 'feature'))
+                previous = []
+                continue
+            # A short acronym label is not a predicate about every capability.
+            # Keep its uncertainty on the labelled topic (e.g. "SMS demo app"
+            # still prevents confirming production SMS), rather than discarding it.
+            if path == 'description' and re.fullmatch(r"[A-Z][A-Z0-9_-]{1,12} demo app[.!]?", span):
+                claims.append(_Claim(path, span, frozenset(_terms(span)), frozenset(),
+                                     'unresolved', 'feature'))
+                previous = []
+                continue
+            if re.fullmatch(r"no container image in the appstore registry", provenance):
+                claims.append(_Claim(path, span, frozenset(_terms('container image registry deployment')),
+                                     frozenset(), 'prohibition', 'feature'))
+                previous = []
+                continue
+            if provenance == 'external service, accessible via its public url':
+                claims.append(_Claim(path, span, frozenset(_terms('external service deployment offline')),
+                                     frozenset(), 'condition', 'feature'))
                 previous = []
                 continue
             for name in names:
@@ -230,7 +316,10 @@ def _claims(path: str, text: str, query_terms: set[str], names: list[str], synth
             status = 'qualified' if _NEGATION.search(clause) or _QUALIFIED.search(clause) else 'affirmed'
             if '?' in clause or re.search(r"\b(?:ignore|disregard)\b.*\binstructions\b", clause):
                 status = 'unresolved'
-            assertion_text = re.sub(rf'^(?:{_APP}) is designed to\s+', '', clause)
+            assertion_text = re.sub(rf'^(?:{_APP}) is (?:designed|used) to\s+', '', clause)
+            if purpose_context and assertion_text.startswith('used to '):
+                assertion_text = assertion_text[len('used to '):]
+                purpose_context = False
             action = _ACTION.fullmatch(assertion_text)
             state = _STATE.fullmatch(clause)
             purpose = next((value for value in declarations if assertion_text == value or
@@ -410,6 +499,41 @@ def source_text(app: dict[str, Any], locale: str) -> dict[str, str]:
     return evidence
 
 
+def _prepared_support(query: str, app: dict, locale: str, claims: list[_Claim]) -> dict | None:
+    """Interpret current source-bound passages within the existing assessor.
+
+    Preparation may explain compound prose the bounded clause grammar cannot
+    interpret. Require request coverage in BOTH the explanation and its original
+    quotation, so generated keywords never become independent feature evidence.
+    Strict/negative requests remain on the normal conservative path. A source
+    change invalidates preparation in the authoritative projection reader.
+    """
+    prepared = explanation(app)
+    if not prepared:
+        return None
+    terms = _terms(query)
+    if any(c.kind not in {'affirmation', 'unresolved', 'no_prerequisite'}
+           and _applies(c, frozenset(terms), terms, set()) for c in claims):
+        return None
+    # Uninterpreted negative assertions are not cleared by positive preparation.
+    if any(c.kind == 'unresolved' and _NEGATION.search(_fold(c.span)) for c in claims):
+        return None
+    for fact in prepared.get("facts", []):
+        if fact.get("qualified"):
+            continue
+        path, quote, prose = fact.get("path"), fact.get("quote", ""), fact.get("en", "")
+        if not quote or quote not in source_text(app, locale).get(path, ""):
+            continue
+        if (_NEGATION.search(_fold(quote)) or _QUALIFIED.search(_fold(quote))
+                or _NEGATION.search(_fold(prose)) or _QUALIFIED.search(_fold(prose))):
+            continue
+        if terms and terms <= _terms(quote) and terms <= _terms(prose):
+            return {"status": "source_supported", "reason": ("source_extracted_passage" if prepared.get("version") == 2
+                                                      else "reviewed_source_passage"),
+                    "evidence_fields": [path], "evidence_spans": [quote]}
+    return None
+
+
 def assess(query: str, app: dict[str, Any], locale: str) -> dict[str, Any]:
     """Require owned feature/constraint evidence and no applicable qualification."""
     title = app.get("name") if app.get("source_profile") == "hedge-store-v1" else app.get("title")
@@ -428,7 +552,7 @@ def assess(query: str, app: dict[str, Any], locale: str) -> dict[str, Any]:
         return {"status": "source_supported", "reason": "requested_identity",
                 "evidence_fields": [identity_path]}
     terms = _terms(query)
-    if not terms or re.search(r"\b(?:not|without|except|only|cheapest|best|better|nao|sem|apenas|nicht|ohne|nur)\b", _fold(query)):
+    if not terms or _NEGATION.search(_fold(query)) or re.search(r"\b(?:except|only|cheapest|best|better|apenas|nur)\b", _fold(query)):
         return {"status": "uncertain", "reason": "request_needs_clarification", "evidence_fields": []}
     titles = app.get('title')
     names = [app.get('name')] if app.get('source_profile') == 'hedge-store-v1' else (
@@ -465,6 +589,11 @@ def assess(query: str, app: dict[str, Any], locale: str) -> dict[str, Any]:
             covered.add(index)
     if len(covered) != len(requirements):
         support = []
+    if not support:
+        prepared = _prepared_support(query, app, locale, claims)
+        if prepared:
+            return prepared
     return {"status": "source_supported" if support else "uncertain",
             "reason": "coherent_source_support" if support else "no_coherent_source_support",
-            "evidence_fields": list(dict.fromkeys(c.path for c in support))}
+            "evidence_fields": list(dict.fromkeys(c.path for c in support)),
+            "evidence_spans": list(dict.fromkeys(c.span for c in support))}

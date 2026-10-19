@@ -88,7 +88,7 @@ def test_additive_migration_preserves_existing_data_and_runs_once(database) -> N
     assert rows("catalog_app_revisions") == before["catalog_app_revisions"]
     assert rows("indexing_outbox") == before["indexing_outbox"]
     assert storage.get_catalogue_app(database.id)["id"] == database.id
-    assert len(rows("schema_migrations")) == 3
+    assert len(rows("schema_migrations")) == 5
 
 
 def test_composite_identity_and_synthetic_reads_remain_separate(database) -> None:

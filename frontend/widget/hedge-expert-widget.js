@@ -34,10 +34,12 @@
   const SUPPORTED_LOCALES = ["en", "de", "fr", "es", "it", "nl", "pt", "tr"];
 
   const STAGE_LABELS = {
-    intent: "Understanding the request…",
+    intent: "Understanding your question…",
+    review: "Checking the answer against Store sources…",
+    revision: "Refining the answer using its sources…",
     retrieval: "Searching the application catalogue…",
-    ranking: "Ranking evidence-backed matches…",
-    explanation: "Preparing a grounded explanation…",
+    ranking: "Ranking retrieved Apps…",
+    explanation: "Writing your answer…",
   };
 
   const DOMAIN_COLORS = {
@@ -563,7 +565,7 @@
 
     _trapFocus(event) {
       var focusable = this.panel.querySelectorAll(
-        'button:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href]'
+        'button:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], summary'
       );
       if (!focusable.length) return;
       var first = focusable[0];
@@ -867,6 +869,9 @@
     /* ---------- app cards ---------- */
 
     _addAppCards(parentBody, apps, impressionId) {
+      this.panel.querySelector(".he-side-title").textContent = apps.some(function (result) {
+        return (result.app || result).source_profile === "hedge-store-v1";
+      }) ? "Apps in this conversation" : "Recommended Context";
       parentBody.innerHTML = ""; // Clear previous context
       var container = document.createElement("div");
       container.className = "he-cards he-animate-in";
@@ -879,6 +884,24 @@
         var domainLabel = (app.domains && app.domains[0]) || app.saref_type || app.domain || "";
         var dc = domainColor(domainLabel);
         var desc = (app.description || "").slice(0, 140);
+        if (isStore && (app.description || "").length > 140) {
+          desc = "Read the complete description in source evidence below.";
+        }
+        var sourceDetails = "";
+        if (isStore) {
+          var evidence = app.source_evidence || {};
+          var sourceRows = Object.keys(evidence).map(function (path) {
+            var value = String(evidence[path]);
+            var quoted = value; // Bounded normalized evidence, escaped below; never cut qualifications.
+            return '<dt>' + escapeHtml(path) + '</dt><dd>' + escapeHtml(quoted) + '</dd>';
+          }).join("");
+          sourceDetails = '<details class="he-card-evidence"><summary>Source evidence</summary>' +
+            '<p>Original Store fields used to explain this App.</p>' +
+            '<p>Store: ' + escapeHtml(app.store_id) + '<br>App: ' + escapeHtml(app.app_id) + '</p>' +
+            '<dl>' + sourceRows + '</dl>' +
+            '<p>README: ' + escapeHtml(app.readme_status || "unavailable") +
+            ' · Embedded metadata: ' + escapeHtml(app.dataspace_description_status || "unavailable") + '</p></details>';
+        }
         var appTitle = (isStore ? app.name : localized(app.title, this.config.locale)) || (isStore ? "Unnamed App" : "Unknown App");
         var versionValue = (app.lifecycle && app.lifecycle.version) || app.version || "";
         var publisherValue = isStore ? app.provider || "" : (app.publisher && app.publisher.name) || app.publisher || "";
@@ -906,9 +929,9 @@
             (domainLabel ? '<span class="he-card-domain" style="background:' + dc.bg + ';color:' + dc.fg + '">' + escapeHtml(domainLabel) + '</span>' : "") +
             publisher +
             version +
-            '<span class="he-card-id">' + escapeHtml(isStore ? app.store_id + ' / ' + app.app_id : app.id || "") + '</span>' +
-            (isStore ? '<span class="he-card-source">Store v1 · ' + escapeHtml((result.evidence_fields || []).join(', ')) + '</span>' : '') +
-          '</div>';
+            (isStore ? '' : '<span class="he-card-id">' + escapeHtml(app.id || "") + '</span>') +
+            (isStore ? '<span class="he-card-source">Store catalogue</span>' : '') +
+          '</div>' + sourceDetails;
         if (hasExternalAppUrl && impressionId) {
           var self = this;
           (function (appId) {
@@ -916,6 +939,22 @@
               self._sendRecommendationEvent(impressionId, "app_opened", appId);
             });
           })(app.id);
+        }
+        if (isStore) {
+          var explain = document.createElement("button");
+          explain.type = "button";
+          explain.className = "he-card-explain";
+          explain.textContent = "Explain this App";
+          explain.setAttribute("aria-label", "Explain " + appTitle);
+          var owner = this;
+          (function (nativeId) {
+            explain.addEventListener("click", function () {
+              if (owner.isStreaming) return;
+              owner.textarea.value = "Tell me about " + nativeId;
+              owner._send();
+            });
+          })(app.app_id);
+          card.appendChild(explain);
         }
         container.appendChild(card);
       }

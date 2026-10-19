@@ -46,7 +46,7 @@ def test_structured_abstention_veto_is_preserved(setup, monkeypatch):
     monkeypatch.setattr(_mod, "OllamaClient", lambda: SimpleNamespace(
         chat_structured=lambda *args: '{"selected_ids":[]}',
     ))
-    result = _mod.recommend_v2(query="energy monitoring", locale="en", filters={}, limit=5)
+    result = _mod._recommendation_decision("energy monitoring", SAMPLE_RESULTS, "en", allow_model=True)
     assert not result["apps"]
     assert result["decision"]["reason"] == "model_abstention"
     assert "cannot recommend" in result["message"]
@@ -60,7 +60,7 @@ def test_structured_abstention_veto_is_preserved(setup, monkeypatch):
 ])
 def test_fabrication_and_unbacked_selection_never_become_prose(setup, monkeypatch, generated):
     monkeypatch.setattr(_mod, "OllamaClient", lambda: SimpleNamespace(chat_structured=lambda *args: generated))
-    result = _mod.recommend_v2(query="energy monitoring", locale="en", filters={}, limit=5)
+    result = _mod._recommendation_decision("energy monitoring", SAMPLE_RESULTS, "en", allow_model=True)
     assert [r["app"]["id"] for r in result["apps"]] == ["energy"]
     assert not any(word in result["message"] for word in ("90%", "certified", "forever", "Start with"))
     assert result["decision"]["reason"] == "source_evidence_fallback"
@@ -108,3 +108,12 @@ def test_malformed_optional_title_cannot_break_standalone_source_explanation():
                                                       "description": "Energy monitoring."})
     assert 'description: "Energy monitoring."' in message
     assert "title.en" not in message
+
+
+def test_routine_recommendation_does_not_depend_on_model(setup, monkeypatch):
+    from unittest.mock import Mock
+    model = Mock(side_effect=AssertionError("Routine generation attempted"))
+    monkeypatch.setattr(_mod, "OllamaClient", model)
+    assert _mod.recommend_v2(query="energy monitoring", locale="en", filters={}, limit=5)["apps"]
+    assert list(_mod.recommend_v2_stream(query="energy monitoring", locale="en", filters={}, limit=5))[0]["apps"]
+    model.assert_not_called()

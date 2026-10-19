@@ -64,6 +64,9 @@ fixed to `en`, `de`, `fr`, `es`, `it`, `nl`, `pt`, and `tr`.
 | `HEDGE_API_URL` | empty | Manual Store v1 client base; full credential-free HTTPS URL ending in `/api/v1`. Nonempty blocks the scheduled ingestion job |
 | `HEDGE_STORE_ID` | empty | Native Store identity for the scoped App endpoints |
 | `HEDGE_STORE_TOKEN_FILE` | empty | Absolute backend token-file path; provision/rotate externally, with a read-only container mount when needed |
+| `HEDGE_STORE_ISSUER` | empty | Optional backend M2M HTTPS issuer; independent of incoming user OIDC |
+| `HEDGE_STORE_CLIENT_ID` | empty | Backend client identifier for client-credentials grant |
+| `HEDGE_STORE_CLIENT_SECRET_FILE` | empty | Absolute owned private regular secret file; no secret environment value; mutually exclusive with Bearer token file |
 | `HEDGE_STORE_TIMEOUT_SECONDS` | `30` | Operation time budget and maximum per-I/O timeout; greater than zero, at most 120 seconds |
 | `HEDGE_STORE_MAX_RETRIES` | `2` | Additional GET attempts; allowed 0–3, within the same time budget |
 | `INGEST_INTERVAL_SECONDS` | `7200` | Scheduler interval |
@@ -131,3 +134,27 @@ The production overlay removes host publishing for internal services and adds
 non-root/read-only/capability/process hardening to application containers. See
 the deployment guide and traceability matrix for gates that still require
 target-environment evidence.
+
+## Private managed Store workspace
+
+The opt-in [durable Store workspace](store-v1-managed-integration.md) is started
+with `scripts/store-workspace.sh`, independently of production Compose and `.env`.
+It uses the existing Store ID, token-file client, database/session settings and
+pinned E5 image in uniquely labelled private resources. Its backend reads
+`/credentials/token` from an owned private directory, supports atomic external
+token replacement, and attempts scoped read-only refresh every 7,200 seconds.
+The fixed local loopback browser port is 8098. Production scheduling/public indexing
+remain disabled; no dedicated credential acquisition or renewal flow is implied.
+
+
+### Prepared Store discovery
+
+The private workspace now defaults to daily synchronization
+(`STORE_SYNC_INTERVAL_SECONDS=86400`, range 60–86400). Routine discovery, details,
+filtering and comparison use prepared source evidence without runtime generation.
+`STORE_REASONING_ENABLED=false` leaves optional reasoning disabled;
+`STORE_REASONING_SECONDS=8` bounds the combined drafting/review time when enabled
+(maximum 15 seconds). Only explicit deep-reasoning turns opt in. The settings are
+passed by `scripts/store-workspace.sh`; the existing Compose services receive the
+shared `.env` settings. See [architecture and measurement boundaries](prepared-store-discovery.md).
+The daily schedule does not establish the proposal's stricter two-hour freshness target.

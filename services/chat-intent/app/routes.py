@@ -336,14 +336,14 @@ _STATIC = {
         "tr": "Merhaba! IoT uygulamalarını bulmanıza ve karşılaştırmanıza yardımcı olabilirim.",
     },
     "help": {
-        "en": "Describe your use case, refine the results, ask about an app, or compare recent matches.",
+        "en": "Tell me what you’d like to do, and I’ll help you find an App. You can also ask about an App or compare your options.",
         "de": "Beschreiben Sie den Anwendungsfall, verfeinern Sie Treffer oder vergleichen Sie Apps.",
         "fr": "Décrivez votre cas d'usage, affinez les résultats ou comparez des applications.",
         "es": "Describa su caso de uso, refine los resultados o compare aplicaciones.",
         "it": "Descrivi il caso d'uso, affina i risultati o confronta le applicazioni.",
         "nl": "Beschrijf uw gebruikssituatie, verfijn resultaten of vergelijk apps.",
         "pt": "Descreva o caso de uso, refine os resultados ou compare aplicações.",
-        "tr": "Kullanım durumunuzu açıklayın, sonuçları daraltın veya uygulamaları karşılaştırın.",
+        "tr": "Ne yapmak istediğinizi anlatın; birlikte uygun uygulamayı bulalım. Uygulamaları açıklayabilir ve seçenekleri karşılaştırabilirim.",
     },
     "out_of_scope": {
         "en": "I can only help with discovery and explanation of IoT catalogue applications.",
@@ -467,7 +467,7 @@ async def run_chat_v2(req: ChatRequestV2, *, store_dialogue: StoreDialogue | Non
     session_id, history = get_or_create_session(req.session_id)
     context = _context_for(session_id)
     result = classify(req.message)
-    intent = result.intent
+    intent = store_dialogue.route_intent(req.message, result.intent) if store_dialogue else result.intent
 
     if not req.session_id:
         log_session_event(session_id, "start", {"locale": req.locale})
@@ -492,7 +492,10 @@ async def run_chat_v2(req: ChatRequestV2, *, store_dialogue: StoreDialogue | Non
         }
 
     if store_dialogue and intent not in {"greeting", "help", "out_of_scope"}:
-        recommendation = await store_dialogue.respond(req, intent, context)
+        recommendation = await store_dialogue.respond_with_history(
+            req, intent, context, history,
+            nlu={"intent": result.intent, "confidence": result.confidence, "source": result.source},
+        )
         intent = recommendation["intent"]
         filters = recommendation["context"].get("filters", {})
         message = recommendation["message"]
@@ -561,8 +564,15 @@ async def run_chat_v2(req: ChatRequestV2, *, store_dialogue: StoreDialogue | Non
                           "turn": int(context.get("turn", 0)) + 1}
         if intent not in {"greeting", "help", "out_of_scope"}:
             context_update.update(recommendation["context"])
+        context_update["turn"] = int(context.get("turn", 0)) + 1
         if impression_id:
             context_update["last_impression_id"] = impression_id
+        # Conversation bindings can outlive a no-match or clarification. Restore
+        # only the cards actually shown by this turn, not the older binding list.
+        context_update["displayed_ids"] = [item.get("app", item)["id"] for item in apps]
+        context_update["displayed_ranks"] = {
+            item.get("app", item)["id"]: item.get("rank", i + 1) for i, item in enumerate(apps)
+        }
     update_session(session_id, history[-20:], context_update)
     return {
         "schema_version": "2.0",

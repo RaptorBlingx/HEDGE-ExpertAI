@@ -46,13 +46,13 @@ _INTENT_PATTERNS: list[tuple[str, list[re.Pattern]]] = [
     (
         "greeting",
         [
-            re.compile(r"^(hi|hello|hey|greetings|good\s*(morning|afternoon|evening)|howdy|welcome)[\s!.,?]*$", re.I),
+            re.compile(r"^(hi|hello|hey|greetings|good\s*(morning|afternoon|evening)|howdy|welcome|merhaba|selam)[\s!.,?]*$", re.I),
         ],
     ),
     (
         "help",
         [
-            re.compile(r"\b(help|how\s+do\s+i|what\s+can\s+you\s+do|usage|guide|instructions|how\s+does\s+this\s+work)\b", re.I),
+            re.compile(r"\b(help|yardım|how\s+do\s+i|what\s+can\s+you\s+do|usage|guide|instructions|how\s+does\s+this\s+work)\b", re.I),
         ],
     ),
     (

@@ -12,6 +12,7 @@ import os
 import sys
 import uuid
 from contextlib import ExitStack, contextmanager
+from copy import deepcopy
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import patch
@@ -25,7 +26,7 @@ recommendation orchestration, RRF and escaped source quotations.
 Replaced: inter-service HTTP calls with local Python bridges.
 Default: regex NLU and lexical fallback; no model or fake-vector simulation.
 Optional real pinned E5: launcher --embeddings. Experimental real Rasa: --rasa.
-Default narratives: deterministic quotations. Optional --ollama: validated model-selected source sentences.
+Default replies: prepared source evidence. Optional --ollama: bounded reasoning for explicit deep requests.
 Details/comparisons resolve current published Apps; absent metadata stays absent.
 Commands: :mode chat | :mode search | :filters JSON | :records | :help | :quit
 Default: chat. 'reset' clears context. Filters persist until :filters {}.
@@ -126,7 +127,9 @@ def offline_playground():
     normalize = ingest("client").normalize_store_v1_app
     store_id = os.getenv("STORE_PLAYGROUND_ID", STORE)
     input_path = os.getenv("STORE_PLAYGROUND_INPUT")
-    raw = json.loads((Path(input_path) if input_path else ROOT / "tests/fixtures/store-v1/manual-apps.json").read_text())
+    fixture = ("browser-metadata-apps.json" if os.getenv("STORE_PLAYGROUND_METADATA_DEMO") == "true"
+               else "manual-apps.json")
+    raw = json.loads((Path(input_path) if input_path else ROOT / "tests/fixtures/store-v1" / fixture).read_text())
     ingested = ingest("snapshot").reconcile_catalogue_snapshot(
         "isolated-evaluation", lambda: raw, store_id=store_id, snapshot_complete=False,
     )
@@ -173,6 +176,7 @@ def offline_playground():
         stack.enter_context(patch.object(recommend, "_search_apps_v2", search))
         if os.getenv("STORE_PLAYGROUND_OLLAMA") != "true":
             stack.enter_context(patch.object(recommend, "OllamaClient", unavailable))
+        from hedge_shared.store_knowledge import project
         from hedge_shared.store_v1 import StoreAppMetadata
 
         def resolve(identities):
@@ -183,18 +187,75 @@ def offline_playground():
                 if identity in rows:
                     app = StoreAppMetadata.model_validate(rows[identity]["payload"])
                     if app.id == identity and app.store_id == store_id and app.public_eligible:
-                        apps.append(app.recommendation_projection())
+                        apps.append(project(rows[identity]))
             return apps
 
         async def policy_search(**kwargs):
             return playground.recommend(**kwargs)
 
-        policy = importlib.import_module(chat.__package__ + ".store_dialogue").StoreDialogue(
-            policy_search, resolve, recommend._recommendation_narrative,
-            generate=recommend.grounded_store_response if os.getenv("STORE_PLAYGROUND_OLLAMA") == "true" else None,
-        )
+        policy_type = importlib.import_module(chat.__package__ + ".store_conversation").StoreConversation
+        answers = importlib.import_module(recommend.__package__ + ".store_conversation")
+        policy = policy_type(policy_search, resolve, recommend._recommendation_narrative,
+                             answers.plan, answers.respond, decide=recommend._recommendation_decision,
+                             present=answers.prepared_answer)
         playground = Playground(chat, recommend, models_v2, records, policy)
 
+        # Retain counts/revisions from actual persistence and index operations,
+        # not claims inferred from source fixture presence. No raw payload leaks.
+        persisted = storage.get_catalogue_apps([r["id"] for r in records], store_id=store_id)
+        playground.pipeline = {
+            "normalization": "Store v1 normalizer and snapshot reconciliation",
+            "snapshot_complete": False,
+            "eligible_records": len(persisted),
+            "revisions": {identity: row["revision"] for identity, row in persisted.items()},
+            "vector_points": client.count(collection_name=collection, exact=True).count,
+            "vector_mode": "real pinned E5" if real_embeddings else "not indexed; real lexical retrieval only",
+            "service_transport": "in-process Python bridges; browser HTTP/SSE is real",
+            "public_indexing": False,
+        }
+        if os.getenv("STORE_PLAYGROUND_METADATA_DEMO") == "true" and not input_path:
+            original = deepcopy(raw)
+
+            def simulate(action):
+                # Only fixed authored source transitions are accepted. Private
+                # snapshots have no mutation callback; no external Store writes.
+                if action not in {"update", "withdraw", "restore"}:
+                    raise ValueError("Unknown authored scenario")
+                row = deepcopy(original[0])
+                if action == "update":
+                    row["readme"] = ("<p>Updated authored fixture: district heat measurements "
+                                     "can be exported as CSV. MQTT input remains simulator-only; "
+                                     "production compatibility has not been validated.</p>")
+                elif action == "withdraw":
+                    row["visible"] = False
+                receipt = ingest("snapshot").reconcile_catalogue_snapshot(
+                    "isolated-evaluation", lambda: [row], store_id=store_id, snapshot_complete=False,
+                )
+                app = normalize(row, store_id=store_id)
+                with storage.connection() as conn:
+                    revision = conn.execute(
+                        "SELECT revision FROM catalog_apps WHERE id = %s AND source_store_id = %s",
+                        (app.id, store_id),
+                    ).fetchone()["revision"]
+                if real_embeddings:
+                    discovery("indexer").apply_operations(client, [{
+                        "app_id": app.id, "revision": revision,
+                        "operation": "upsert" if app.public_eligible else "delete",
+                        "app": app.model_dump(mode="json", exclude={"id", "checksum", "public_eligible"})
+                        if app.public_eligible else None,
+                    }], store_id=store_id, collection_name=collection)
+                playground.records = resolve(None)
+                current = storage.get_catalogue_apps(snapshot_ids, store_id=store_id)
+                playground.pipeline.update(
+                    eligible_records=len(current),
+                    revisions={identity: item["revision"] for identity, item in current.items()},
+                    vector_points=client.count(collection_name=collection, exact=True).count,
+                )
+                return {"scenario": action, "revision": revision,
+                        "ingestion": {key: receipt[key] for key in ("created", "updated", "unchanged", "quarantined")},
+                        "pipeline": playground.pipeline}
+
+            playground.simulate = simulate
         yield playground
 
 

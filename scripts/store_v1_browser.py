@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
+from weakref import WeakValueDictionary
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from hedge_shared.models_v2 import ChatRequestV2
@@ -16,9 +17,23 @@ from scripts.store_v1_playground import ROOT, offline_playground
 
 def create_app(playground):
     app = FastAPI(title="Isolated Store evaluation", docs_url=None, redoc_url=None, openapi_url=None)
-    # A single evaluation process serializes turns, including streams. This
-    # avoids lost Valkey updates without adding a production locking subsystem.
+    # Serialize each session's turns in this single-process adapter. A complex
+    # turn must not hold up other sessions' prepared replies. Inactive locks are
+    # weakly held, so user-supplied session IDs cannot grow a persistent cache.
     turn_lock = asyncio.Lock()
+    app.state.turn_lock = turn_lock
+    refresh_lock = asyncio.Lock()
+    app.state.refresh_lock = refresh_lock
+    session_locks: WeakValueDictionary[str, asyncio.Lock] = WeakValueDictionary()
+
+    def session_lock(session_id):
+        if session_id is None:
+            return asyncio.Lock()
+        lock = session_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            session_locks[session_id] = lock
+        return lock
 
     @app.middleware("http")
     async def local_boundary(request: Request, call_next):
@@ -36,10 +51,10 @@ def create_app(playground):
         )
         return response
 
-    @app.get("/api/v2/status")
-    def status():
+    def status_payload():
         import os
 
+        sync_state = playground.sync_status() if hasattr(playground, "sync_status") else None
         return {"source": getattr(playground, "source", "authored-fixtures"),
                 "catalogue": ("Authored sanitized evaluation fixtures; not live HEDGE data"
                               if getattr(playground, "source", "authored-fixtures") == "authored-fixtures"
@@ -47,13 +62,60 @@ def create_app(playground):
                 "snapshot_complete": False,
                 "embeddings": "real pinned E5" if os.getenv("STORE_PLAYGROUND_E5") == "true" else "unavailable; lexical fallback",
                 "intent": "real Rasa with confidence/health regex fallback" if os.getenv("RASA_ENABLED") == "true" else "regex fallback; Rasa unavailable",
-                "generation": "Ollama enabled; validated excerpts or deterministic fallback per turn" if os.getenv("STORE_PLAYGROUND_OLLAMA") == "true" else "Deterministic source quotations; Ollama not used",
-                "records": playground.records}
+                "generation": ("Prepared source evidence; optional reasoning enabled for explicit complex requests"
+                               if os.getenv("STORE_REASONING_ENABLED") == "true" else
+                               "Prepared source evidence; Ollama not used for routine requests"),
+                "synchronization": sync_state,
+                "managed_workspace": hasattr(playground, "refresh"),
+                "simulation_controls": callable(getattr(playground, "simulate", None)),
+                "pipeline": getattr(playground, "pipeline", {}),
+                "records": (playground.catalogue(None)[:5] if sync_state and sync_state.get("snapshot_at")
+                            else [] if sync_state else playground.records)}
+
+    @app.get("/api/v2/status")
+    async def status():
+        async with turn_lock:
+            return status_payload()
+
+    @app.post("/evaluation/scenario/{action}")
+    async def scenario(action: str):
+        simulate = getattr(playground, "simulate", None)
+        if not simulate or action not in {"update", "withdraw", "restore"}:
+            raise HTTPException(status_code=404, detail="Authored scenario unavailable")
+        async with turn_lock:
+            return await asyncio.to_thread(simulate, action)
+
+    @app.post("/evaluation/refresh")
+    async def refresh():
+        if not hasattr(playground, "refresh"):
+            raise HTTPException(status_code=404, detail="Managed workspace unavailable")
+        async with refresh_lock:
+            try:
+                return await asyncio.to_thread(playground.refresh)
+            except Exception:
+                raise HTTPException(status_code=503, detail="Source or index refresh failed; retry required") from None
+
+    @app.get("/api/v2/catalogue")
+    async def catalogue(offset: int = Query(0, ge=0), limit: int = Query(25, ge=1, le=50)):
+        if not hasattr(playground, "catalogue"):
+            raise HTTPException(status_code=404, detail="Managed catalogue unavailable")
+        async with turn_lock:
+            records = sorted(playground.catalogue(None), key=lambda a: a["app_id"])
+            page = records[offset:offset + limit]
+            return {"total": len(records), "offset": offset,
+                    "next_offset": offset + limit if offset + limit < len(records) else None,
+                    "apps": [{key: record.get(key) for key in ("id", "store_id", "app_id", "name", "provider",
+                              "readme_status", "dataspace_description_status")} for record in page]}
 
     @app.post("/api/v2/chat")
     async def chat(request: ChatRequestV2):
-        async with turn_lock:
-            return await playground.converse(request)
+        async with session_lock(request.session_id):
+            try:
+                return await playground.converse(request)
+            except HTTPException:
+                raise
+            except Exception:
+                raise HTTPException(status_code=503, detail="Offline retrieval unavailable") from None
 
     @app.get("/api/v2/sessions/{session_id}")
     async def history(session_id: str):
@@ -61,21 +123,69 @@ def create_app(playground):
             session = playground.chat.get_session(session_id)
             if session is None:
                 raise HTTPException(status_code=404, detail="Evaluation session expired")
-            identities = [r["app"]["id"] for r in (session.get("context") or {}).get("last_results", [])]
-            apps = [{"app": app, "rank": i + 1, "evidence_fields": ["reference"]}
+            context = session.get("context") or {}
+            identities = context.get("displayed_ids", [r["app"]["id"] for r in context.get("last_results", [])])
+            ranks = context.get("displayed_ranks", {
+                row["app"]["id"]: row.get("rank", i + 1)
+                for i, row in enumerate(context.get("last_results", []))
+            })
+            apps = [{"app": app, "rank": ranks.get(app["id"], i + 1), "evidence_fields": ["reference"]}
                     for i, app in enumerate(playground.policy.resolve(identities))]
             return {"messages": session.get("messages", []), "apps": apps}
 
     @app.post("/api/v2/chat/stream")
     async def stream(request: ChatRequestV2):
         async def events():
-            async with turn_lock:
+            async with session_lock(request.session_id):
                 yield 'data: {"type":"stage","stage":"retrieval"}\n\n'
+                queue = asyncio.Queue()
+                loop = asyncio.get_running_loop()
+                policy = getattr(playground, "policy", None)
+                old_progress = getattr(policy, "progress", None)
+                if old_progress is not None:
+                    policy.progress = lambda stage: loop.call_soon_threadsafe(queue.put_nowait, stage)
+                task = asyncio.create_task(playground.converse(request))
+                stage_task = asyncio.create_task(queue.get())
                 try:
-                    result = await playground.converse(request)
-                except Exception:
-                    yield 'data: {"type":"problem","title":"Offline retrieval unavailable","status":503}\n\n'
+                    while not task.done():
+                        ready, _ = await asyncio.wait({task, stage_task}, timeout=15,
+                                                      return_when=asyncio.FIRST_COMPLETED)
+                        if stage_task in ready:
+                            yield "data: " + json.dumps({"type": "stage", "stage": stage_task.result()}) + "\n\n"
+                            stage_task = asyncio.create_task(queue.get())
+                        elif not ready:
+                            yield ": keep-alive\n\n"
+                    result = await task
+                    # The last waiter may already have consumed a stage when
+                    # the conversation task finishes. Join it before draining;
+                    # otherwise that final progress event can disappear.
+                    if not stage_task.done():
+                        stage_task.cancel()
+                    try:
+                        last_stage = await stage_task
+                    except asyncio.CancelledError:
+                        pass
+                    else:
+                        yield "data: " + json.dumps({"type": "stage", "stage": last_stage}) + "\n\n"
+                    while not queue.empty():
+                        yield "data: " + json.dumps({"type": "stage", "stage": queue.get_nowait()}) + "\n\n"
+                except HTTPException as error:
+                    title = "Catalogue search timed out" if error.status_code == 504 else "Catalogue search unavailable"
+                    yield "data: " + json.dumps({"type": "problem", "title": title, "status": error.status_code}) + "\n\n"
                     return
+                except Exception:
+                    yield 'data: {"type":"problem","title":"Unable to complete the conversation","status":503}\n\n'
+                    return
+                finally:
+                    if old_progress is not None:
+                        policy.progress = old_progress
+                    stage_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await stage_task
+                    if not task.done():
+                        task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await task
                 # Buffer the completed, source-validated response before delivery;
                 # never stream unvalidated model tokens.
                 payloads = [
