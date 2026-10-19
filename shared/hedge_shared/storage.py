@@ -514,10 +514,13 @@ def get_catalogue_apps(
     scope = "schema_version = '2.0'"
     params: list[Any] = [app_ids]
     if store_id is not None:
+        from .store_sync import AVAILABILITY_SQL
+
         scope = (
             "schema_version = 'hedge-store-v1' AND source_store_id = %s "
             "AND payload->'active' = 'true'::jsonb AND payload->'visible' = 'true'::jsonb"
         )
+        scope += " AND " + AVAILABILITY_SQL
         params.append(store_id)
     with connection() as conn, conn.cursor() as cursor:
         cursor.execute(
@@ -595,6 +598,9 @@ def lexical_search(
             "active = true", "schema_version = 'hedge-store-v1'", "source_store_id = %s",
             "payload->'active' = 'true'::jsonb", "payload->'visible' = 'true'::jsonb",
         ]
+        from .store_sync import AVAILABILITY_SQL
+
+        where.append(AVAILABILITY_SQL)
         filter_params = [store_id]
         if filters.publisher:
             where.append("payload->>'provider' ILIKE %s")

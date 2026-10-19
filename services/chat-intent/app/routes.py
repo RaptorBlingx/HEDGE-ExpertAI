@@ -467,7 +467,7 @@ async def run_chat_v2(req: ChatRequestV2, *, store_dialogue: StoreDialogue | Non
     session_id, history = get_or_create_session(req.session_id)
     context = _context_for(session_id)
     result = classify(req.message)
-    intent = result.intent
+    intent = store_dialogue.route_intent(req.message, result.intent) if store_dialogue else result.intent
 
     if not req.session_id:
         log_session_event(session_id, "start", {"locale": req.locale})
@@ -492,7 +492,10 @@ async def run_chat_v2(req: ChatRequestV2, *, store_dialogue: StoreDialogue | Non
         }
 
     if store_dialogue and intent not in {"greeting", "help", "out_of_scope"}:
-        recommendation = await store_dialogue.respond(req, intent, context)
+        recommendation = await store_dialogue.respond_with_history(
+            req, intent, context, history,
+            nlu={"intent": result.intent, "confidence": result.confidence, "source": result.source},
+        )
         intent = recommendation["intent"]
         filters = recommendation["context"].get("filters", {})
         message = recommendation["message"]
@@ -561,8 +564,15 @@ async def run_chat_v2(req: ChatRequestV2, *, store_dialogue: StoreDialogue | Non
                           "turn": int(context.get("turn", 0)) + 1}
         if intent not in {"greeting", "help", "out_of_scope"}:
             context_update.update(recommendation["context"])
+        context_update["turn"] = int(context.get("turn", 0)) + 1
         if impression_id:
             context_update["last_impression_id"] = impression_id
+        # Conversation bindings can outlive a no-match or clarification. Restore
+        # only the cards actually shown by this turn, not the older binding list.
+        context_update["displayed_ids"] = [item.get("app", item)["id"] for item in apps]
+        context_update["displayed_ranks"] = {
+            item.get("app", item)["id"]: item.get("rank", i + 1) for i, item in enumerate(apps)
+        }
     update_session(session_id, history[-20:], context_update)
     return {
         "schema_version": "2.0",

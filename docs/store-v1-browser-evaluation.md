@@ -7,6 +7,10 @@ unchanged. The default uses no credentials or private responses. For a manually 
 short-lived access token or private JSON snapshot, use the same runner via
 [authorized evaluation](store-v1-authorized-evaluation.md); those inputs stay private.
 
+For the current SCRUM-38 metadata-to-Chat scenario, including source cards and
+fixed publisher update/withdrawal controls, use the [metadata browser demo](store-v1-metadata-chat-demo.md).
+The observations below describe the earlier sparse-fixture evaluation.
+
 ## Start and access
 
 ```sh

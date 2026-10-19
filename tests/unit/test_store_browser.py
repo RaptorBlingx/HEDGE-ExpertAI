@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 
@@ -38,10 +39,14 @@ def test_failed_retrieval_stream_emits_problem_and_never_success():
 
     with TestClient(create_app(playground(unavailable)), base_url="http://127.0.0.1:8091") as client:
         response = client.post("/api/v2/chat/stream", json={"message": "EdgeConnect"})
-        assert '"type":"stage"' in response.text
-        assert '"type":"problem"' in response.text
-        assert "complete" not in response.text
-        assert "recommendations" not in response.text
+        normal = client.post("/api/v2/chat", json={"message": "EdgeConnect"})
+        assert normal.status_code == 503
+        assert normal.json() == {"detail": "Offline retrieval unavailable"}
+        assert client.post("/evaluation/scenario/update").status_code == 404
+        output = [json.loads(line[6:]) for line in response.text.splitlines() if line.startswith("data: ")]
+        assert any(e["type"] == "stage" for e in output)
+        assert output[-1]["type"] == "problem"
+        assert not any(e["type"] in {"complete", "recommendations"} for e in output)
 
 
 def test_overlapping_browser_turns_are_serialized():
@@ -100,3 +105,45 @@ def test_offline_stream_preserves_abstention_and_unverified_candidates():
         assert result["candidates"] == normal["candidates"]
         assert result["decision"] == normal["decision"] == records[-1]["decision"]
         assert records[-1]["impression_id"] is None
+
+
+def test_managed_workspace_without_authorized_observation_is_not_an_empty_catalogue():
+    from fastapi import HTTPException
+
+    async def unavailable(request):
+        raise HTTPException(status_code=503, detail="No authorized Store observation available")
+
+    evaluation = playground(unavailable)
+    evaluation.sync_status = lambda: {"state": "authorization_required", "snapshot_at": None}
+
+    def catalogue(ids):
+        raise HTTPException(status_code=503, detail="No authorized Store observation available")
+
+    evaluation.catalogue = catalogue
+    with TestClient(create_app(evaluation), base_url="http://127.0.0.1:8098") as client:
+        status = client.get("/api/v2/status")
+        assert status.status_code == 200
+        assert status.json()["records"] == []
+        assert status.json()["synchronization"]["state"] == "authorization_required"
+        assert client.get("/api/v2/catalogue").status_code == 503
+        assert client.post("/api/v2/chat", json={"message": "List apps"}).status_code == 503
+        stream = client.post("/api/v2/chat/stream", json={"message": "List apps"})
+        output = [json.loads(line[6:]) for line in stream.text.splitlines() if line.startswith("data: ")]
+        assert output[-1]["type"] == "problem"
+        assert not any(e["type"] == "complete" for e in output)
+
+
+def test_legacy_session_restores_source_number_without_reassigning_identity():
+    async def unused(request):
+        return {}
+    evaluation = playground(unused)
+    first, second = {'id': 'first'}, {'id': 'second'}
+    evaluation.chat.get_session = lambda session_id: {'messages': [], 'context': {
+        'last_results': [{'app': first, 'rank': 1}, {'app': second, 'rank': 2}],
+        'displayed_ids': ['second'],
+    }}
+    evaluation.policy = SimpleNamespace(resolve=lambda ids: [second] if ids == ['second'] else [])
+    with TestClient(create_app(evaluation), base_url='http://127.0.0.1:8091') as client:
+        response = client.get('/api/v2/sessions/legacy')
+        assert response.status_code == 200
+        assert response.json()['apps'] == [{'app': second, 'rank': 2, 'evidence_fields': ['reference']}]

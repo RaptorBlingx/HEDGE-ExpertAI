@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 from hedge_shared.models_v2 import AppMetadataV2
@@ -29,6 +30,8 @@ def reconcile_catalogue_snapshot(
     snapshot_complete: bool = False,
     store_id: str | None = None,
     allow_empty: bool = False,
+    managed_source: str | None = None,
+    captured_at: datetime | None = None,
 ) -> dict[str, Any]:
     """Fetch under a source lock, then atomically apply records and safe absence.
 
@@ -37,6 +40,8 @@ def reconcile_catalogue_snapshot(
     retire absent Apps. Empty snapshots require deliberate operator approval.
     Store rows remain outside public v2 indexing. Transport is supplied by the callback.
     """
+    if managed_source and snapshot_complete:
+        raise ValueError("Managed API observations do not establish source completeness")
     if store_id is not None:
         store_id = TypeAdapter(NativeIdentifier).validate_python(store_id)
     run_id = create_ingestion_run(source)
@@ -95,6 +100,13 @@ def reconcile_catalogue_snapshot(
                     errors=[error],
                     conn=conn,
                 )
+            if managed_source:
+                if store_id is None:
+                    raise ValueError("Managed observations require Store scope")
+                from hedge_shared.store_sync import observe
+
+                observe(conn, store_id, {app.id: app.public_eligible for position, app in accepted
+                                        if position not in rejected}, run_id, managed_source, captured_at)
             counts["quarantined"] = len(rejected)
             safe_absence = (
                 snapshot_complete is True
