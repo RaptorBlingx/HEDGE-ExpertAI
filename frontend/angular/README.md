@@ -4,6 +4,8 @@ An actual service-connected interface with two presentations: a discovery worksp
 and a compact assistant pane. Both use the same `ExpertAssistant` instance and
 conversation state. This is a standalone prototype, **not the official HEDGE App
 Store frontend**. See the [integration contract](../../docs/angular-ui-integration.md).
+The final polish candidate and verification limits are documented in the
+[frontend release candidate](../../docs/angular-ui-release-candidate.md).
 
 ## Build and preview
 
@@ -47,6 +49,11 @@ unsafe markup for UI verification; those results are not real Store quality evid
 The real-service script retains rendered screenshots, raw SSE and complete answers
 for human review. It needs two authorized Apps for the comparison flow, does not
 refresh/seed the Store, and clears only its own conversation session.
+
+`evaluation/angular-ui/polish-checks.cjs` uses the same environment/output arguments
+for focus, touch, scrolling and waiting acceptance checks against real services.
+It delays delivery of one real response for 38 seconds to inspect waiting states;
+that deliberately delayed latency is never reported as model performance.
 
 ## Structure
 

@@ -1,19 +1,26 @@
 :host { display: block; min-width: 0; }
 .app-card { border: 1px solid var(--ea-line); border-radius: 16px; background: var(--ea-surface); padding: 22px; transition: border-color .18s, box-shadow .18s; }
 .app-card:hover { border-color: var(--ea-line-strong); box-shadow: 0 5px 16px #122a3810; }
+.app-card.recommended { border-color: var(--ea-accent); background: linear-gradient(145deg, var(--ea-tint), var(--ea-surface) 65%); }
 .app-card.selected { border-color: var(--ea-accent); box-shadow: 0 0 0 1px var(--ea-accent); }
-.card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+.card-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .app-monogram { width: 43px; height: 43px; display: grid; place-items: center; font: 650 15px var(--ea-heading); color: var(--ea-accent); background: var(--ea-tint); border: 1px solid var(--ea-tint-line); border-radius: 12px; letter-spacing: -.7px; }
 .select-app { width: 32px; height: 32px; border: 1px solid var(--ea-line); border-radius: 50%; color: var(--ea-muted); display: grid; place-items: center; background: var(--ea-surface); }
 .select-app[aria-pressed=true] { color: var(--ea-accent); background: var(--ea-tint); border-color: var(--ea-accent); }
 .card-name { font: 650 18px var(--ea-heading); letter-spacing: -.5px; color: var(--ea-ink); background: none; padding: 0; border: 0; text-align: left; display: flex; align-items: center; gap: 8px; }
 .card-name expert-icon { color: var(--ea-muted); }
 .provider { font-size: 12px; color: var(--ea-muted); margin: 6px 0 0; }
-.card-description { font-size: 13px; line-height: 1.6; margin: 16px 0; color: var(--ea-secondary); }
+.card-description { font-size: 13px; line-height: 1.75; margin: 16px 0; color: var(--ea-secondary); }
 .card-bottom { border-top: 1px solid var(--ea-line); padding-top: 16px; margin-top: 21px; display: flex; gap: 8px; justify-content: space-between; align-items: center; }
 .card-bottom > span { display: flex; align-items: center; gap: 6px; color: var(--ea-muted); font-size: 10px; }
 .tiny-dot { width: 5px; height: 5px; background: var(--ea-accent); border-radius: 50%; }
 .text-button { border: 0; padding: 4px 0; background: none; color: var(--ea-accent); display: inline-flex; align-items: center; gap: 7px; font: 600 12px var(--ea-font); }
 button:focus-visible { outline: 2px solid var(--ea-accent); outline-offset: 4px; }
 button { cursor: pointer; } button:disabled { opacity: .5; cursor: wait; }
-.recommendation-label { display: flex; align-items: center; gap: 6px; font-size: 10px; line-height: 1.5; color: var(--ea-accent); background: var(--ea-tint); padding: 9px; border-radius: 7px; margin-top: 15px; }
+.recommendation-label { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; line-height: 1.5; color: var(--ea-accent); margin: -2px 0 18px; }
+
+.card-actions { display: flex; align-items: center; gap: 10px; }
+.source-button { display: grid; place-items: center; width: 32px; height: 32px; color: var(--ea-muted); border: 1px solid var(--ea-line); background: var(--ea-surface); border-radius: 8px; }
+.source-button:hover { color: var(--ea-accent); border-color: var(--ea-accent); }
+@media (pointer: coarse) { .select-app, .source-button { min-width: 44px; min-height: 44px; } .text-button { min-height: 44px; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }

@@ -1,6 +1,6 @@
 <section class="assistant" [class.pane]="presentation() === 'pane'" aria-label="ExpertAI discovery assistant">
   <div class="assistant-top">
-    <div class="assistant-identity"><span class="expert-mark"><expert-icon name="spark" [size]="19" /></span><div><strong>ExpertAI</strong><span>Your App discovery partner</span></div></div>
+    <div class="assistant-identity"><span class="expert-mark"><expert-icon name="spark" [size]="19" /></span><div><strong>ExpertAI</strong><span>HEDGE App discovery</span></div></div>
     <div class="assistant-tools">
       <button class="icon-button" title="New conversation" aria-label="New conversation" [disabled]="chat.busy() || chat.restoring()" (click)="openClear()"><expert-icon name="plus" /></button>
       @if (presentation() === 'pane') {
@@ -15,20 +15,20 @@
   </div>
   <div class="assistant-body" [class.show-apps]="mobileView() === 'apps'">
     <div class="conversation">
-      <div class="conversation-scroll" #log (scroll)="scroll($event)">
+      <div class="conversation-scroll" #log tabindex="0" role="region" aria-label="Conversation history" (scroll)="scroll($event)">
         @if (chat.restoring()) {
           <div class="restoring" role="status"><span class="working-dot"></span> Restoring your conversation…</div>
         } @else if (!chat.messages().length) {
           <div class="welcome">
-            <span class="eyebrow"><span class="tiny-line"></span> A LITTLE GUIDANCE. A BETTER FIT.</span>
-            <h1>Find your next<br><em>possibility.</em></h1>
-            <p>Discover what the Store can do for you.<br class="desktop-break"> Tell me what you need. We’ll explore it together.</p>
+            <span class="eyebrow"><span class="tiny-line"></span> THE RIGHT APP STARTS HERE</span>
+            <h1>Find the right App<br><em>for your work.</em></h1>
+            <p>Explore HEDGE applications, understand their capabilities and compare your options. Start with what you need.</p>
             <div class="starter-list">
-              @for (suggestion of suggestions; track suggestion.title; let i = $index) {
-                <button class="starter" [disabled]="chat.restoring() || !!chat.error()" (click)="start(suggestion.action)"><span class="starter-icon"><expert-icon [name]="suggestion.icon" /></span><span>{{ suggestion.title }}</span><expert-icon name="arrow" [size]="16" /></button>
+              @for (suggestion of suggestions; track suggestion.title) {
+                <button class="starter" [attr.aria-label]="suggestion.title" [disabled]="chat.restoring() || !!chat.error()" (click)="start(suggestion.action)"><span class="starter-icon"><expert-icon [name]="suggestion.icon" /></span><span class="starter-copy"><strong>{{ suggestion.title }}</strong><small>{{ suggestion.detail }}</small></span><expert-icon name="arrow" [size]="16" /></button>
               }
             </div>
-            <span class="welcome-note"><expert-icon name="shield" [size]="14" /> Answers connected to actual Store information</span>
+            <span class="welcome-note"><expert-icon name="shield" [size]="14" /> Real Apps. Answers grounded in Store information.</span>
           </div>
         }
         <div class="messages" role="log" aria-label="Conversation" aria-live="polite" [attr.aria-busy]="chat.busy()">
@@ -39,13 +39,25 @@
                 <div class="message-label">{{ message.role === 'user' ? 'You' : 'ExpertAI' }}</div>
                 @if (message.text) { @if (message.role === 'assistant') { <expert-answer class="answer-text markdown-answer" [text]="message.text" /> } @else { <div class="answer-text">{{ message.text }}</div> } }
                 @if (chat.busy() && message.id === chat.last()?.id) {
-                  <div class="working" role="status"><span class="working-dot"></span><span>{{ chat.elapsed() > 5 ? 'Taking a closer look at your question' : chat.stage() }}<small>{{ seconds(chat.elapsed()) }}s</small></span></div>
-                  @if (chat.elapsed() > 15) { <p class="slow-note">Still working. You can keep this conversation open.</p> }
+                  <div class="waiting">
+                    <div class="working"><span class="working-dot"></span><span>{{ message.text ? 'Receiving your answer…' : 'Waiting for your answer…' }}</span><small aria-hidden="true">{{ seconds(chat.elapsed()) }}s</small></div>
+                    @if (waitNote()) { <p class="slow-note">{{ waitNote() }}</p> }
+                  </div>
+                }
+                @if (message.apps?.length && !message.error && !message.stopped) {
+                  <div class="answer-apps" aria-label="Apps referenced in this answer">
+                    @for (result of message.apps; track id(result.app)) {
+                      <button class="answer-source" (click)="openSource(result.app)">
+                        <expert-icon [name]="message.recommended && result.suitability?.status === 'source_supported' ? 'check' : 'book'" [size]="14" />
+                        <span><strong>{{ result.app.name }}</strong><small>{{ message.recommended && result.suitability?.status === 'source_supported' ? 'Documented match · View source' : 'View Store source' }}</small></span><expert-icon name="arrow" [size]="14" />
+                      </button>
+                    }
+                  </div>
                 }
                 @if (message.error) {
                   <div class="error-message" role="alert">{{ message.error }}<button (click)="chat.retry(message.id)" [disabled]="chat.busy()"><expert-icon name="retry" [size]="14" /> Retry</button></div>
                 }
-                @if (message.stopped) { <p class="stopped">Response stopped.</p> }
+                @if (message.stopped) { <p class="stopped">Stopped waiting. You can send another question.</p> }
                 @if (message.elapsed !== undefined && !message.error && !message.stopped) {
                   <div class="response-meta"><span>{{ seconds(message.elapsed) }}s</span>
                     @if (message.path) { <span class="path-label">{{ message.path === 'assisted' ? 'AI-assisted understanding' : 'Store knowledge' }}</span> }
@@ -56,7 +68,7 @@
             </article>
           }
         </div>
-        @if (!chat.busy() && chat.messages().length && chat.apps().length) {
+        @if (!chat.busy() && chat.messages().length && chat.apps().length && !chat.last()?.error && !chat.last()?.stopped) {
           <div class="context-actions"><span>Keep exploring</span><button (click)="send('Can you explain that more simply?')">Make it simpler</button>@if (chat.apps().length === 1) { <button (click)="send('Who provides it?')">Provider</button><button (click)="send('How can I access it?')">Access</button> } @else { <button (click)="send('Compare them.')">Compare these Apps</button> }</div>
         }
         @if (!chat.busy() && chat.messages().length && !chat.apps().length && !chat.last()?.error && !chat.last()?.stopped) {
@@ -64,29 +76,32 @@
         }
       </div>
       <div class="composer-area">
+        <span class="sr-only" role="status">{{ chat.busy() ? 'ExpertAI is responding. ' + (waitNote() || 'You can stop waiting using the Stop response button.') : '' }}</span>
+        @if (!following() && chat.messages().length) { <button class="latest-button" (click)="latest()"><expert-icon name="arrow" [size]="14" /> Latest response</button> }
         @if (chat.error()) { <div class="error-message" role="alert">{{ chat.error() }}<button (click)="openClear()">New conversation</button></div> }
         @if (copyError()) { <div class="copy-error" role="status">{{ copyError() }}</div> }
         <div class="composer" [class.is-busy]="chat.busy()">
           <label class="sr-only" for="expert-prompt">Ask ExpertAI about Store applications</label>
-          <textarea #composer id="expert-prompt" rows="1" maxlength="2000" placeholder="Ask about Apps, or describe your needs…" [value]="draft()" [disabled]="chat.restoring() || !!chat.error()" (input)="input($event)" (keydown)="keydown($event)"></textarea>
+          <textarea #composer id="expert-prompt" rows="1" maxlength="2000" placeholder="Ask about HEDGE Apps…" [value]="draft()" [disabled]="chat.restoring() || !!chat.error()" (input)="input($event)" (keydown)="keydown($event)"></textarea>
           @if (chat.busy()) { <button class="send" aria-label="Stop response" (click)="chat.stop()"><expert-icon name="stop" [size]="17" /></button> }
           @else { <button class="send" aria-label="Send message" [disabled]="!draft().trim() || chat.restoring() || !!chat.error()" (click)="send()"><expert-icon name="up" [size]="21" /></button> }
         </div>
-        <div class="composer-note"><span>Grounded in the HEDGE App Store</span><span class="enter-hint">Enter to send <span>↵</span></span></div>
+        <div class="composer-note"><span>{{ chat.busy() ? 'You can draft your next question while you wait' : 'Grounded in the HEDGE App Store' }}</span><span class="enter-hint">Enter to send <span>↵</span></span></div>
       </div>
     </div>
     <aside #discovery class="discovery" aria-label="Store applications" tabindex="-1">
-      <div class="discovery-header"><div><span class="eyebrow">THE STORE, WITH CONTEXT</span><h2>Apps to explore @if (total() !== null) { <span class="count">{{ total() }}</span> }</h2></div><expert-icon name="layers" [size]="21" /></div>
-      <p class="discovery-intro">Open an App, ask a question,<br>and see where it could take you.</p>
-      @if (source()) { <div class="source-status"><span class="status-dot"></span>{{ source() }}</div> }
+      <div class="discovery-header"><div><span class="eyebrow">CONNECTED TO THE STORE</span><h2>Apps to explore @if (total() !== null) { <span class="count">{{ total() }}</span> }</h2></div><expert-icon name="layers" [size]="21" /></div>
+      <p class="discovery-intro">Explore capabilities, check the source or select two Apps to compare.</p>
+      @if (source()) { <div class="source-status"><expert-icon name="layers" [size]="12" />{{ source() }}</div> }
       @if (chat.apps().length) {
-        <div class="context-note"><expert-icon name="chat" [size]="15" /><span>In this answer<br><strong>{{ resultNames() }}</strong></span></div>
+        <div class="context-note" [class.is-recommendation]="hasRecommendations()"><expert-icon [name]="hasRecommendations() ? 'check' : 'chat'" [size]="16" /><span><strong>{{ hasRecommendations() ? 'Recommended for your request' : 'Apps in this answer' }}</strong><small>{{ resultNames() }}</small></span></div>
       }
       @if (catalogueError()) { <div class="error-message" role="alert">{{ catalogueError() }}<button (click)="load()">Reload catalogue</button></div> }
       @if (loading() && !cards().length) { <div class="skeleton" role="status" aria-label="Loading Store applications"></div><div class="skeleton" aria-hidden="true"></div> }
       <div class="card-list">
         @for (app of cards(); track id(app)) {
-          <expert-app-card [app]="app" [recommended]="recommended(app)" [selected]="selected().includes(id(app))" [disabled]="chat.busy() || chat.restoring() || !!chat.error()" (select)="select($event)" (open)="inspect($event, true)" (explain)="inspect($event)" />
+          @if ($index === chat.apps().length && chat.apps().length && cards().length > chat.apps().length) { <div class="catalogue-divider">Also in the catalogue</div> }
+          <expert-app-card [app]="app" [recommended]="recommended(app)" [selected]="selected().includes(id(app))" [disabled]="chat.busy() || chat.restoring() || !!chat.error()" (select)="select($event)" (open)="inspect($event, true)" (explain)="inspect($event)" (source)="openSource($event)" />
         }
       </div>
       @if (!loading() && total() === 0 && !catalogueError()) { <div class="empty-apps"><expert-icon name="layers" /><p>No applications are available in this catalogue yet.</p><button class="subtle-button" (click)="load()">Check again</button></div> }
@@ -107,19 +122,19 @@
       <div class="detail-scroll">
         @if (!evidence()) {
           @if (app.description) { <p class="detail-description">{{ app.description }}</p> }
-          @if (chat.busy()) { <p class="working" role="status"><span class="working-dot"></span> Reading Store information…</p> }
-          @if (chat.last()?.role === 'assistant' && !chat.busy()) {
-            @if (chat.last()?.error) { <p class="error-message" role="alert">{{ chat.last()?.error }}</p> }
-            @else { <expert-answer class="detail-answer markdown-answer" [text]="chat.last()?.text || ''" /> }
+          @if (detailInspection() && chat.busy()) { <p class="working" role="status"><span class="working-dot"></span> Waiting for App details…</p> }
+          @if (detailInspection() && chat.last()?.error; as error) { <div class="error-message" role="alert">{{ error }}<button (click)="chat.retry(chat.last()!.id)" [disabled]="chat.busy()">Retry</button></div> }
+          @if (detailAnswer(app); as answer) {
+            <expert-answer class="detail-answer markdown-answer" [text]="answer" />
           }
         } @else {
-          <p class="evidence-intro">Original metadata used by ExpertAI. These fields are supplied by the Store; an unlisted detail is not confirmed.</p>
+          <p class="evidence-intro">The original Store information behind this App’s description and capabilities.</p>
           <dl class="source-fields">@for (entry of entries(app); track entry[0]) { <div><dt>{{ entry[0] }}</dt><dd>{{ entry[1] }}</dd></div> }</dl>
           @if (!entries(app).length) { <p>Source evidence is not available yet. Open this App again when the service is available.</p> }
           <details class="native-identity"><summary>Native Store identity</summary><dl><dt>Store</dt><dd>{{ app.store_id }}</dd><dt>App</dt><dd>{{ app.app_id }}</dd></dl></details>
         }
       </div>
-      <div class="dialog-footer"><span><expert-icon name="shield" [size]="14" /> Store metadata</span><button class="primary-button" [disabled]="chat.busy()" (click)="closeDialog()">Continue exploring <expert-icon name="arrow" [size]="15" /></button></div>
+      <div class="dialog-footer"><span><expert-icon name="shield" [size]="14" /> Store metadata</span><button class="primary-button" (click)="closeDialog()">Continue exploring <expert-icon name="arrow" [size]="15" /></button></div>
     </section>
   </div>
 }

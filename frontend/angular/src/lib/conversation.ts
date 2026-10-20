@@ -6,6 +6,7 @@ import type { AppResult, InspectAction, StoreApp } from './contracts';
 export interface Message {
   id: number; role: 'user' | 'assistant'; text: string;
   elapsed?: number; path?: 'prepared' | 'assisted'; error?: string; stopped?: boolean;
+  apps?: AppResult[]; recommended?: boolean;
 }
 
 /** One instance per assistant. Presentation switches share the same session. */
@@ -79,7 +80,8 @@ export class Conversation {
         if (event.type === 'complete') {
           if (event.session_id) this.save(event.session_id);
           this.recommended.set(event.decision?.outcome === 'recommended');
-          patch({ path: event.generation?.model_completed ? 'assisted' : 'prepared' });
+          patch({ path: event.generation?.model_completed ? 'assisted' : 'prepared',
+            apps: this.apps(), recommended: this.recommended() });
         }
       }
     } catch (error) {

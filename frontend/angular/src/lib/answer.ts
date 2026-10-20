@@ -20,7 +20,7 @@ const markdown = new Marked({
     expert-answer .prose pre { padding: 12px; overflow: auto; }
     expert-answer .prose blockquote { margin: 1em 0; border-left: 2px solid var(--ea-line-strong); padding-left: 15px; }
     expert-answer .prose h1, expert-answer .prose h2, expert-answer .prose h3, expert-answer .prose h4 { font: 600 1.08em var(--ea-heading); color: var(--ea-ink); margin: 1em 0 .6em; }
-    expert-answer .prose table { border-collapse: collapse; width: 100%; } expert-answer .prose td, expert-answer .prose th { text-align: left; border: 1px solid var(--ea-line); padding: 8px; }
+    expert-answer .prose table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; width: 100%; } expert-answer .prose td, expert-answer .prose th { text-align: left; border: 1px solid var(--ea-line); padding: 8px; }
   `,
 })
 export class Answer {

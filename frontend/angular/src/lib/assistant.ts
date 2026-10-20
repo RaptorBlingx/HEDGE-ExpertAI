@@ -1,4 +1,4 @@
-import { Component, computed, effect, ElementRef, inject, input, output, signal, viewChild } from '@angular/core';
+import { afterNextRender, Component, computed, DestroyRef, effect, ElementRef, inject, input, output, signal, untracked, viewChild } from '@angular/core';
 import { CdkTrapFocus } from '@angular/cdk/a11y';
 import { Conversation } from './conversation';
 import { ExpertApi } from './expert-api';
@@ -26,12 +26,17 @@ export class ExpertAssistant {
   readonly selected = signal<string[]>([]);
   readonly detail = signal<StoreApp | null>(null);
   readonly evidence = signal(false);
+  readonly detailInspection = signal(false);
   readonly clearConfirm = signal(false);
   readonly mobileView = signal<'chat' | 'apps'>('chat');
   readonly copied = signal<number | null>(null);
   readonly copyError = signal('');
   private focusBefore?: HTMLElement;
-  private followScroll = true;
+  readonly following = signal(true);
+  readonly waitNote = computed(() => this.chat.elapsed() >= 30
+    ? 'This is taking longer than usual. You can keep waiting, or stop and try again.'
+    : this.chat.elapsed() >= 10
+      ? 'Some questions take longer. Read earlier answers or draft your next question while you wait.' : '');
   private readonly log = viewChild<ElementRef<HTMLElement>>('log');
   private readonly discovery = viewChild<ElementRef<HTMLElement>>('discovery');
   private readonly composer = viewChild<ElementRef<HTMLTextAreaElement>>('composer');
@@ -47,18 +52,27 @@ export class ExpertAssistant {
   readonly activeDetail = computed(() => {
     const app = this.detail(); return app ? this.chat.knownApps()[identity(app)] || app : null;
   });
+  readonly hasRecommendations = computed(() => this.chat.apps().some(r => this.recommended(r.app)));
   readonly resultNames = computed(() => this.chat.apps().map(r => r.app.name).join(', '));
   readonly selectedApps = computed(() => this.cards().filter(a => this.selected().includes(identity(a))));
   readonly suggestions = [
-    { icon: 'search' as const, title: 'Explore the catalogue', action: 'browse' as const },
-    { icon: 'spark' as const, title: 'Find an App for your needs', action: 'need' as const },
-    { icon: 'compare' as const, title: 'Understand the differences', action: 'compare' as const },
+    { icon: 'search' as const, title: 'Explore the catalogue', detail: 'See the Apps and what they do', action: 'browse' as const },
+    { icon: 'spark' as const, title: 'Find an App for your needs', detail: 'Start with the problem you want to solve', action: 'need' as const },
+    { icon: 'compare' as const, title: 'Understand the differences', detail: 'Compare documented capabilities', action: 'compare' as const },
   ];
   constructor() {
     void this.load(); void this.chat.restore();
+    const destroy = inject(DestroyRef);
+    afterNextRender(() => {
+      const observer = new ResizeObserver(() => {
+        if (this.following()) requestAnimationFrame(() => this.scrollToBottom());
+      });
+      if (this.log()) observer.observe(this.log()!.nativeElement);
+      destroy.onDestroy(() => observer.disconnect());
+    });
     effect(() => {
-      this.chat.messages(); this.chat.stage();
-      if (this.followScroll) requestAnimationFrame(() => this.log()?.nativeElement.scrollTo({ top: this.log()!.nativeElement.scrollHeight }));
+      this.chat.messages();
+      if (untracked(this.following)) requestAnimationFrame(() => this.scrollToBottom());
     });
   }
   async load(more = false): Promise<void> {
@@ -84,17 +98,19 @@ export class ExpertAssistant {
   }
   async send(text = this.draft()): Promise<void> {
     if (!text.trim() || this.chat.busy() || this.chat.error()) return;
-    this.draft.set(''); this.mobileView.set('chat'); this.followScroll = true;
+    this.draft.set(''); this.mobileView.set('chat'); this.following.set(true);
     if (this.composer()) this.composer()!.nativeElement.style.height = 'auto';
-    await this.chat.send(text); this.focusComposer();
+    // Focus before the request; a late answer must not steal focus or reopen a mobile keyboard.
+    if (matchMedia('(hover: hover)').matches) this.focusComposer();
+    await this.chat.send(text);
   }
   async inspect(app: StoreApp, open = false): Promise<void> {
     if (this.chat.busy()) return;
-    if (open) { this.captureFocus(); this.detail.set(app); this.evidence.set(false); }
+    if (open) { this.captureFocus(); this.detail.set(app); this.evidence.set(false); this.detailInspection.set(true); }
     else this.mobileView.set('chat');
-    this.followScroll = true;
+    this.following.set(true);
+    if (!open && matchMedia('(hover: hover)').matches) this.focusComposer();
     await this.chat.inspect(app);
-    if (!open) this.focusComposer();
   }
   select(app: StoreApp): void {
     const key = identity(app);
@@ -106,12 +122,24 @@ export class ExpertAssistant {
     await this.send(`Compare ${apps[0].name} and ${apps[1].name}.`);
   }
   showEvidence(): void { this.evidence.set(true); }
+  openSource(app: StoreApp): void {
+    this.captureFocus(); this.detail.set(app); this.evidence.set(true); this.detailInspection.set(false);
+  }
+  latest(): void {
+    this.following.set(true);
+    this.log()?.nativeElement.focus({ preventScroll: true });
+    this.scrollToBottom();
+  }
+  private scrollToBottom(): void {
+    const log = this.log()?.nativeElement;
+    if (log) log.scrollTop = log.scrollHeight;
+  }
   showApps(): void {
     this.mobileView.set('apps');
     requestAnimationFrame(() => this.discovery()?.nativeElement.focus({ preventScroll: false }));
   }
   async clear(): Promise<void> {
-    if (await this.chat.clear()) { this.selected.set([]); this.detail.set(null); this.draft.set(''); this.mobileView.set('chat'); }
+    if (await this.chat.clear()) { this.selected.set([]); this.detail.set(null); this.draft.set(''); this.mobileView.set('chat'); this.following.set(true); }
     this.clearConfirm.set(false); this.restoreFocus();
   }
   openClear(): void { this.captureFocus(); this.clearConfirm.set(true); }
@@ -127,7 +155,13 @@ export class ExpertAssistant {
     const field = event.target as HTMLTextAreaElement;
     this.draft.set(field.value); field.style.height = 'auto'; field.style.height = `${Math.min(field.scrollHeight, 132)}px`;
   }
-  scroll(event: Event): void { const el = event.target as HTMLElement; this.followScroll = el.scrollHeight - el.scrollTop - el.clientHeight < 90; }
+  scroll(event: Event): void { const el = event.target as HTMLElement; this.following.set(el.scrollHeight - el.scrollTop - el.clientHeight < 90); }
+  detailAnswer(app: StoreApp): string {
+    if (this.chat.busy()) return '';
+    const last = this.chat.last();
+    return last?.role === 'assistant' && !last.error && !last.stopped &&
+      last.apps?.some(r => identity(r.app) === identity(app)) ? last.text : '';
+  }
   entries(app: StoreApp): [string, string][] { return Object.entries(app.source_evidence || {}); }
   id(app: StoreApp): string { return identity(app); }
   recommended(app: StoreApp): boolean { return this.chat.recommended() && this.chat.apps().some(r => identity(r.app) === identity(app) && r.suitability?.status === 'source_supported'); }

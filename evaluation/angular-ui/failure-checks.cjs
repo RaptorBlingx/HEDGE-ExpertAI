@@ -43,8 +43,8 @@ const base=process.env.ANGULAR_UI_URL || 'http://127.0.0.1:8126';
  await page.unroute('**/api/v2/chat/stream');
  // Hold a simulated stream to inspect elapsed-time UI and cancellation without inference.
  await page.route('**/api/v2/chat/stream',async r=>{await new Promise(resolve=>setTimeout(resolve,7000));await r.fulfill({contentType:'text/event-stream',body:sse({type:'complete'})}).catch(()=>{});});
- await page.getByRole('textbox').fill('Slow transport check');await page.getByRole('button',{name:'Send message',exact:true}).click();await page.getByText('Taking a closer look at your question').waitFor();await page.screenshot({path:root+'/slower-response.png',fullPage:true});
- await page.getByRole('button',{name:'Stop response',exact:true}).click();await page.getByText('Response stopped.',{exact:true}).waitFor();checks.push('Elapsed-time state and Stop work without fabricated progress');
+ await page.getByRole('textbox').fill('Slow transport check');await page.getByRole('button',{name:'Send message',exact:true}).click();await page.getByText('Waiting for your answer…',{exact:true}).waitFor();await page.screenshot({path:root+'/slower-response.png',fullPage:true});
+ await page.getByRole('button',{name:'Stop response',exact:true}).click();await page.getByText('Stopped waiting. You can send another question.',{exact:true}).waitFor();checks.push('Elapsed-time state and Stop work without fabricated progress');
  await page.unroute('**/api/v2/chat/stream');
  for(const width of [320,390,768,1280]){await page.setViewportSize({width,height:900});if(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth))throw Error('Horizontal overflow '+width);await page.screenshot({path:root+`/responsive-${width}.png`,fullPage:true});}checks.push('No horizontal overflow at 320/390/768/1280 px');
  await page.emulateMedia({reducedMotion:'reduce'});const animation=await page.locator('.assistant-message').last().evaluate(el=>getComputedStyle(el).animationName);if(animation!=='none')throw Error('Reduced motion ignored');checks.push('Reduced-motion animation disabled');

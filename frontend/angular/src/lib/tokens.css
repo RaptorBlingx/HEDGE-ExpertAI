@@ -19,6 +19,7 @@
   container: expert / inline-size;
 }
 :host-context([data-theme='dark']) {
+  color-scheme: dark;
   --ea-ink: #e0ebe7;
   --ea-secondary: #afc2c3;
   --ea-muted: #90a8ab;
