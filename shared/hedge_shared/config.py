@@ -54,10 +54,12 @@ class Settings(BaseSettings):
     PRIVATE_STORE_ENABLED: bool = False
     # Optional semantic recovery; the prepared path remains available.
     STORE_SEMANTIC_ENABLED: bool = False
-    STORE_MODEL_CONTEXT_TOKENS: int = Field(default=16384, ge=4096, le=65536)
+    STORE_MODEL_CONTEXT_TOKENS: int = Field(default=16384, ge=2048, le=65536)
     STORE_MODEL_OUTPUT_TOKENS: int = Field(default=2048, ge=256, le=16384)
     STORE_MODEL_TIMEOUT_SECONDS: float = Field(default=120, gt=0, le=300)
     STORE_MODEL_THREADS: int = Field(default=1, ge=1, le=64)
+    STORE_MODEL_BATCH_SIZE: int = Field(default=128, ge=32, le=2048)
+    STORE_MODEL_KEEP_ALIVE: str = "2m"
     # Private Store workspace; explicit deep-reasoning budget is independent.
     STORE_REASONING_ENABLED: bool = False
     STORE_REASONING_SECONDS: float = Field(default=8.0, gt=0, le=15)

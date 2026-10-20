@@ -8,7 +8,7 @@ from hedge_shared.config import Settings
 
 from .store_conversation import StoreConversation
 
-client = httpx.Client(timeout=Settings().STORE_MODEL_TIMEOUT_SECONDS * 4 + 10, trust_env=False,
+client = httpx.Client(timeout=Settings().STORE_MODEL_TIMEOUT_SECONDS + 10, trust_env=False,
                       headers={"X-API-Key": os.environ.get("GATEWAY_API_KEY", "")})
 
 

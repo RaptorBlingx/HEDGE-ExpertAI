@@ -1,5 +1,10 @@
 # T2 functional core: contextual Store understanding
 
+For the subsequent CPU-focused implementation, see
+[one-pass English interpretation](t2-efficient-interpretation.md). The writer/reviewer
+description below records the `92d050a` baseline; it is no longer the ordinary
+English request path.
+
 The supplied approved proposal defines T2 as a working Rasa + LLM conversational
 layer, automatic Store ingestion/indexing, hybrid retrieval/ranking and concise
 source-grounded answers through containerized services and a minimal frontend.

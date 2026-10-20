@@ -176,18 +176,34 @@ metadata and multiple candidates, configure a larger supported context (for exam
 The private Compose profile forwards these settings; provide a permitted
 private network route when the endpoint is on another host.
 
-`STORE_MODEL_CONTEXT_TOKENS=16384` bounds complete evidence, schema and output;
+`STORE_MODEL_CONTEXT_TOKENS=16384` bounds context (2048–65536 tokens);
 `STORE_MODEL_OUTPUT_TOKENS=2048` bounds generated output (including model reasoning);
 `STORE_MODEL_TIMEOUT_SECONDS=120` bounds each inference call; and
-`STORE_MODEL_THREADS=1` controls structured CPU inference threads. The normal flow
-uses a draft and separate grounding review, with at most one correction/review pair;
-contextual routing can add one interpretation call. Gateway/private Expert HTTP
-budgets account for these bounded stages. No source field is silently truncated to
-fit context. Unknown identities, missing citations, changed sources or rejected
-review do not publish generated prose. Model failure is observable in generation
-metadata and yields a prepared answer or clarification, not a claimed negative
-catalogue result.
+`STORE_MODEL_THREADS=1` controls structured CPU inference threads.
+`STORE_MODEL_BATCH_SIZE=128` bounds prompt evaluation batches (32–2048), reducing
+peak CPU inference allocation. `STORE_MODEL_KEEP_ALIVE=2m` controls the inference
+cache lifetime; increase it (for example `10m`) only when measured RAM headroom
+permits keeping the model resident between conversations. The ordinary English recovery path makes **one**
+constrained, non-thinking interpretation call, capped at 80 output tokens. It
+interprets a short functional query, current source task and dialogue mode; application code composes the
+answer and uses the existing suitability assessor. There is no ordinary writer,
+self-review or repair loop. HTTP budgets allow one inference timeout plus service
+overhead. Ollama `truncate=false` and `shift=false` reject oversized input/output
+instead of silently discarding context. The legacy opt-in prose reasoning seam
+retains its separate review and conservative complete-field byte budget.
+
+For short interpretation on constrained hardware, a smaller configured context
+can avoid a large, unused KV cache. Model choice, context, CPU threads, batch size
+and Ollama server cache settings must be measured together; the model weight file
+size alone is not its RAM requirement. The server's `OLLAMA_FLASH_ATTENTION` and
+`OLLAMA_KV_CACHE_TYPE` belong on the inference server, not the Expert client.
+Model failure is observable in generation metadata and yields a prepared answer
+or clarification, not a claimed negative catalogue result. Interpretation remains
+probabilistic: selecting related evidence does not establish complete-request fit.
+Read real negative/compound and contextual conversations before enabling a model.
 
 These settings are off by default and do not modify the existing 8096 environment.
 See [T2 evaluation protocol](../evaluation/t2/README.md) for separate model, retrieval,
 evidence, dialogue and latency measurements before activation on suitable hardware.
+The [one-pass engineering follow-up](t2-efficient-interpretation.md) records the
+CPU evaluation and its limits.

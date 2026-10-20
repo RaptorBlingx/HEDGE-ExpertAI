@@ -58,7 +58,12 @@ def require_semantic():
 @router.post("/interpret", dependencies=[Depends(require_semantic)])
 def interpret(req: Interpret):
     from .store_conversation import plan
-    return plan(req.question, req.locale, req.directory, req.context, req.history)
+    try:
+        return plan(req.question, req.locale, req.directory, req.context, req.history)
+    except Exception:
+        # Validation errors can include model text. Keep it out of HTTP errors
+        # and server tracebacks; the caller records an unavailable interpretation.
+        raise HTTPException(503, "Store interpretation unavailable") from None
 
 
 @router.post("/reason", dependencies=[Depends(require_semantic)])

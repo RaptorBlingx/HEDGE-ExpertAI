@@ -236,11 +236,14 @@ class OllamaClient:
         payload["format"] = schema
         settings = Settings()
         payload["think"] = settings.OLLAMA_THINK
-        payload["keep_alive"] = "2m"
+        payload["truncate"] = False
+        payload["shift"] = False
+        payload["keep_alive"] = settings.STORE_MODEL_KEEP_ALIVE
         # Model presets may include creative repetition penalties. Structured
         # evidence copying/classification must not penalize repeated source terms,
         # App keys or JSON field names.
         payload["options"].update(num_ctx=context_tokens, num_thread=settings.STORE_MODEL_THREADS,
+                                  num_batch=settings.STORE_MODEL_BATCH_SIZE,
                                   repeat_penalty=1.0, presence_penalty=0.0, frequency_penalty=0.0)
         if deadline is not None:
             async def request():
@@ -261,6 +264,9 @@ class OllamaClient:
                 response = client.post(f"{self.base_url}/api/chat", json=payload)
                 response.raise_for_status()
                 data = response.json()
+        logger.info("Structured inference prompt_tokens=%s output_tokens=%s total_ms=%s",
+                    data.get("prompt_eval_count"), data.get("eval_count"),
+                    round(data.get("total_duration", 0) / 1_000_000))
         if not data.get("done") or _hit_output_limit(data, max_tokens):
             raise ValueError("Incomplete grounded generation")
         return _clean_content(data.get("message", {}).get("content", "")).strip()

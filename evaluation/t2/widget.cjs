@@ -31,6 +31,7 @@ const fs = require('fs');
       const complete = events.find(e => e.type === 'complete') || {};
       const recommendations = events.find(e => e.type === 'recommendations') || {};
       const row = {
+        started_at: new Date(start).toISOString(), completed_at: new Date().toISOString(),
         session: session.name, locale: session.locale, question: q,
         answer: await page.locator('.he-msg--assistant .he-msg-content').last().innerText(),
         raw_message: events.filter(e => e.type === 'explanation_delta').map(e => e.content).join(''),

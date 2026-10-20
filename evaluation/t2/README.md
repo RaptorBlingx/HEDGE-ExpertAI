@@ -46,7 +46,14 @@ results are engineering evidence only. Do not claim proposal KPIs from these run
 
 ## Current acceptance boundary
 
-The VM's cached 2B model is used only for limited real-service integration. It is
+The [one-pass follow-up](../../docs/t2-efficient-interpretation.md) compares the
+cached 2B text weights with `qwen3:4b-instruct-2507-q4_K_M` through actual service
+boundaries. 4B is the better tested experimental candidate, with slower inference
+and remaining false abstentions; neither establishes general English quality.
+The ordinary path now uses one structured interpretation and source composition,
+not generated prose/self-review. The multi-stage results below are historical.
+
+The VM's cached 2B model was used for limited real-service integration. It is
 not the quality target and has not established reliable source assessment. Do not
 replace model-generated answers with hand-authored ones, remove failed runs, or
 score mocked model contract tests as English recommendation success. The retained

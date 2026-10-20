@@ -153,8 +153,9 @@ class StoreDialogue:
             if (re.search(native, message, re.I) and not re.search(native, message)
                     and not (app.get("name") and re.search(
                         rf"(?<!\w){re.escape(app['name'])}(?!\w)", message, re.I))):
-                return self._response("App IDs are case-sensitive. Please use the exact ID or the App's name.",
-                                      [], "clarify", context)
+                return {**self._response("App IDs are case-sensitive. Please use the exact ID or the App's name.",
+                                      [], "clarify", context),
+                        "decision": {"outcome": "abstained", "reason": "invalid_native_reference"}}
         named_apps = [app for app in current if _mentions(app, message)]
         named = [app["id"] for app in named_apps]
         ordinals = [index for token, index in _ORDINALS.items()
@@ -166,6 +167,10 @@ class StoreDialogue:
         ) and len({(app.get("name") or "").casefold() for app in named_apps}) < len(named_apps):
             return self._response("Multiple Apps have that name. Please use the exact native App ID.", [], intent, context)
         selected = named if targeted else []
+        if intent == "compare" and len(named) == 1 and len(context.get("focused_ids", [])) == 1:
+            # An explicit comparison with a named peer includes the current
+            # subject; the named App must not displace that resolved reference.
+            selected = list(dict.fromkeys(context["focused_ids"] + named))
         if targeted and not selected:
             if intent == "compare" and re.search(r"\bfirst (two|three|2|3)\b", message, re.I):
                 count = 3 if re.search(r"\b(three|3)\b", message, re.I) else 2

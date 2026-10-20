@@ -21,6 +21,9 @@ from .store_dialogue import _BROWSE, _SOURCE_READ, StoreDialogue, _mentions, _se
 # planner must not turn a constrained search command into an unfiltered listing.
 _COMPLEX = re.compile(r"^(?:reason in depth|analyze in depth|ayrıntılı değerlendir):\s*", re.I)
 _NEW_SEARCH = re.compile(r"^(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?(?:find|search|recommend)\b", re.I)
+_NEXT_STEPS = ("Tell me which requirement you can change, and I can look for a partial fit. "
+               "You can also ask the provider about the missing feature, or compare the available Apps "
+               "to see whether part of your workflow is covered.")
 
 
 class StoreConversation(StoreDialogue):
@@ -76,14 +79,19 @@ class StoreConversation(StoreDialogue):
                 else "Show me all available apps")})
         routed = self.route_intent(request.message, intent)
         fallback = await super().respond(request, routed, context)
-        if self.present:
+        if fallback["intent"] == "compare":
+            primary = context.get("focused_ids", [])
+            shown_ids = {r["app"]["id"] for r in fallback["apps"]}
+            fallback["context"]["focused_ids"] = [i for i in primary if i in shown_ids] if len(primary) == 1 else []
+        if self.present and fallback.get("decision", {}).get("reason") != "invalid_native_reference":
             fallback["message"] = self.present(request.message, fallback, req.locale)
         if not fallback["apps"]:
             fallback.setdefault("decision", {"outcome": "abstained", "reason": "insufficient_evidence"})
         fallback["generation"] = {"source": "prepared", "reason": (
             "source_preparation" if any(r["app"].get("prepared_explanation") for r in fallback["apps"])
             else "source_evidence"), "model_completed": False}
-        if complex_request and self.settings.STORE_REASONING_ENABLED and fallback["apps"]:
+        if (complex_request and self.settings.STORE_REASONING_ENABLED and fallback["apps"]
+                and not self.settings.STORE_SEMANTIC_ENABLED):
             # A single budget covers drafting and review. The expert checks the
             # remaining budget before every model call; no repair loops here.
             rows = fallback["apps"]
@@ -123,6 +131,7 @@ class StoreConversation(StoreDialogue):
                             apps=[], candidates=[], decision={"outcome": "abstained", "reason": "catalogue_changed"})
             fallback["context"].update(last_results=[], focused_ids=[])
         fallback.setdefault("timings", {})["complete_seconds"] = time.monotonic() - started
+        fallback["context"]["last_outcome"] = fallback.get("decision", {}).get("outcome", "not_applicable")
         return fallback
 
     async def respond_with_history(self, req, intent, context, history, *, nlu=None):
@@ -134,16 +143,18 @@ class StoreConversation(StoreDialogue):
             fast = not _COMPLEX.match(req.message) and (fallback.get("decision", {}).get("outcome") == "recommended"
                     or fallback["intent"] == "source_fields"
                     or bool(_BROWSE.fullmatch(req.message.strip()))
-                    or (not context.get("semantic_context")
-                        and fallback.get("context", {}).get("simplification") != context.get("simplification")))
-            if not self.settings.STORE_SEMANTIC_ENABLED or req.locale != "en" or fast:
+                    or self.route_intent(req.message, intent) in {"greeting", "help", "reset", "out_of_scope"}
+                    or fallback["intent"] == "compare" and bool(fallback["apps"])
+                    or dialogue_language(req.message, req.locale) == "Explain it simply" and bool(fallback["apps"]))
+            if (not self.settings.STORE_SEMANTIC_ENABLED or req.locale != "en" or fast
+                    or fallback.get("decision", {}).get("reason") == "invalid_native_reference"):
                 return fallback
             recovery_started = time.monotonic()
-            answer = await self._model_response(req, intent, context, history, nlu=nlu)
+            answer = await self._interpreted_response(req, intent, context, history, fallback, nlu=nlu)
             answer.setdefault("timings", {})["recovery_seconds"] = time.monotonic() - recovery_started
             answer["timings"]["complete_seconds"] = (answer["timings"]["recovery_seconds"]
                                                         + fallback.get("timings", {}).get("complete_seconds", 0))
-            if answer.get("generation", {}).get("source") != "ollama":
+            if not answer.get("generation", {}).get("model_completed"):
                 if not fallback["apps"]:
                     fallback.update(intent="clarify", message="Could you narrow this down to the main function you need, or name an App to explore?",
                                     decision={"outcome": "abstained", "reason": "semantic_recovery_unavailable"})
@@ -154,6 +165,146 @@ class StoreConversation(StoreDialogue):
                 return fallback
             return answer
         return await self._model_response(req, intent, context, history, nlu=nlu)
+
+    async def _interpreted_response(self, req, intent, context, history, fallback, *, nlu=None):
+        """One bounded interpretation, followed by the existing evidence boundary.
+
+        The model translates intent and vocabulary; it cannot approve an App,
+        supply facts, write an answer or grant a reviewed-support receipt.
+        """
+        current = self.resolve(None)
+        previous = [r["app"]["id"] for r in context.get("last_results", [])]
+        focus = context.get("focused_ids", [])
+        # Retrieval narrows large catalogues; a directory is never an independent
+        # recommendation index. Discovery still searches the complete Store.
+        pool = {r["app"]["id"]: r["app"] for r in [*fallback.get("apps", []), *fallback.get("candidates", [])]}
+        referenced = list(dict.fromkeys([a["id"] for a in current if _mentions(a, req.message)]
+                                       + focus + context.get("comparison_ids", []) + previous))
+        scoped = sorted(current, key=lambda a: (referenced.index(a["id"]) if a["id"] in referenced else
+                                               len(referenced) if a["id"] in pool else len(referenced) + 1,
+                                               a["app_id"]))[:5]
+        scoped.sort(key=lambda a: a["app_id"])  # Stable catalogue prefix enables model prompt-cache reuse.
+        bindings = {str(i + 1): a["id"] for i, a in enumerate(scoped)}
+        reverse = {v: k for k, v in bindings.items()}
+        directory = [{"key": reverse[a["id"]], "app": a} for a in scoped]
+        self.progress("intent")
+        try:
+            plan = await asyncio.to_thread(self.interpret, req.message, req.locale, directory,
+                {"focus": [reverse[i] for i in focus if i in reverse],
+                 "previous": list(dict.fromkeys(reverse[i] for i in previous + context.get("comparison_ids", []) if i in reverse)),
+                 "need": context.get("explanation_topic") or context.get("last_query", ""),
+                 "last_outcome": context.get("last_outcome"),
+                 "task_interpretation": True}, history)
+            chosen = [bindings[k] for k in plan["apps"]]
+        except Exception:
+            return {**fallback, "generation": {"source": "prepared", "reason": "interpretation_unavailable", "model_completed": False}}
+        action, query, view = plan["action"], plan["query"], plan.get("view", "capability")
+        named = [a["id"] for a in current if _mentions(a, req.message)]
+        # Inspection needs an actual user reference. A model-selected App is a
+        # discovery candidate, not a request to describe it instead of recommending.
+        if action == "answer" and not named and (not focus and not previous or
+                fallback["intent"] in {"search", "refine"} and view == "purpose"):
+            action, view = "search", "capability"
+        if action == "search" and fallback["intent"] == "detail" and (named or focus) and not _NEW_SEARCH.match(req.message.strip()):
+            action = "answer"
+        if action == "answer" and fallback["intent"] == "detail" and fallback.get("candidates"):
+            view = "capability"
+        if action == "compare" and not named and fallback["intent"] == "detail" and len(fallback["apps"]) == 1:
+            # A resolved singular reference (including "the other App") already
+            # has one subject. A weak model must not turn it into a comparison.
+            action, view = "answer", "purpose"
+        filters = {**context.get("filters", {}), **{k: v for k, v in req.filters.model_dump(mode="json").items() if v not in (None, "", [])}}
+        generation = {"source": "interpreted_prepared", "reason": "single_interpretation", "model_completed": True,
+                      "interpretation": {"action": action, "query": query, "apps": chosen, "view": view,
+                                         "source_task": plan.get("source_task"), "normalization": plan.get("normalization")}, "model_calls": 1}
+        next_context = {**context, "filters": filters}
+        if action == "chat" or view == "next_steps":
+            # Offer concrete alternatives as exploration, not as matches to the
+            # previous unsupported requirement or invented external products.
+            response = self._response(_NEXT_STEPS, [], "conversation", next_context)
+            response["decision"] = {"outcome": "not_applicable", "reason": "next_steps"}
+        elif action == "clarify" or not query.strip() and action != "browse":
+            response = self._response("Which task or App would you like to explore?", [], "clarify", next_context)
+            generation["reason"] = "interpreted_clarification"
+        elif action == "browse":
+            # An explicit constrained search cannot be broadened into a listing.
+            if not _BROWSE.fullmatch(req.message.strip()):
+                response = self._response("What would you like the App to do?", [], "clarify", next_context)
+            else:
+                response = await self._prepared_response(req, intent, next_context, history)
+        else:
+            resolved_targets = [r["app"]["id"] for r in [*fallback.get("apps", []), *fallback.get("candidates", [])]] if fallback["intent"] == "detail" else []
+            selected = (named or resolved_targets or focus or chosen) if action == "answer" else chosen
+            if action == "compare":
+                selected = list(dict.fromkeys(focus + named + chosen + context.get("comparison_ids", previous)))[:5]
+            if action in {"answer", "compare"} and (not selected or len(self.resolve(selected)) != len(selected) or action == "compare" and len(selected) < 2):
+                response = self._response("Which App do you mean? You can name it or ask me to list the Apps.", [], "clarify", next_context)
+            elif any(v not in (None, "", []) for k, v in filters.items() if k != "publisher"):
+                response = fallback
+            else:
+                if action in {"answer", "compare"}:
+                    apps = self.resolve(selected)
+                    apps = [a for a in apps if not filters.get("publisher") or filters["publisher"].casefold() in (a.get("provider") or "").casefold()]
+                    rows = [{"app": a, "rank": i + 1, "evidence_fields": ["reference"]} for i, a in enumerate(apps)]
+                else:
+                    self.progress("retrieval")
+                    retrieved = await self.recommend(query=query, locale=req.locale, filters=filters)
+                    rows = sorted([*retrieved["apps"], *retrieved.get("candidates", [])], key=lambda r: r["rank"])[:5]
+                inspection = action in {"answer", "compare"} and view in {"purpose", "workflow", "simple", "pricing", "access", "comparison"}
+                # Rewriting is not permission to drop explicit restrictions. Keep
+                # negative, numeric, conditional and exclusive requests on the
+                # original conservative assessor. This guard is grammar, not a
+                # synonym list or a semantic eligibility decision.
+                strict = re.search(r"\d|\b(?:no|not|never|cannot|without|only|except|must|requires?|guarantee\w*|certifi\w*|production|offline|under|at least|at most|automatic\w*|all|every|always|unlimited)\b|n't\b", req.message, re.I)
+                if re.search(r"\band\b", req.message, re.I) and not re.search(r"\band\b", query, re.I):
+                    strict = True
+                if strict and view not in {"pricing", "comparison"}:
+                    inspection = False
+                decision_query = req.message if strict or action == "answer" and view == "capability" else query
+                if inspection:
+                    response = self._response("", rows, "compare" if action == "compare" else "detail", next_context)
+                    response["decision"] = {"outcome": "not_applicable", "reason": "source_inspection"}
+                else:
+                    response = {**self.decide(decision_query, rows, req.locale), "intent": "search" if action == "search" else "detail", "context": next_context}
+                shown = response["apps"]
+                if len(shown) == 1:
+                    next_focus = [shown[0]["app"]["id"]]
+                elif action == "compare":
+                    next_focus = [i for i in focus if i in {r["app"]["id"] for r in shown}] if len(focus) == 1 else []
+                else:
+                    next_focus = selected if action == "answer" else []
+                next_context.update(last_query=query if action == "search" else context.get("last_query", query),
+                    explanation_topic=query if shown else context.get("explanation_topic", ""), response_view=view,
+                    focused_ids=next_focus,
+                    last_results=shown if action in {"search", "compare"} else context.get("last_results", shown))
+                if action == "compare":
+                    next_context["comparison_ids"] = [r["app"]["id"] for r in shown]
+                elif action == "search" and shown:
+                    discussed = list(dict.fromkeys((focus or previous) + [r["app"]["id"] for r in shown]))[-5:]
+                    if len(discussed) > 1 or not next_context.get("comparison_ids"):
+                        next_context["comparison_ids"] = discussed
+                # Canonical view controls presentation only; no free model prose.
+                response["interpreted_query"] = query
+                presentation = {"workflow": "How does it work?", "simple": "Explain it simply", "pricing": "What does it cost?", "access": "How do I get started?"}.get(view, req.message)
+                response["message"] = self.present(presentation, response, req.locale) if self.present else response["message"]
+                if not shown:
+                    response["message"] = ("I haven’t found a confirmed match for that need. Which part matters most? "
+                        "I can help you explore a partial fit or check a specific App’s capabilities.")
+                    if (context.get("last_outcome") == "abstained" and (nlu or {}).get("source") == "rasa"
+                            and (nlu or {}).get("intent") == "help" and (nlu or {}).get("confidence", 0) >= .9):
+                        # Rasa can select a recovery strategy after two unmatched
+                        # turns, but never change a positive suitability decision.
+                        response.update(message=_NEXT_STEPS, intent="conversation")
+                        generation["nlu_policy"] = "no_match_recovery"
+                # The same late authoritative equality check as prepared replies.
+                visible = [*shown, *response.get("candidates", [])]
+                fresh = {a["id"]: a for a in self.resolve([r["app"]["id"] for r in visible])}
+                if any(fresh.get(r["app"]["id"]) != r["app"] for r in visible):
+                    response.update(message="The catalogue changed while preparing this reply. Please search again.", apps=[], candidates=[], decision={"outcome": "abstained", "reason": "catalogue_changed"})
+                    response["context"].update(last_results=[], focused_ids=[])
+        response["generation"] = generation
+        response["context"]["last_outcome"] = response.get("decision", {}).get("outcome", "not_applicable")
+        return response
 
     async def _model_response(self, req, intent, context, history, *, nlu=None):
         # Explicit inspection remains a source read, not generative paraphrasing.

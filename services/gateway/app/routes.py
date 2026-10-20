@@ -154,7 +154,7 @@ async def _get_json(
 
 def _chat_timeout_v2() -> float:
     settings = Settings()
-    return (settings.STORE_MODEL_TIMEOUT_SECONDS * 5 + 15
+    return (settings.STORE_MODEL_TIMEOUT_SECONDS + 15
             if settings.PRIVATE_STORE_ENABLED and settings.STORE_SEMANTIC_ENABLED else 300.0)
 
 
