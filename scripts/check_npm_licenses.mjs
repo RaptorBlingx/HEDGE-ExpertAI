@@ -8,6 +8,7 @@ const output = outputIndex >= 0 ? process.argv[outputIndex + 1] : null;
 const allowed = new Set([
   "0BSD",
   "Apache-2.0",
+  "(Apache-2.0 AND BSD-3-Clause)", // protobuf: preserve both permissive notices
   "BSD-2-Clause",
   "BSD-3-Clause",
   "BlueOak-1.0.0",
@@ -17,6 +18,7 @@ const allowed = new Set([
   "MIT",
   "MIT-0",
   "MPL-2.0",
+  "OFL-1.1", // unmodified, self-hosted Inter/Manrope fonts; retain OFL notices
 ]);
 const packages = [];
 const visited = new Set();

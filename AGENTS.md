@@ -22,7 +22,7 @@
 - Rasa supplies NLU; application code owns dialogue policy. Ollama supplies local generation. Preserve configured model choices unless the task calls for a model change.
 - `metadata-ingest` has an API, Celery worker, and scheduler. PostgreSQL holds the durable local catalogue projection, revisions, indexing outbox, and verified events. HEDGE remains authoritative for source metadata and visibility.
 - Qdrant is a rebuildable derived vector index. Separate Valkey instances provide bounded operational state and the persistent queue.
-- `frontend/widget` is a standalone JavaScript/CSS delivery artifact; `frontend/src` is the React/TypeScript validation console. Native HEDGE UI integration is pending.
+- `frontend/angular` is the Angular ExpertAI prototype; reusable assistant components and the typed API adapter live in `src/lib`, separate from the demo shell. `frontend/widget` remains the standalone JavaScript/CSS artifact and `frontend/src` the React/TypeScript validation console. Native HEDGE UI integration is pending; keep all three independent of backend dialogue policy.
 - ExpertAI `/api/v2` and HEDGE Store `/api/v1` are independent contracts. `contracts/hedge-store-v2.schema.json` is a synthetic fixture contract, not the real Store contract.
 
 ## Engineering judgment
@@ -41,7 +41,7 @@
 
 - Code conventions: typed Python, Pydantic contracts, shared helpers, Ruff, and Pytest. Each service has an `app` package; follow existing test import isolation.
 - Keep configuration changes consistent across affected shared settings, service environment reads, `.env.example`, Compose profiles, and configuration documentation. Keep secrets out of source and logs.
-- Preserve dependency/model/image pins. Python dependencies use hashed `requirements.lock` files; frontend uses `package-lock.json` and `npm ci`. CI currently specifies Python 3.11.15 and Node 20.19.4; inspect [.github/workflows/ci.yml](.github/workflows/ci.yml) for exact checks.
+- Preserve dependency/model/image pins. Python dependencies use hashed `requirements.lock` files; frontends each use their own `package-lock.json` and `npm ci`. CI specifies Python 3.11.15, Node 20.19.4 for the validation console and Node 24.22.0 for Angular; inspect [.github/workflows/ci.yml](.github/workflows/ci.yml) for exact checks.
 - Relevant checks: `make lint`, `make test-ci` (80% shared-package branch coverage gate), and frontend checks. API changes require `make openapi` and review of generated `docs/openapi/` diffs.
 - Inspect commands before running them. `make e2e`, ingestion/seed, migrations, restore, and stack scripts change state; `make clean` deletes volumes. Run stack checks only in an appropriate isolated environment, with the intended Compose profile.
 - For documentation-only changes, check links/sources and run `git diff --check`. Report checks actually run and any limitations.

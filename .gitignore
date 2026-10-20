@@ -135,3 +135,5 @@ tmp/
 temp/
 # Raw reports are retained as CI artifacts, not source.
 frontend/npm-audit-reports/
+frontend/angular/angular-licenses.json
+frontend/angular/.angular/
