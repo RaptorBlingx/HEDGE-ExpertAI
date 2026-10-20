@@ -468,10 +468,14 @@ async def run_chat_v2(req: ChatRequestV2, *, store_dialogue: StoreDialogue | Non
     if store_dialogue is None and scope():
         from .private_store import policy
         store_dialogue = policy()
+    if req.app_action and not store_dialogue:
+        raise HTTPException(422, "App actions require the Store catalogue")
     session_id, history = get_or_create_session(req.session_id)
     context = _context_for(session_id)
     result = classify(req.message)
-    intent = store_dialogue.route_intent(req.message, result.intent) if store_dialogue else result.intent
+    intent = result.intent
+    if store_dialogue:
+        intent = "detail" if req.app_action else store_dialogue.route_intent(req.message, result.intent)
 
     if not req.session_id:
         log_session_event(session_id, "start", {"locale": req.locale})
@@ -630,6 +634,11 @@ async def chat_stream_v2(req: ChatRequestV2):
             except Exception:
                 logger.exception("Private Store dialogue failed")
                 yield _sse_v2("error", {"type": "problem", "status": 503, "title": "Conversation unavailable"})
+            return
+
+        if req.app_action:
+            yield _sse_v2("error", {"type": "problem", "status": 422,
+                                   "title": "App actions require the Store catalogue"})
             return
 
         request_id = str(uuid.uuid4())

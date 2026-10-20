@@ -19,6 +19,8 @@ from pydantic import (
     model_validator,
 )
 
+from .store_v1 import NativeIdentifier
+
 SUPPORTED_LOCALES = ("en", "de", "fr", "es", "it", "nl", "pt", "tr")
 Locale = Literal["en", "de", "fr", "es", "it", "nl", "pt", "tr"]
 NonEmptyString = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -328,6 +330,19 @@ class SearchResultV2(StrictModel):
     evidence_fields: list[str] = Field(default_factory=list)
 
 
+class StoreAppAction(StrictModel):
+    """An inspection command; native identity is separate from display prose.
+
+    The pair is resolved against the current authorized catalogue, never trusted
+    as a supplied App or interpreted as a recommendation requirement.
+    """
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
+    type: Literal["inspect"]
+    store_id: NativeIdentifier
+    app_id: NativeIdentifier
+
+
 class ChatRequestV2(StrictModel):
     """Versioned conversational search request."""
 
@@ -335,6 +350,7 @@ class ChatRequestV2(StrictModel):
     message: str = Field(min_length=1, max_length=MAX_SEARCH_QUERY_LENGTH)
     locale: Locale = "en"
     filters: SearchFilters = Field(default_factory=SearchFilters)
+    app_action: StoreAppAction | None = None
 
 
 class ReindexRequestV2(StrictModel):

@@ -629,6 +629,16 @@
           },
           "filters": {
             "$ref": "#/components/schemas/SearchFilters"
+          },
+          "app_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoreAppAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -883,6 +893,34 @@
         "type": "object",
         "title": "SearchFilters",
         "description": "Typed public catalogue filters."
+      },
+      "StoreAppAction": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "inspect",
+            "title": "Type"
+          },
+          "store_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Store Id"
+          },
+          "app_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "App Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type",
+          "store_id",
+          "app_id"
+        ],
+        "title": "StoreAppAction",
+        "description": "An inspection command; native identity is separate from display prose.\n\nThe pair is resolved against the current authorized catalogue, never trusted\nas a supplied App or interpreted as a recommendation requirement."
       },
       "ValidationError": {
         "properties": {

@@ -13,9 +13,9 @@ from copy import deepcopy
 
 from hedge_shared.config import Settings
 from hedge_shared.models_v2 import ChatRequestV2
-from hedge_shared.store_language import dialogue_language
+from hedge_shared.store_language import catalogue_question, dialogue_language
 
-from .store_dialogue import _BROWSE, _SOURCE_READ, StoreDialogue, _mentions, _search_query
+from .store_dialogue import _SOURCE_READ, StoreDialogue, _mentions, _search_query
 
 # Preserve the existing application's explicit discovery boundary. A generative
 # planner must not turn a constrained search command into an unfiltered listing.
@@ -65,6 +65,20 @@ class StoreConversation(StoreDialogue):
         context = deepcopy(context)
         complex_request = _COMPLEX.match(req.message)
         request = req.model_copy(update={"message": req.message[complex_request.end():]}) if complex_request else req
+        if req.app_action:
+            complex_request = None
+            action = req.app_action
+            selected = [a for a in self.resolve(None)
+                        if a["store_id"] == action.store_id and a["app_id"] == action.app_id]
+            if len(selected) != 1:
+                return {**self._response("That App is no longer available. Please browse the current Apps.",
+                                        [], "detail", {**context, "focused_ids": []}),
+                        "decision": {"outcome": "abstained", "reason": "unavailable_action_target"},
+                        "generation": {"source": "prepared", "reason": "unavailable_action_target", "model_completed": False}}
+            # Reuse the source-inspection path, including filters and late
+            # revision checks. No generated ID/name parsing or new fact writer.
+            context["focused_ids"] = [selected[0]["id"]]
+            request = req.model_copy(update={"message": "Tell me about it"})
         if re.fullmatch(
             r"(?:(?:i'm|i am) not sure|i don't know)(?: where to start| what to choose)?[?!.]*|"
             r"what (?:would you|do you) (?:suggest|recommend)[?!.]*|"
@@ -135,14 +149,16 @@ class StoreConversation(StoreDialogue):
         return fallback
 
     async def respond_with_history(self, req, intent, context, history, *, nlu=None):
-        if self.routine:
+        if self.routine or req.app_action:
             # Run the proven low-latency route first. A synopsis is not proof that
             # an arbitrary question was understood. Uncertain substantive turns
             # get contextual semantic interpretation, not more lexical exceptions.
             fallback = await self._prepared_response(req, intent, context, history, nlu=nlu)
+            if req.app_action:
+                return fallback
             fast = not _COMPLEX.match(req.message) and (fallback.get("decision", {}).get("outcome") == "recommended"
                     or fallback["intent"] == "source_fields"
-                    or bool(_BROWSE.fullmatch(req.message.strip()))
+                    or fallback["intent"] == "browse"
                     or self.route_intent(req.message, intent) in {"greeting", "help", "reset", "out_of_scope"}
                     or fallback["intent"] == "compare" and bool(fallback["apps"])
                     or dialogue_language(req.message, req.locale) in {"Explain it simply", "How does it work?"} and bool(fallback["apps"]))
@@ -232,7 +248,7 @@ class StoreConversation(StoreDialogue):
             generation["reason"] = "interpreted_clarification"
         elif action == "browse":
             # An explicit constrained search cannot be broadened into a listing.
-            if not _BROWSE.fullmatch(req.message.strip()):
+            if not catalogue_question(req.message):
                 response = self._response("What would you like the App to do?", [], "clarify", next_context)
             else:
                 response = await self._prepared_response(req, intent, next_context, history)
@@ -365,7 +381,7 @@ class StoreConversation(StoreDialogue):
                 # against the retrieved evidence and may still ask a clarification.
                 plan = {"action": "search", "apps": [], "query": req.message}
             elif not self.settings.STORE_SEMANTIC_ENABLED:
-                if _BROWSE.fullmatch(req.message.strip()):
+                if catalogue_question(req.message):
                     plan = {"action": "browse", "apps": [], "query": req.message}
                 elif named or (known and not plan_context["unavailable_reference"]):
                     selected_scope = list(dict.fromkeys(named + [i for i in known if i in keys]))[:5]

@@ -17,7 +17,12 @@ from typing import Annotated, Literal
 from hedge_shared.config import Settings
 from hedge_shared.store_explanations import plain_english, readable_passage
 from hedge_shared.store_knowledge import explanation
-from hedge_shared.store_language import dialogue_language, factual_question, search_language
+from hedge_shared.store_language import (
+    dialogue_language,
+    factual_question,
+    inspection_target,
+    search_language,
+)
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
 
 from .llm_client import OllamaClient
@@ -177,10 +182,22 @@ def prepared_answer(question: str, response: dict, locale: str) -> str:
             lines.append(f"**{name}** is provided by **{provider}**." if provider else
                          f"No provider is listed for **{name}**.")
         return "\n\n".join(lines)
-    if rows and factual and factual[0] == "purpose":
+    if rows and (factual and factual[0] == "purpose" or
+                 intent == "source_fields" and inspection_target(question)):
         context = response.setdefault("context", {})
         context["explanation_topic"] = ""
-        return "\n\n".join(
+        answer = "\n\n".join(
+            f"**{_quoted_store_text(row['app'].get('name') or row['app']['app_id'])}** — " +
+            _fact_text(row, "", locale, context=context) for row in rows)
+        if inspection_target(question) and len(rows) == 1 and rows[0]['app'].get('provider'):
+            answer += "\n\nProvider: " + _quoted_store_text(rows[0]['app']['provider'])
+        return answer
+    if intent == "browse" and rows:
+        # Browsing describes every displayed entry. Catalogue boilerplate is
+        # not a functional need and must not bias passage selection or ranking.
+        context = response.setdefault("context", {})
+        context["explanation_topic"] = ""
+        return "Available Apps:\n\n" + "\n\n".join(
             f"**{_quoted_store_text(row['app'].get('name') or row['app']['app_id'])}** — " +
             _fact_text(row, "", locale, context=context) for row in rows)
     if (intent == "source_fields" and re.match(r"^(?:show|quote|list|(?:can|could|may) (?:i|we) (?:see|read))\b", normalized, re.I)

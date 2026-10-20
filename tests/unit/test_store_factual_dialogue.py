@@ -7,6 +7,7 @@ import pytest
 from hedge_shared.models_v2 import ChatRequestV2
 from hedge_shared.store_explanations import readable_passage
 from hedge_shared.store_knowledge import prepare
+from hedge_shared.store_language import catalogue_question
 from hedge_shared.store_v1 import StoreAppMetadata
 
 from scripts.store_v1_playground import load_service
@@ -114,4 +115,83 @@ def test_purpose_target_does_not_swallow_the_used_for_suffix(conversation, quest
     result = ask(policy, question, {'turn':1,'focused_ids':[apps[0]['id']]})
     assert 'monitor laboratory samples' in result['message']
     assert result['context']['focused_ids'] == [apps[1]['id']]
+    interpreter.assert_not_called()
+
+
+def test_catalogue_operation_is_invariant_to_presentation_and_composes_inspection(conversation):
+    policy, apps, interpreter = conversation
+    for operation in ['List applications', 'What apps are available',
+                      'List applications and describe each one',
+                      'Browse the catalogue; explain their purposes']:
+        for transform in [str.lower, str.upper, lambda s: '  ' + s.replace(' ', '   ') + '  ']:
+            for punctuation in ['', ',', '?!', '…']:
+                result = ask(policy, transform(operation + punctuation), {})
+                assert result['intent'] == 'browse'
+                assert {r['app']['id'] for r in result['apps']} == {a['id'] for a in apps}
+                assert 'publish device records' in result['message']
+                assert 'monitor laboratory samples' in result['message']
+                assert result['decision']['outcome'] == 'not_applicable'
+    interpreter.assert_not_called()
+
+
+def test_composed_browse_never_drops_unknown_words_or_constraints():
+    for suffix in ['for forecasting', 'without registration', 'and predict prices',
+                   'and describe each one with automatic translation', 'but only free ones']:
+        assert not catalogue_question('List applications ' + suffix)
+    assert not catalogue_question('List only free applications and describe each one')
+
+
+def test_resolved_inspection_uses_sources_and_preserves_topic_switches(conversation):
+    policy, apps, interpreter = conversation
+    context = {}
+    for target in ['Device Register', 'beta', 'the other App']:
+        result = ask(policy, 'Tell me about ' + target, context)
+        context = result['context']
+        assert result['intent'] == 'source_fields'
+        assert len(result['apps']) == 1
+        assert result['generation']['source'] == 'prepared'
+    assert context['focused_ids'] == [apps[0]['id']]
+    interpreter.assert_not_called()
+
+
+def test_ui_action_resolves_pair_even_with_duplicate_or_missing_names(conversation):
+    policy, apps, interpreter = conversation
+    new = prepare(StoreAppMetadata(store_id='second-store', app_id=apps[0]['app_id'],
+        name=apps[0]['name'], provider='New Supplier', readme='Used to track deliveries.',
+        active=True, visible=True))
+    apps.append({**new['projection'], 'prepared_explanation': new['explanation']})
+    for name in [apps[-1]['name'], None]:
+        apps[-1]['name'] = name
+        policy.routine = name is not None  # UI identity does not depend on planner mode.
+        result = asyncio.run(policy.respond_with_history(ChatRequestV2(
+            message='Tell me about Unnamed App', app_action={
+                'type':'inspect', 'store_id':apps[-1]['store_id'], 'app_id':apps[-1]['app_id']}),
+            'help', {}, []))
+        assert [r['app']['id'] for r in result['apps']] == [apps[-1]['id']]
+        assert 'track deliveries' in result['message']
+        assert result['context']['focused_ids'] == [apps[-1]['id']]
+    interpreter.assert_not_called()
+
+
+def test_stale_or_out_of_scope_action_never_rebinds_to_a_different_app(conversation):
+    policy, apps, interpreter = conversation
+    result = asyncio.run(policy.respond_with_history(ChatRequestV2(message='Tell me about Device Register',
+        app_action={'type':'inspect','store_id':'not-authorized','app_id':apps[0]['app_id']}),
+        'detail', {'focused_ids':[apps[1]['id']]}, []))
+    assert not result['apps'] and not result['context']['focused_ids']
+    assert result['decision']['reason'] == 'unavailable_action_target'
+    interpreter.assert_not_called()
+
+
+def test_broader_synthetic_catalogue_is_bounded_without_ranking_or_manual_preparation(conversation):
+    policy, apps, interpreter = conversation
+    for i in range(100):
+        k = prepare(StoreAppMetadata(store_id='synthetic-only', app_id=f'new-{i:03}',
+            name=f'Catalogue Tool {i}', readme=f'Used to record device group {i}.', active=True, visible=True))
+        apps.append({**k['projection'], 'prepared_explanation':k['explanation']})
+    result = ask(policy, 'List applications and describe each one.', {})
+    assert len(result['apps']) == 5
+    assert all(r['evidence_fields'] == ['catalogue'] for r in result['apps'])
+    assert 'Catalogue Tool 0' in result['message']
+    # This is an authored fixture contract check, not live retrieval-quality evidence.
     interpreter.assert_not_called()

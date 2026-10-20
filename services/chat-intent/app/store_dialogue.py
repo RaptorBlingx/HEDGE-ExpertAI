@@ -8,8 +8,10 @@ from collections.abc import Awaitable, Callable
 
 from hedge_shared.models_v2 import ChatRequestV2
 from hedge_shared.store_language import (
+    catalogue_question,
     dialogue_language,
     factual_question,
+    inspection_target,
     localize_prose,
     search_language,
 )
@@ -18,16 +20,6 @@ from .routes import _ORDINALS
 
 _PRICE = re.compile(r"\b(price|prices|pricing|cost|costs|cheapest|cheaper|free|paid|budget)\b", re.I)
 _UNSUPPORTED_METADATA = re.compile(r"\b(supports?|capabilit\w*|compatible|protocols?|mqtt|opc[- ]?ua|versions?|licen[cs]es?|prices?|categories|translations?|certifi\w*|ratings?)\b", re.I)
-# A closed browsing grammar: domain constraints/negation remain search terms.
-# Compose verbs, catalogue nouns and availability qualifiers, not exact questions.
-_BROWSE = re.compile(
-    r"(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?"
-    r"(?:show(?:\s+me)?|list|browse|display|what|which)"
-    r"(?:\s+(?:all|the|available|published|currently|store|hedge))*"
-    r"\s+(?:apps?|applications?|catalog(?:ue)?)"
-    r"(?:\s+(?:are|do|you|have|available|published|currently|in|the|store|hedge|catalog(?:ue)?))*[?!.]*",
-    re.I,
-)
 # Explicit source-field reads are separate from capability/suitability questions.
 # Full matches keep constraints such as "only free Apps" out of this path.
 _SOURCE_FIELDS = {
@@ -83,7 +75,7 @@ class StoreDialogue:
             return intent
         if re.match(r"^(?:please\s+)?compare\b|^how do (?:these|those|they|the apps) differ[?!.]*$", message, re.I):
             return "compare"
-        if _BROWSE.fullmatch(message.strip()):
+        if catalogue_question(message):
             return "search"
         if re.fullmatch(r"(?:please\s+)?show me (?:the )?(?:first|second|third|fourth|fifth|[1-5]) app[?!.]*", message, re.I):
             return "detail"
@@ -147,6 +139,16 @@ class StoreDialogue:
         current = self.resolve(None)
         message = req.message
         factual = factual_question(message) if req.locale == "en" else None
+        target = inspection_target(message) if req.locale == "en" else None
+        if target and (any(target == a["app_id"] or target.casefold() == (a.get("name") or "").casefold()
+                           for a in current) or _REFERENCE.fullmatch(target) or
+                       any(target.casefold() == f"the {token} app" for token in _ORDINALS)):
+            factual = ("purpose", target)
+        # Closed catalogue composition takes precedence over an inspection
+        # clause inside it. Neither operation is a capability recommendation.
+        browsing = catalogue_question(message)
+        if browsing:
+            factual = None
         source_read = _SOURCE_READ.fullmatch(
             f"Show {factual[0]} for {factual[1]}" if factual else message.strip())
         source_target = source_read[2] if source_read else None
@@ -229,6 +231,9 @@ class StoreDialogue:
                                if (a.get("name") or "").casefold() == source_target.casefold()]
                 ordinal = next((index for token, index in _ORDINALS.items()
                                 if source_target.casefold() == f"the {token} app"), None)
+                if len(exact_ids) > 1 or len(exact_names) > 1 and not exact_ids:
+                    return self._response("Multiple Apps have that identity. Choose an App card or use a unique native ID.",
+                                          [], "source_fields", context)
                 if exact_ids:
                     selected = exact_ids
                 elif len(exact_names) == 1:
@@ -247,7 +252,7 @@ class StoreDialogue:
             if filters.get("publisher"):
                 apps = [a for a in apps if filters["publisher"].casefold() in (a.get("provider") or "").casefold()]
             if not selected or len(apps) != len(selected):
-                return self._response("Choose a currently published App by exact name/native ID or an existing reference; "
+                return self._response("I cannot resolve that reference. Choose a currently published App by exact name/native ID or an existing reference; "
                                       "source-field reads do not apply additional constraints.",
                                       [], "source_fields", context)
             field = source_read[1].casefold()
@@ -282,7 +287,12 @@ class StoreDialogue:
                                  (f"App {result['rank']}: requested source evidence is {status}. "
                                   "Missing projected evidence does not establish absence of a capability."))
             next_context = {**context, "filters": filters, "focused_ids": selected}
-            return self._response("\n".join(lines), results, "source_fields", next_context)
+            if seeded and named:
+                next_context["last_results"] = results
+            if seeded and ordinals and not named:
+                lines.insert(1, "References use the observed catalogue order shown on this page.")
+            return {**self._response("\n".join(lines), results, "source_fields", next_context),
+                    "decision": {"outcome": "not_applicable", "reason": "source_inspection"}}
         if (unsupported and not (self.catalogue_references and selected and not _PRICE.search(message))) or invalid_filters:
             limitation = ("This snapshot has no verified price information. I cannot confirm what it costs. "
                           if _PRICE.search(message) else
@@ -290,7 +300,7 @@ class StoreDialogue:
                           "I cannot confirm support or suitability. ")
             return self._response(limitation + "I can describe an App's supplied fields or compare the source descriptions.",
                                   [], intent, context)
-        if _BROWSE.fullmatch(message.strip()):
+        if browsing:
             apps = current
             if filters.get("publisher"):
                 apps = [a for a in apps if filters["publisher"].casefold() in (a.get("provider") or "").casefold()]
@@ -307,7 +317,8 @@ class StoreDialogue:
                             "focused_ids": [apps[0]["id"]] if len(apps) == 1 else []}
             if self.catalogue_references:
                 next_context["comparison_ids"] = [app["id"] for app in apps]
-            return self._response(text, results, "browse", next_context)
+            return {**self._response(text, results, "browse", next_context),
+                    "decision": {"outcome": "not_applicable", "reason": "catalogue_browse"}}
 
         if selected or targeted:
             apps = self.resolve(selected)

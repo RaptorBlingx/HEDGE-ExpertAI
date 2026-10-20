@@ -1,10 +1,70 @@
-"""Small reviewed Turkish query vocabulary; unknown requirements survive intact.
+"""Store operation grammars and reviewed Turkish query vocabulary.
 
 This normalizes requests, never translates or enriches Store metadata. It is not
 an open-ended translator; unsupported wording remains unverified by suitability.
 """
 
 import re
+
+
+def control_words(message: str) -> str:
+    """Token view for closed control grammars, never for identity or evidence.
+
+    Punctuation, casing and spacing cannot change a control's meaning. All words
+    must still be consumed: unknown functions and constraints do not disappear.
+    """
+    return " ".join(re.findall(r"\w+", message.casefold()))
+
+
+_CATALOGUE = re.compile(
+    r"(?:(?:can|could|would) you )?(?:please )?"
+    r"(?:show(?: me)?|list|browse|display|what|which)"
+    r"(?: (?:all|the|available|published|currently|store|hedge))*"
+    r" (?:apps?|applications?|catalog(?:ue)?)"
+    r"(?: (?:are|do|you|have|available|published|currently|in|the|store|hedge|catalog(?:ue)?))*"
+    r"\b"
+)
+
+
+def catalogue_question(message: str) -> bool:
+    """A catalogue operation, optionally composed with inspection of each entry.
+
+    This is a closed operation grammar, not a functional-query classifier. A
+    trailing requirement, filter or extra operation keeps the entire utterance
+    on discovery/interpretation; it cannot become an unrestricted listing.
+    """
+    clauses = re.split(r"\b(?:and|then)\b", control_words(message))
+    listing = _CATALOGUE.match(clauses[0])
+    if not listing:
+        return False
+    # A second operation can follow a conjunction or a punctuation boundary.
+    # Tokenization treats both consistently; no punctuation whitelist is needed.
+    remainder = clauses[0][listing.end():].strip()
+    inspections = ([remainder] if remainder else []) + clauses[1:]
+    for clause in inspections:
+        clause = clause.strip()
+        target = inspection_target(clause)
+        field = ("purpose", target) if target else factual_question(clause)
+        if not field or field[0] != "purpose" or not re.fullmatch(
+            r"(?:(?:each|every)(?: (?:app|application|one))?|they|them|their purposes?)", field[1]
+        ):
+            return False
+    return True
+
+
+def inspection_target(message: str) -> str | None:
+    """Extract an inspection operand; callers must resolve the *whole* target.
+
+    An unknown operand may be a functional question ("explain how …"), so it
+    must not become a metadata read simply because it begins with an imperative.
+    """
+    match = re.fullmatch(
+        r"(?:(?:can|could|would) you )?(?:please )?"
+        r"(?:tell me (?:more )?about|describe|explain) (.+?)(?:,? please)?",
+        " ".join(message.split()).rstrip("?!.,"), re.I,
+    )
+    return match[1] if match else None
+
 
 _TR = {
     "ortak": "shared",
@@ -138,14 +198,14 @@ def factual_question(message: str) -> tuple[str, str] | None:
     Never treat the rest of a functional requirement as an App reference. Targets
     are validated against current names/IDs and existing conversational bindings.
     """
-    clean = message.strip().rstrip("?!.,")
+    clean = " ".join(message.split()).rstrip("?!.,")
     for field, pattern in (
         ("provider", r"(?:who|which (?:company|organisation|organization)) "
                      r"(?:provides|supplies) (.+)"),
         ("provider", r"(?:who|what) is (?:the )?provider(?: (?:of|for) (.+))?"),
         ("provider", r"who (?:is|are) (.+) (?:provided|supplied) by"),
         ("provider", r"what is (.+?)[’']s provider"),
-        ("purpose", r"what (?:is|are) (.+?) (?:used for|for)"),
+        ("purpose", r"what (?:is|are) (.+?) (?:used for|useful for|for)"),
         ("purpose", r"what (?:does|do) (.+) do"),
     ):
         match = re.fullmatch(pattern, clean, re.I)
@@ -166,11 +226,6 @@ def dialogue_language(message: str, locale: str) -> str:
         return "How does it work?"
     if re.fullmatch(
         r"what (?:have you got|do you have)(?: in (?:the )?(?:store|catalogue))?", clean, re.I
-    ):
-        return "Show me all available apps"
-    if re.fullmatch(
-        r"what apps? (?:are available|do you have),? and what (?:is each|are they) useful for",
-        clean, re.I,
     ):
         return "Show me all available apps"
     if re.fullmatch(

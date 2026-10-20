@@ -1,6 +1,8 @@
 # T2 conversation quality follow-up
 
 Based on checkpoint `1501279`, on `feat/t2-quality-improvements`.
+For the subsequent broader routing/action investigation, see
+[conversation reliability](t2-conversation-reliability.md).
 This changes conversation policy and presentation, not Store synchronization,
 E5, indexing, the one-pass Qwen interpreter, or suitability eligibility.
 

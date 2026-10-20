@@ -661,7 +661,7 @@
 
     /* ---------- send message ---------- */
 
-    _send() {
+    _send(appAction) {
       var text = this.textarea.value.trim();
       if (this.isStreaming) {
         this._cancelActive();
@@ -721,6 +721,7 @@
             message: text,
             locale: self.config.locale,
             filters: {},
+            app_action: appAction || undefined,
           }),
         });
       })
@@ -947,13 +948,13 @@
           explain.textContent = "Explain this App";
           explain.setAttribute("aria-label", "Explain " + appTitle);
           var owner = this;
-          (function (nativeId) {
+          (function (storeId, nativeId, displayName) {
             explain.addEventListener("click", function () {
               if (owner.isStreaming) return;
-              owner.textarea.value = "Tell me about " + nativeId;
-              owner._send();
+              owner.textarea.value = "Tell me about " + displayName;
+              owner._send({type: "inspect", store_id: storeId, app_id: nativeId});
             });
-          })(app.app_id);
+          })(app.store_id, app.app_id, appTitle);
           card.appendChild(explain);
         }
         container.appendChild(card);
