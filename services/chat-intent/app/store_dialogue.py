@@ -212,6 +212,8 @@ class StoreDialogue:
                 group = context.get("comparison_ids") or previous
                 alternatives = [i for i in group if i not in context.get("focused_ids", [])]
                 selected = alternatives if len(context.get("focused_ids", [])) == 1 and len(alternatives) == 1 else []
+                if selected and intent == "compare":
+                    selected = context["focused_ids"] + selected
             elif _REFERENCE.search(message):
                 selected = comparison if intent == "compare" or re.search(r"\b(both|them|these apps|those apps)\b", message, re.I) else context.get("focused_ids", [])
         selected = list(dict.fromkeys(selected))
@@ -328,7 +330,10 @@ class StoreDialogue:
                 fields = (["pricing"] if pricing_filter else []) + [
                     key for key, value in filters.items()
                     if key != "publisher" and value not in (None, [], "")]
-                return {**self._response("I cannot confirm those catalogue filters. I can show an App's supplied fields instead.", [], intent, context),
+                fields = list(dict.fromkeys([*context.get("pending_filters", []), *fields]))
+                return {**self._response("I cannot confirm those catalogue filters. I can show an App's supplied fields instead.", [], intent,
+                                        {**context, "filters": filters, "pending_filters": list(dict.fromkeys(fields)),
+                                         "constraint_request": message}),
                         "unverified_filters": list(dict.fromkeys(fields)),
                         "decision": {"outcome": "abstained", "reason": "unverified_filters"}}
             limitation = ("This snapshot has no verified price information. I cannot confirm what it costs. "

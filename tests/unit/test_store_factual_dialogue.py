@@ -61,7 +61,48 @@ def test_named_target_switch_then_other_app_retains_identity(conversation):
     assert 'Other Labs' in result['message']
     result = ask(policy,'Who provides the other App?',result['context'])
     assert result['message'] == '**Device Register** is provided by **Example Labs**.'
+    result = ask(policy, 'Compare that with the other app.',
+        {'turn':2, 'focused_ids':[apps[0]['id']], 'comparison_ids':[a['id'] for a in apps],
+         'last_results':[{'app':apps[0], 'rank':1}]})
+    assert result['intent'] == 'compare'
+    assert {r['app']['id'] for r in result['apps']} == {a['id'] for a in apps}
     interpreter.assert_not_called()
+
+
+def test_implicit_subject_cannot_be_replaced_by_a_better_functional_match(conversation):
+    policy, apps, interpreter = conversation
+    interpreter.side_effect = None
+    interpreter.return_value = {'action':'search', 'apps':['2'], 'query':'publish device records',
+                                'view':'capability', 'reference':'focus'}
+    context = {'turn':1, 'focused_ids':[apps[1]['id']],
+               'last_results':[{'app':a, 'rank':i+1} for i,a in enumerate(apps)]}
+    result = ask(policy, 'Could this application publish device records?', context)
+    assert not result['apps']
+    assert result['context']['focused_ids'] == [apps[1]['id']]
+    assert result['intent'] == 'clarify'
+    assert 'App we were discussing' in result['message']
+    interpreter.assert_called_once()
+    # An explicit new discovery request still uses the proven prepared path.
+    result = ask(policy, 'Find an app to publish device records.', context)
+    assert result['apps'][0]['app']['id'] == apps[0]['id']
+    assert result['generation']['source'] == 'prepared'
+    interpreter.assert_called_once()
+
+
+def test_resolved_singular_subject_stays_singular_after_negative_capability_check(conversation):
+    policy, apps, interpreter = conversation
+    interpreter.side_effect = None
+    interpreter.return_value = {'action':'compare', 'apps':['1','2'], 'query':'publish device records',
+                                'view':'comparison', 'reference':'other'}
+    context = {'turn':2, 'focused_ids':[apps[0]['id']],
+               'comparison_ids':[a['id'] for a in apps],
+               'last_results':[{'app':a, 'rank':i+1} for i,a in enumerate(apps)]}
+    result = ask(policy, 'Does the other one do that too?', context)
+    assert not result['apps'] and result['intent'] == 'detail'
+    assert 'feature isn’t described for **Sample Monitor**' in result['message']
+    assert 'main difference' not in result['message']
+    result = ask(policy, 'Who provides it?', result['context'])
+    assert result['message'] == '**Sample Monitor** is provided by **Other Labs**.'
 
 
 def test_no_guess_for_ambiguous_provider_or_constrained_metadata_target(conversation):

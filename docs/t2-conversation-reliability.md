@@ -223,3 +223,7 @@ capability follow-up can become an unnecessary comparison. These were retained
 as failures/partials, not tuned away with question-specific handling. The bounded
 operation grammar, five-entry browse cap, CPU inference latency and two-App
 evaluation boundary remain; this is not a claim of complete T2 acceptance.
+
+The subsequent backend understanding/context pass from the approved `c911c4b`
+frontend baseline is documented in [T2 understanding and dialogue state](t2-understanding-context.md).
+The results above retain their original implementation and evaluation boundary.

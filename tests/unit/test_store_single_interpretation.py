@@ -26,13 +26,16 @@ def app():
 def test_interpreter_selects_current_assessed_preparation_in_one_bounded_call(monkeypatch, app):
     call = Mock(return_value=json.dumps({"query": "collect device measurements", "mode": "search", "task": "1.1"}))
     monkeypatch.setattr(expert, "OllamaClient", lambda: SimpleNamespace(chat_structured=call))
-    result = expert.understand("Gather our devices' readings", [{"key": "1", "app": app}], {}, [])
+    result = expert.understand("Gather our devices' readings", [{"key": "1", "app": app}],
+                              {'nlu':{'intent':'compare','confidence':1.0}}, [])
     call.assert_called_once()
     assert result["apps"] == ["1"] and "collect" in result["query"]
     assert call.call_args.kwargs["max_tokens"] == 80
     assert call.call_args.kwargs["deadline"] > 0
     payload = json.loads(call.call_args.args[0][1]["content"])
     assert payload["catalogue"][0]["tasks"][0]["text"] == "Used to collect device measurements."
+    assert payload.get('nlu_intent') is None
+    assert 'reference' not in call.call_args.args[1]['properties']
     call.return_value = json.dumps({"query": "collect device measurements", "mode": "search", "task": "invented"})
     with pytest.raises(ValueError, match="Unknown"):
         expert.understand("Anything", [{"key": "1", "app": app}], {}, [])
@@ -45,6 +48,21 @@ def test_unknown_function_survives_even_when_model_selects_a_partial_task(monkey
     result = expert.understand(query, [{"key": "1", "app": app}], {}, [])
     assert result["query"] == query
     assert not expert._recommendation_decision(result["query"], [{"app": app, "rank": 1}], "en")["apps"]
+
+
+def test_conversational_subject_is_independent_of_task_match(monkeypatch, app):
+    call = Mock(return_value=json.dumps({'query':'collect device measurements', 'task':'1.1',
+                                        'mode':'capability', 'reference':'other'}))
+    monkeypatch.setattr(expert, 'OllamaClient', lambda: SimpleNamespace(chat_structured=call))
+    other = {**app, 'id':'other-local', 'app_id':'other-native'}
+    directory = [{'key':'1', 'app':app}, {'key':'2', 'app':other}]
+    result = expert.understand('Could the other application gather readings?', directory,
+        {'focus':['1'], 'previous':['1','2']}, [])
+    assert result['apps'] == ['2'] and result['reference'] == 'other'
+    # An unresolved reference cannot bind to the App with the nearest task.
+    result = expert.understand('Could the other application gather readings?', directory,
+        {'focus':[], 'previous':['1','2']}, [])
+    assert not result['apps']
 
 
 def policy(monkeypatch, app, *, withdraw=False):
@@ -158,3 +176,84 @@ def test_model_clarification_cannot_discard_a_resolved_app_or_approve_an_unknown
     assert result['decision']['outcome'] == 'abstained'
     assert 'Which App' not in result['message']
     writer.assert_not_called()
+
+
+def test_capability_paraphrase_uses_interpretation_with_the_same_source_assessor(monkeypatch, app):
+    instance, interpreter, writer = policy(monkeypatch, app)
+    interpreter.side_effect = None
+    interpreter.return_value = {'action':'answer', 'apps':['1'], 'query':'collect device measurements', 'view':'capability'}
+    context = {'turn':1, 'focused_ids':[app['id']], 'last_results':[{'app':app, 'rank':1}]}
+    result = asyncio.run(instance.respond_with_history(
+        ChatRequestV2(message='Could it gather the readings our devices produce?', locale='en'),
+        'detail', context, []))
+    assert result['decision']['outcome'] == 'recommended'
+    assert result['context']['focused_ids'] == [app['id']]
+    assert interpreter.call_count == 1
+    # Interpretation must not erase a second unknown operation or a restriction.
+    for question in ['Could it gather readings and predict storms?',
+                     'Could it gather readings without registration?',
+                     'Could it gather readings from 500 devices?']:
+        result = asyncio.run(instance.respond_with_history(ChatRequestV2(message=question, locale='en'),
+            'detail', context, []))
+        assert not result['apps']
+    writer.assert_not_called()
+
+
+def test_unverified_conditions_survive_source_reads_and_later_recommendations(monkeypatch, app):
+    instance, interpreter, writer = policy(monkeypatch, app)
+    result = ask(instance, 'Find only free applications to collect device measurements.')
+    assert result['context']['pending_filters'] == ['pricing']
+    interpreter.assert_not_called()
+    additional = asyncio.run(instance.respond_with_history(ChatRequestV2(
+        message='Find only free applications.', locale='en', filters={'protocols':['MQTT']}),
+        'search', result['context'], []))
+    assert additional['context']['pending_filters'] == ['pricing', 'protocols']
+    context = {**result['context'], 'turn':1, 'focused_ids':[app['id']]}
+    result = asyncio.run(instance.respond_with_history(ChatRequestV2(message='Tell me about it', locale='en'),
+        'detail', context, []))
+    assert result['apps'] and 'pricing requirement remains unconfirmed' in result['message']
+    result = asyncio.run(instance.respond_with_history(ChatRequestV2(message='Find an app to collect device measurements.', locale='en'),
+        'search', result['context'], []))
+    assert not result['apps'] and result['decision']['reason'] == 'unverified_filters'
+    assert result['context']['pending_filters'] == ['pricing']
+    interpreter.assert_not_called()
+    writer.assert_not_called()
+
+
+def test_pending_conditions_are_passed_to_one_pass_recovery(monkeypatch, app):
+    instance, interpreter, _ = policy(monkeypatch, app)
+    interpreter.side_effect = None
+    interpreter.return_value = {'action':'chat', 'apps':[], 'query':'verify terms', 'view':'next_steps'}
+    result = asyncio.run(instance.respond_with_history(ChatRequestV2(message='What would we need to check next?', locale='en'),
+        'help', {'turn':1, 'pending_filters':['pricing'], 'constraint_request':'only free apps'}, []))
+    assert 'licence terms' in result['message'] and 'price of 0' in result['message']
+    assert interpreter.call_args.args[3]['pending_filters'] == ['pricing']
+    assert interpreter.call_args.args[3]['constraint_request'] == 'only free apps'
+    assert result['context']['pending_filters'] == ['pricing']
+    interpreter.reset_mock()
+    result = asyncio.run(instance.respond_with_history(ChatRequestV2(message='How should we check those conditions?', locale='en'),
+        'help', {'turn':1, 'last_outcome':'abstained', 'pending_filters':['pricing']}, [],
+        nlu={'source':'rasa', 'intent':'help', 'confidence':1.0}))
+    assert result['message'].startswith('Ask the provider to confirm the licence terms')
+    assert result['generation']['nlu_policy'] == 'constraint_help'
+    interpreter.assert_not_called()
+
+
+def test_constraint_removal_consumes_the_whole_operand_and_preserves_remaining_request(monkeypatch, app):
+    instance, interpreter, _ = policy(monkeypatch, app)
+    context = {'turn':1, 'pending_filters':['pricing'], 'constraint_request':'only free apps',
+               'focused_ids':[app['id']]}
+    result = asyncio.run(instance.respond_with_history(ChatRequestV2(
+        message='Remove the pricing restriction. Find an app to collect device measurements.', locale='en'),
+        'search', context, []))
+    assert result['decision']['outcome'] == 'recommended'
+    assert result['context']['pending_filters'] == []
+    assert context['pending_filters'] == ['pricing']
+    interpreter.assert_not_called()
+    for clause in ['Do not remove the pricing restriction', 'Remove the pricing restriction unless it is free',
+                   'Remove the pricing restriction and guarantee offline access']:
+        result = asyncio.run(instance.respond_with_history(ChatRequestV2(
+            message=clause + '. Find an app to collect device measurements.', locale='en'),
+            'search', context, []))
+        assert not result['apps']
+        assert result['context']['pending_filters'] == ['pricing']

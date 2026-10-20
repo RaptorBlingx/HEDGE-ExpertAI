@@ -59,7 +59,10 @@ def test_unsupported_requests_preserve_context_without_claims(dialogue, message)
     result = ask(dialogue, message)
     assert result["apps"] == []
     assert "cannot confirm" in result["message"]
-    assert result["context"] == dialogue[3]
+    assert all(result["context"][key] == value for key, value in dialogue[3].items())
+    if result.get("decision", {}).get("reason") == "unverified_filters":
+        assert result["context"]["pending_filters"] == ["pricing"]
+        assert result["context"]["constraint_request"] == message
     dialogue[2].assert_not_awaited()
 
 

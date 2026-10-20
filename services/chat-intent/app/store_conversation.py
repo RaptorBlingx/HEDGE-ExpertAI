@@ -13,7 +13,7 @@ from copy import deepcopy
 
 from hedge_shared.config import Settings
 from hedge_shared.models_v2 import ChatRequestV2
-from hedge_shared.store_language import catalogue_question, dialogue_language
+from hedge_shared.store_language import catalogue_question, control_words, dialogue_language
 
 from .store_dialogue import (
     _SOURCE_READ,
@@ -42,6 +42,13 @@ class StoreConversation(StoreDialogue):
         self.observation = observation
         self.present = present
         self.progress = lambda stage: None
+
+    @staticmethod
+    def _implicit_subject_shift(message, response, context):
+        focus = context.get("focused_ids", [])
+        return (len(focus) == 1 and response["intent"] in {"search", "refine"}
+                and any(row["app"]["id"] not in focus for row in response["apps"])
+                and _search_query(message.strip()) == message.strip())
 
     def route_intent(self, message: str, intent: str) -> str:
         if self.routine:
@@ -99,6 +106,22 @@ class StoreConversation(StoreDialogue):
                 else "Show me all available apps")})
         routed = self.route_intent(request.message, intent)
         fallback = await super().respond(request, routed, context)
+        if "pending_filters" in context:
+            # Session updates merge keys. Persist explicit empties after a
+            # removal so an older constraint cannot be resurrected by that merge.
+            fallback["context"].setdefault("pending_filters", context["pending_filters"])
+            fallback["context"].setdefault("constraint_request", context.get("constraint_request", ""))
+        pending = fallback["context"].get("pending_filters", context.get("pending_filters", []))
+        if pending:
+            # Exploration and source reads remain useful, but a subsequent
+            # capability match cannot silently drop a previously unverified filter.
+            fallback["context"].update(pending_filters=pending,
+                constraint_request=fallback["context"].get("constraint_request", context.get("constraint_request", "")))
+            if fallback.get("decision", {}).get("outcome") == "recommended":
+                fallback.update(apps=[], candidates=[], unverified_filters=pending,
+                    decision={"outcome": "abstained", "reason": "unverified_filters"})
+                fallback["context"].update(focused_ids=context.get("focused_ids", []),
+                    last_results=context.get("last_results", []))
         if fallback["intent"] == "compare":
             primary = context.get("focused_ids", [])
             shown_ids = {r["app"]["id"] for r in fallback["apps"]}
@@ -155,6 +178,33 @@ class StoreConversation(StoreDialogue):
         return fallback
 
     async def respond_with_history(self, req, intent, context, history, *, nlu=None):
+        if req.locale == "en" and context.get("pending_filters"):
+            # A closed state command, independent of capability interpretation.
+            # Consume the entire clause; negation, unknown operands or compound
+            # requirements cannot silently remove a filter. Any subsequent
+            # question still traverses the normal dialogue/evidence boundaries.
+            clause, separator, remaining = req.message.partition(".")
+            words = control_words(clause).split()
+            labels = {key: set(key.replace("_", " ").split()) for key in context["pending_filters"]}
+            if "pricing" in labels:
+                labels["pricing"] = {"pricing", "price", "cost", "budget", "free", "paid"}
+            modifiers = set("the a our my that previous earlier condition conditions filter filters restriction restrictions requirement requirements constraint constraints".split())
+            operands = set(words[1:])
+            if (words and words[0] in {"drop", "remove", "forget", "clear"}
+                    and operands <= modifiers | set().union(*labels.values())):
+                removed = {key for key, tokens in labels.items() if
+                           (bool(operands & tokens) if key == "pricing" else tokens <= operands)}
+                if removed:
+                    context = {**context, "pending_filters": [key for key in context["pending_filters"] if key not in removed],
+                               "filters": {key: value for key, value in context.get("filters", {}).items() if key not in removed}}
+                    if not context["pending_filters"]:
+                        context["constraint_request"] = ""
+                    if separator and remaining.strip():
+                        req = req.model_copy(update={"message": remaining.strip()})
+                    else:
+                        return {**self._response("I’ve removed that catalogue condition. What would you like to explore next?", [], "conversation", context),
+                                "decision": {"outcome": "not_applicable", "reason": "constraint_update"},
+                                "generation": {"source": "prepared", "reason": "constraint_update", "model_completed": False}}
         if self.routine or req.app_action:
             # Run the proven low-latency route first. A synopsis is not proof that
             # an arbitrary question was understood. Uncertain substantive turns
@@ -162,7 +212,11 @@ class StoreConversation(StoreDialogue):
             fallback = await self._prepared_response(req, intent, context, history, nlu=nlu)
             if req.app_action:
                 return fallback
-            fast = not _COMPLEX.match(req.message) and (fallback.get("decision", {}).get("outcome") == "recommended"
+            # A supported function does not prove that a conversational subject
+            # was understood. An implicit switch away from a single focused App
+            # needs interpretation; explicit new searches retain the fast path.
+            shifted = self._implicit_subject_shift(req.message, fallback, context)
+            fast = not _COMPLEX.match(req.message) and (fallback.get("decision", {}).get("outcome") == "recommended" and not shifted
                     or fallback["intent"] == "source_fields"
                     or fallback["intent"] == "browse"
                     or self.route_intent(req.message, intent) in {"greeting", "help", "reset", "out_of_scope"}
@@ -170,6 +224,19 @@ class StoreConversation(StoreDialogue):
                     or dialogue_language(req.message, req.locale) in {"Explain it simply", "How does it work?"} and bool(fallback["apps"]))
             if (not self.settings.STORE_SEMANTIC_ENABLED or req.locale != "en" or fast
                     or fallback.get("decision", {}).get("reason") in {"invalid_native_reference", "unverified_filters"}):
+                return fallback
+            if (context.get("pending_filters") and context.get("last_outcome") == "abstained"
+                    and (nlu or {}).get("source") == "rasa" and (nlu or {}).get("intent") == "help"
+                    and (nlu or {}).get("confidence", 0) >= .9
+                    and control_words(req.message).split()[:1] not in (["who"], ["which"])):
+                # NLU can choose contextual help after source decisions, never
+                # approve an App or discard an unresolved condition. No model
+                # is needed to explain how to verify a known missing field.
+                fallback.update(apps=[], candidates=[], intent="conversation", verify_filters=True,
+                    unverified_filters=context["pending_filters"],
+                    decision={"outcome": "not_applicable", "reason": "constraint_verification"})
+                fallback["message"] = self.present(req.message, fallback, req.locale) if self.present else _NEXT_STEPS
+                fallback["generation"].update(reason="constraint_verification", nlu_policy="constraint_help")
                 return fallback
             recovery_started = time.monotonic()
             answer = await self._interpreted_response(req, intent, context, history, fallback, nlu=nlu)
@@ -214,7 +281,10 @@ class StoreConversation(StoreDialogue):
             plan = await asyncio.to_thread(self.interpret, req.message, req.locale, directory,
                 {"focus": [reverse[i] for i in focus if i in reverse],
                  "previous": list(dict.fromkeys(reverse[i] for i in previous + context.get("comparison_ids", []) if i in reverse)),
-                 "need": context.get("explanation_topic") or context.get("last_query", ""),
+                 "need": context.get("comparison_need") or context.get("explanation_topic") or context.get("last_query", ""),
+                 "pending_filters": context.get("pending_filters", []),
+                 "constraint_request": context.get("constraint_request", ""),
+                 "nlu": nlu or {},
                  "last_outcome": context.get("last_outcome"),
                  "task_interpretation": True}, history)
             chosen = [bindings[k] for k in plan["apps"]]
@@ -222,12 +292,14 @@ class StoreConversation(StoreDialogue):
             return {**fallback, "generation": {"source": "prepared", "reason": "interpretation_unavailable", "model_completed": False}}
         action, query, view = plan["action"], plan["query"], plan.get("view", "capability")
         named = [a["id"] for a in current if _mentions(a, req.message)]
+        resolved_targets = [r["app"]["id"] for r in [*fallback.get("apps", []), *fallback.get("candidates", [])]] if fallback["intent"] == "detail" else []
         # Inspection needs an actual user reference. A model-selected App is a
         # discovery candidate, not a request to describe it instead of recommending.
-        if action == "answer" and not named and (not focus and not previous or
-                fallback["intent"] in {"search", "refine"} and view == "purpose"):
+        if action == "answer" and not named and not resolved_targets and (not focus and not previous or
+                fallback["intent"] in {"search", "refine"} and view in {"purpose", "capability"}
+                and plan.get("reference", "none") == "none"):
             action, view = "search", "capability"
-        if action == "search" and fallback["intent"] == "detail" and (named or focus) and not _NEW_SEARCH.match(req.message.strip()):
+        if action == "search" and fallback["intent"] == "detail" and (named or resolved_targets or focus) and not _NEW_SEARCH.match(req.message.strip()):
             action = "answer"
         if action == "clarify" and fallback["intent"] == "detail" and len(fallback.get("candidates", [])) == 1 and (named or focus):
             # The subject is already resolved. Recheck the original capability
@@ -235,23 +307,39 @@ class StoreConversation(StoreDialogue):
             action, view = "answer", "capability"
         if action == "answer" and fallback["intent"] == "detail" and fallback.get("candidates"):
             view = "capability"
-        if action == "compare" and not named and fallback["intent"] == "detail" and len(fallback["apps"]) == 1:
+        if (action == "compare" and not named and fallback["intent"] == "detail"
+                and len([*fallback["apps"], *fallback.get("candidates", [])]) == 1):
             # A resolved singular reference (including "the other App") already
             # has one subject. A weak model must not turn it into a comparison.
-            action, view = "answer", "purpose"
+            action, view = "answer", "capability" if fallback.get("candidates") else "purpose"
+        subject_conflict = (action == "search" and plan.get("reference") == "focus"
+                            and self._implicit_subject_shift(req.message, fallback, context))
+        if subject_conflict:
+            action = "clarify"
+        elif _search_query(req.message.strip()) != req.message.strip() and fallback["intent"] == "search":
+            action, view = "search", "capability"
         filters = {**context.get("filters", {}), **{k: v for k, v in req.filters.model_dump(mode="json").items() if v not in (None, "", [])}}
         generation = {"source": "interpreted_prepared", "reason": "single_interpretation", "model_completed": True,
                       "interpretation": {"action": action, "query": query, "apps": chosen, "view": view,
-                                         "source_task": plan.get("source_task"), "normalization": plan.get("normalization")}, "model_calls": 1}
+                                         "source_task": plan.get("source_task"), "normalization": plan.get("normalization"),
+                                         "reference": plan.get("reference", "none")}, "model_calls": 1}
         next_context = {**context, "filters": filters}
+        if not context.get("turn") and not context.get("last_results"):
+            # Preserve the existing initial catalogue bindings, not hidden
+            # retrieval candidates. Semantic recovery must not erase UI peers.
+            next_context.setdefault("comparison_ids", fallback.get("context", {}).get("comparison_ids", []))
         if action == "chat" or view == "next_steps":
             # Offer concrete alternatives as exploration, not as matches to the
             # previous unsupported requirement or invented external products.
             response = self._response(_NEXT_STEPS, [], "conversation", next_context)
             response["decision"] = {"outcome": "not_applicable", "reason": "next_steps"}
+            if context.get("pending_filters"):
+                response["unverified_filters"] = context["pending_filters"]
+                response["message"] = self.present(req.message, response, req.locale) if self.present else _NEXT_STEPS
         elif action == "clarify" or not query.strip() and action != "browse":
-            response = self._response("Which task or App would you like to explore?", [], "clarify", next_context)
-            generation["reason"] = "interpreted_clarification"
+            response = self._response(("Do you mean the App we were discussing, or are you looking for another App?"
+                                       if subject_conflict else "Which task or App would you like to explore?"), [], "clarify", next_context)
+            generation["reason"] = "ambiguous_subject" if subject_conflict else "interpreted_clarification"
         elif action == "browse":
             # An explicit constrained search cannot be broadened into a listing.
             if not catalogue_question(req.message):
@@ -259,8 +347,8 @@ class StoreConversation(StoreDialogue):
             else:
                 response = await self._prepared_response(req, intent, next_context, history)
         else:
-            resolved_targets = [r["app"]["id"] for r in [*fallback.get("apps", []), *fallback.get("candidates", [])]] if fallback["intent"] == "detail" else []
-            selected = (named or resolved_targets or focus or chosen) if action == "answer" else chosen
+            reference = plan.get("reference", "none")
+            selected = (named or resolved_targets or (chosen if reference != "none" else focus or chosen)) if action == "answer" else chosen
             if action == "compare":
                 selected = list(dict.fromkeys(focus + named + chosen + context.get("comparison_ids", previous)))[:5]
             if action in {"answer", "compare"} and (not selected or len(self.resolve(selected)) != len(selected) or action == "compare" and len(selected) < 2):
@@ -276,7 +364,7 @@ class StoreConversation(StoreDialogue):
                     self.progress("retrieval")
                     retrieved = await self.recommend(query=query, locale=req.locale, filters=filters)
                     rows = sorted([*retrieved["apps"], *retrieved.get("candidates", [])], key=lambda r: r["rank"])[:5]
-                inspection = action in {"answer", "compare"} and view in {"purpose", "workflow", "simple", "pricing", "access", "comparison"}
+                inspection = action in {"answer", "compare"} and view in {"purpose", "workflow", "simple", "pricing", "access", "provider", "comparison"}
                 # Rewriting is not permission to drop explicit restrictions. Keep
                 # negative, numeric, conditional and exclusive requests on the
                 # original conservative assessor. This guard is grammar, not a
@@ -286,13 +374,16 @@ class StoreConversation(StoreDialogue):
                     strict = True
                 if strict and view not in {"pricing", "comparison"}:
                     inspection = False
-                decision_query = req.message if strict or action == "answer" and view == "capability" else query
+                decision_query = req.message if strict else query
                 if inspection:
                     response = self._response("", rows, "compare" if action == "compare" else "detail", next_context)
                     response["decision"] = {"outcome": "not_applicable", "reason": "source_inspection"}
                 else:
                     response = {**self.decide(decision_query, rows, req.locale), "intent": "search" if action == "search" else "detail", "context": next_context}
                     next_context["comparison_need"] = decision_query
+                    if context.get("pending_filters"):
+                        response.update(apps=[], candidates=[], unverified_filters=context["pending_filters"],
+                            decision={"outcome": "abstained", "reason": "unverified_filters"})
                 shown = response["apps"]
                 if len(shown) == 1:
                     next_focus = [shown[0]["app"]["id"]]
@@ -300,8 +391,13 @@ class StoreConversation(StoreDialogue):
                     next_focus = [i for i in focus if i in {r["app"]["id"] for r in shown}] if len(focus) == 1 else []
                 else:
                     next_focus = selected if action == "answer" else []
+                topic = context.get("explanation_topic", "")
+                if not inspection and shown:
+                    topic = decision_query
+                elif view in {"simple", "workflow"}:
+                    topic = topic or query
                 next_context.update(last_query=query if action == "search" else context.get("last_query", query),
-                    explanation_topic=(context.get("explanation_topic") or query) if view in {"simple", "workflow"} else query if shown else context.get("explanation_topic", ""), response_view=view,
+                    explanation_topic=topic, response_view=view,
                     focused_ids=next_focus,
                     last_results=shown if action in {"search", "compare"} else context.get("last_results", shown))
                 if action == "compare":
@@ -315,9 +411,9 @@ class StoreConversation(StoreDialogue):
                         next_context["comparison_ids"] = discussed
                 # Canonical view controls presentation only; no free model prose.
                 response["interpreted_query"] = query
-                presentation = {"workflow": "How does it work?", "simple": "Explain it simply", "pricing": "What does it cost?", "access": "How do I get started?"}.get(view, req.message)
+                presentation = {"workflow": "How does it work?", "simple": "Explain it simply", "pricing": "What does it cost?", "access": "How do I get started?", "provider": "Who provides it?"}.get(view, req.message)
                 response["message"] = self.present(presentation, response, req.locale) if self.present else response["message"]
-                if not shown:
+                if not shown and not response.get("unverified_filters"):
                     if action != "answer" or not response.get("candidates"):
                         response["message"] = ("I haven’t found a confirmed match for that need. Which part matters most? "
                             "I can help you explore a partial fit or check a specific App’s capabilities.")
