@@ -143,3 +143,18 @@ def test_rasa_help_uses_no_match_state_but_cannot_veto_source_support(monkeypatc
     else:
         assert "nlu_policy" not in result["generation"]
     writer.assert_not_called()
+
+
+def test_model_clarification_cannot_discard_a_resolved_app_or_approve_an_unknown_feature(monkeypatch, app):
+    instance, interpreter, writer = policy(monkeypatch, app)
+    interpreter.side_effect = None
+    interpreter.return_value = {'action':'clarify','apps':[],'query':'predict earthquakes','view':'clarify'}
+    context = {'turn':1,'focused_ids':[app['id']],'last_results':[{'app':app,'rank':1}]}
+    result = asyncio.run(instance.respond_with_history(
+        ChatRequestV2(message='Does it predict earthquakes automatically?',locale='en'),
+        'detail', context, []))
+    assert not result['apps']
+    assert result['context']['focused_ids'] == [app['id']]
+    assert result['decision']['outcome'] == 'abstained'
+    assert 'Which App' not in result['message']
+    writer.assert_not_called()

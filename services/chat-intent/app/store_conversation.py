@@ -145,7 +145,7 @@ class StoreConversation(StoreDialogue):
                     or bool(_BROWSE.fullmatch(req.message.strip()))
                     or self.route_intent(req.message, intent) in {"greeting", "help", "reset", "out_of_scope"}
                     or fallback["intent"] == "compare" and bool(fallback["apps"])
-                    or dialogue_language(req.message, req.locale) == "Explain it simply" and bool(fallback["apps"]))
+                    or dialogue_language(req.message, req.locale) in {"Explain it simply", "How does it work?"} and bool(fallback["apps"]))
             if (not self.settings.STORE_SEMANTIC_ENABLED or req.locale != "en" or fast
                     or fallback.get("decision", {}).get("reason") == "invalid_native_reference"):
                 return fallback
@@ -207,6 +207,10 @@ class StoreConversation(StoreDialogue):
             action, view = "search", "capability"
         if action == "search" and fallback["intent"] == "detail" and (named or focus) and not _NEW_SEARCH.match(req.message.strip()):
             action = "answer"
+        if action == "clarify" and fallback["intent"] == "detail" and len(fallback.get("candidates", [])) == 1 and (named or focus):
+            # The subject is already resolved. Recheck the original capability
+            # against that App; a weak interpreter cannot discard its identity.
+            action, view = "answer", "capability"
         if action == "answer" and fallback["intent"] == "detail" and fallback.get("candidates"):
             view = "capability"
         if action == "compare" and not named and fallback["intent"] == "detail" and len(fallback["apps"]) == 1:
@@ -274,7 +278,7 @@ class StoreConversation(StoreDialogue):
                 else:
                     next_focus = selected if action == "answer" else []
                 next_context.update(last_query=query if action == "search" else context.get("last_query", query),
-                    explanation_topic=query if shown else context.get("explanation_topic", ""), response_view=view,
+                    explanation_topic=(context.get("explanation_topic") or query) if view in {"simple", "workflow"} else query if shown else context.get("explanation_topic", ""), response_view=view,
                     focused_ids=next_focus,
                     last_results=shown if action in {"search", "compare"} else context.get("last_results", shown))
                 if action == "compare":
@@ -288,8 +292,9 @@ class StoreConversation(StoreDialogue):
                 presentation = {"workflow": "How does it work?", "simple": "Explain it simply", "pricing": "What does it cost?", "access": "How do I get started?"}.get(view, req.message)
                 response["message"] = self.present(presentation, response, req.locale) if self.present else response["message"]
                 if not shown:
-                    response["message"] = ("I haven’t found a confirmed match for that need. Which part matters most? "
-                        "I can help you explore a partial fit or check a specific App’s capabilities.")
+                    if action != "answer" or not response.get("candidates"):
+                        response["message"] = ("I haven’t found a confirmed match for that need. Which part matters most? "
+                            "I can help you explore a partial fit or check a specific App’s capabilities.")
                     if (context.get("last_outcome") == "abstained" and (nlu or {}).get("source") == "rasa"
                             and (nlu or {}).get("intent") == "help" and (nlu or {}).get("confidence", 0) >= .9):
                         # Rasa can select a recovery strategy after two unmatched

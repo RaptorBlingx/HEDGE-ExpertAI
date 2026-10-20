@@ -7,7 +7,12 @@ import re
 from collections.abc import Awaitable, Callable
 
 from hedge_shared.models_v2 import ChatRequestV2
-from hedge_shared.store_language import dialogue_language, localize_prose, search_language
+from hedge_shared.store_language import (
+    dialogue_language,
+    factual_question,
+    localize_prose,
+    search_language,
+)
 
 from .routes import _ORDINALS
 
@@ -26,6 +31,8 @@ _BROWSE = re.compile(
 # Explicit source-field reads are separate from capability/suitability questions.
 # Full matches keep constraints such as "only free Apps" out of this path.
 _SOURCE_FIELDS = {
+    "provider": ("provider",),
+    "purpose": ("description", "readme"),
     "readme": ("readme",),
     "embedded metadata": ("dataspaceAppDescription.",),
     "connector fields": ("builtForConnector", "connectorVersion"),
@@ -139,7 +146,9 @@ class StoreDialogue:
     async def _respond(self, req: ChatRequestV2, intent: str, context: dict) -> dict:
         current = self.resolve(None)
         message = req.message
-        source_read = _SOURCE_READ.fullmatch(message.strip())
+        factual = factual_question(message) if req.locale == "en" else None
+        source_read = _SOURCE_READ.fullmatch(
+            f"Show {factual[0]} for {factual[1]}" if factual else message.strip())
         source_target = source_read[2] if source_read else None
         seeded = self.catalogue_references and not context.get("turn") and not context.get("last_results")
         if seeded:
@@ -224,11 +233,15 @@ class StoreDialogue:
                     selected = exact_ids
                 elif len(exact_names) == 1:
                     selected = exact_names
-                elif source_target.casefold() in {"both", "both apps", "these apps", "those apps"}:
-                    selected = previous
+                elif source_target.casefold() in {"both", "both apps", "them", "these apps", "those apps"}:
+                    selected = comparison
+                elif source_target.casefold() in {"the other app", "the other one"}:
+                    group = context.get("comparison_ids") or previous
+                    alternatives = [i for i in group if i not in context.get("focused_ids", [])]
+                    selected = alternatives if len(context.get("focused_ids", [])) == 1 and len(alternatives) == 1 else []
                 elif ordinal is not None:
                     selected = [previous[ordinal]] if ordinal < len(previous) else []
-                elif source_target.casefold() not in {"it", "this app", "that app"}:
+                elif not _REFERENCE.fullmatch(source_target):
                     selected = []
             apps = self.resolve(selected)
             if filters.get("publisher"):

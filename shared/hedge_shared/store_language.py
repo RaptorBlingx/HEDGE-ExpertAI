@@ -132,11 +132,38 @@ def search_language(query: str, locale: str) -> str:
                    for part in re.split(r'("[^"\n]*")', normalized))
 
 
+def factual_question(message: str) -> tuple[str, str] | None:
+    """Closed metadata questions; the dialogue must still resolve the exact target.
+
+    Never treat the rest of a functional requirement as an App reference. Targets
+    are validated against current names/IDs and existing conversational bindings.
+    """
+    clean = message.strip().rstrip("?!.,")
+    for field, pattern in (
+        ("provider", r"(?:who|which (?:company|organisation|organization)) "
+                     r"(?:provides|supplies) (.+)"),
+        ("provider", r"(?:who|what) is (?:the )?provider(?: (?:of|for) (.+))?"),
+        ("provider", r"who (?:is|are) (.+) (?:provided|supplied) by"),
+        ("provider", r"what is (.+?)[’']s provider"),
+        ("purpose", r"what (?:is|are) (.+?) (?:used for|for)"),
+        ("purpose", r"what (?:does|do) (.+) do"),
+    ):
+        match = re.fullmatch(pattern, clean, re.I)
+        if match:
+            return field, match[1] or "it"
+    return None
+
+
 def dialogue_language(message: str, locale: str) -> str:
     """A closed grammar for common Turkish controls; constraints do not disappear."""
     clean = message.strip().rstrip("?!.,")
     # Conversation controls carry no capability requirement. Match their whole
     # shape so constraints (free, offline, a protocol, etc.) cannot disappear.
+    if re.fullmatch(r"(?:even |much )?(?:simpler|less technical)(?:,? please)?", clean, re.I):
+        return "Explain it simply"
+    if re.fullmatch(r"how (?:does|would) (?:it|that|this|that app|this app) "
+                    r"(?:actually )?work(?: in practice)?", clean, re.I):
+        return "How does it work?"
     if re.fullmatch(
         r"what (?:have you got|do you have)(?: in (?:the )?(?:store|catalogue))?", clean, re.I
     ):

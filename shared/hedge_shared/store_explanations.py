@@ -46,6 +46,59 @@ def plain_english(text: str) -> str:
     return text
 
 
+def readable_passage(text: str, *, brief: bool = False) -> str:
+    """Unpack recorded-measure clauses without changing their source meaning.
+
+    This is presentation grammar, never recommendation evidence. Unknown prose
+    keeps its full wording. Conditions, modal verbs and qualifications survive;
+    a short restatement needs an explicit record, measure, process and purpose.
+    """
+    text = plain_english(text)
+    joined = re.match(r"Upon joining the ([\w-]+s) in a common one, (.+)", text)
+    if joined:
+        # Bind 'one' to the explicitly combined object, not an invented output.
+        objects, body = joined.groups()
+        singular = objects[:-1]
+        text = f"When {objects} are combined, " + body
+        text = re.sub(r"\bthe single one\b", "the combined " + singular, text)
+    text = re.sub(
+        r"[Tt]he ([\w -]+?) that each ([\w -]+?) (will contribute to [\w -]+?) "
+        r"is kept on record",
+        r"it records the \1 each \2 \3", text)
+    if text.startswith('it records'):
+        text = 'I' + text[1:]
+    if re.search(r"\b(?:records|recorded|kept on record)\b", text):
+        text = re.sub(r"\bThis information\b", "That record", text)
+    for pattern, replacement in (
+        (r"\bproportional weight\b", "share"),
+        (r"\bsub-offer\b", "individual offer"),
+        (r"\bbecomes critical to\b", "is needed for"),
+        (r"\bsubsequent\b", "later"),
+        (r"\brequires information about\b", "needs"),
+        (r"\bdistribute\b", "share out"),
+    ):
+        text = re.sub(pattern, replacement, text, flags=re.I)
+    # A measure recorded in one sentence may be named as a ratio in the next.
+    # Compress that explicit causal relation, retaining the entire purpose tail.
+    # Do not do this for qualified/negative records or unrelated 'information'.
+    measure = re.search(r"\brecords the (share|percentage|weight|ratio)\b", text)
+    relation = re.search(
+        r"That record is needed for the (?:later )?([\w -]+?) process, "
+        r"which needs the (?:ratio|ration|proportion|percentage|weight) to ([^.!?]+)[.!]?$", text)
+    guard = text[:relation.start()] if relation else text
+    if joined:
+        guard = guard.partition(", ")[2]
+    safe_record = not _QUALIFIER.search(guard.replace("will contribute", "contribute"))
+    if measure and relation and safe_record:
+        process, purpose = relation.groups()
+        # 'will contribute' states the recorded quantity, not a deployment promise.
+        # Other modal or conditional wording keeps the full passage unchanged.
+        shorter = (process.capitalize() + " uses the recorded " + measure[1] +
+                   "s to " + purpose + ".")
+        text = shorter if brief else text[:relation.start()] + shorter
+    return text
+
+
 def short_purpose(task: str) -> str:
     """Condense explicit coordinated actions without adding a new benefit."""
     verbs = {'publish': 'shared', 'manage': 'kept organised', 'monitor': 'tracked',

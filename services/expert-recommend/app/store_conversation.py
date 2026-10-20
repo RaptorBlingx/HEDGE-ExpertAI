@@ -15,9 +15,9 @@ from datetime import date, datetime
 from typing import Annotated, Literal
 
 from hedge_shared.config import Settings
-from hedge_shared.store_explanations import plain_english
+from hedge_shared.store_explanations import plain_english, readable_passage
 from hedge_shared.store_knowledge import explanation
-from hedge_shared.store_language import dialogue_language, search_language
+from hedge_shared.store_language import dialogue_language, factual_question, search_language
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
 
 from .llm_client import OllamaClient
@@ -33,7 +33,7 @@ def _explanation(row: dict, locale: str = "en") -> dict:
     return prepared if locale in prepared else {}
 
 
-def _fact_text(row: dict, question: str, locale: str, *, topic: str = "", expand: bool = False) -> str:
+def _fact_text(row: dict, question: str, locale: str, *, topic: str = "", expand: bool = False, context: dict | None = None) -> str:
     prepared = _explanation(row, locale)
     if not prepared:
         return _excerpt(row, locale)
@@ -46,24 +46,36 @@ def _fact_text(row: dict, question: str, locale: str, *, topic: str = "", expand
     scored.sort(key=lambda pair: (pair[0], -len(pair[1]["en"])), reverse=True)
     score, selected = scored[0]
     if score < .4:
-        return (" ".join(fact[locale] for fact in facts[:2]) if expand else
-                prepared[locale]["summary"])
+        selected = next((f for f in facts if locale == "en" and f.get("simple_en")),
+                        next((f for f in facts if f[locale] == prepared[locale]["summary"]), facts[0]))
     if re.match(r"^(?:This|That|These|Those|Such)\b", selected["en"]):
         # Do not expose a detached reference such as "This information ..." when
         # preparation also contains its complete antecedent and qualification.
         complete = [f for _, f in scored if selected["quote"] in f["quote"] and f["quote"] != selected["quote"]]
         if complete:
             selected = min(complete, key=lambda f: len(f["quote"]))
-    parts = [selected[locale]]
+    if context is not None:
+        # Bind the exact explanation, not just a search query, to its native App.
+        context.setdefault("explanation_focus", {})[row["app"]["id"]] = {"path": selected["path"], "quote": selected["quote"]}
+    parts = [readable_passage(selected[locale]) if locale == "en" and (expand or len(selected[locale]) > 180) else selected[locale]]
     if expand:
-        for extra_score, extra in scored[1:]:
-            if (extra_score >= .15 and extra[locale] != selected[locale]
+        complementary = sorted(scored[1:], key=lambda pair: (
+            locale == "en" and len(readable_passage(pair[1][locale], brief=True)) <
+            len(readable_passage(pair[1][locale])), pair[0]), reverse=True)
+        for extra_score, extra in complementary:
+            detail = readable_passage(extra[locale], brief=True) if locale == "en" else extra[locale]
+            if (len(parts[0]) < 160 and len(detail) < 200 and extra_score >= .15
+                    and re.search(r"\b(?:is|are|can|will|provides|supports|records|uses|offers|requires)\b", extra[locale], re.I)
+                    and extra[locale] != selected[locale]
                     and extra["quote"] not in selected["quote"] and selected["quote"] not in extra["quote"]
                     and not any(len(sentence) > 20 and sentence in selected["quote"]
                                 for sentence in re.split(r"(?<=[.!?])\s+", extra["quote"]))
                     and len(_terms(extra["quote"]) & _terms(selected["quote"])) / max(1, min(len(_terms(extra["quote"])), len(_terms(selected["quote"])))) < .65):
-                parts.append(extra[locale])
+                parts.append(detail)
                 break
+    if context is not None:
+        context["explanation_focus"][row["app"]["id"]]["rendered"] = parts[0]
+        context["explanation_focus"] = dict(list(context["explanation_focus"].items())[-5:])
     return " ".join(parts)
 
 
@@ -156,12 +168,29 @@ def prepared_answer(question: str, response: dict, locale: str) -> str:
     rows = response.get("apps", [])
     intent = response["intent"]
     normalized = dialogue_language(question, locale)
+    factual = factual_question(question) if locale == "en" else None
+    if rows and factual and factual[0] == "provider":
+        lines = []
+        for row in rows:
+            name = _quoted_store_text(row["app"].get("name") or row["app"]["app_id"])
+            provider = _quoted_store_text(row["app"].get("provider") or "")
+            lines.append(f"**{name}** is provided by **{provider}**." if provider else
+                         f"No provider is listed for **{name}**.")
+        return "\n\n".join(lines)
+    if rows and factual and factual[0] == "purpose":
+        context = response.setdefault("context", {})
+        context["explanation_topic"] = ""
+        return "\n\n".join(
+            f"**{_quoted_store_text(row['app'].get('name') or row['app']['app_id'])}** — " +
+            _fact_text(row, "", locale, context=context) for row in rows)
     if (intent == "source_fields" and re.match(r"^(?:show|quote|list|(?:can|could|may) (?:i|we) (?:see|read))\b", normalized, re.I)
             and not re.search(r"\b(?:cost|price|billing)\b", normalized, re.I)):
         # Drop the server's generic inspection preface; keep every source line.
         _, separator, body = response["message"].partition("\n")
         return body.lstrip("\n") if separator else response["message"]
     if not rows:
+        if factual:
+            return "Which App do you mean? You can name it or ask me to list the Apps."
         candidates = response.get("candidates", [])
         related = _related_passage(question, candidates, locale)
         if related:
@@ -256,10 +285,17 @@ def prepared_answer(question: str, response: dict, locale: str) -> str:
                 terms = _terms(topic)
                 facts = sorted(prepared['facts'],
                                key=lambda f: (len(terms & _terms(f['quote'])), -len(f['en'])), reverse=True)
-                fact = facts[0]
-                matched_topic = bool(terms and len(terms & _terms(fact['quote'])) / len(terms) >= .4)
+                bound = context.get('explanation_focus', {}).get(row['app']['id'], {})
+                fact = next((f for f in facts if f['path'] == bound.get('path') and
+                             f['quote'] == bound.get('quote')), facts[0])
+                matched_topic = bool(bound or terms and len(terms & _terms(fact['quote'])) / len(terms) >= .4)
                 if matched_topic:
-                    text = fact.get('short_en' if repeated else 'simple_en', plain_english(fact['en']))
+                    complete = [f for f in facts if fact['quote'] in f['quote'] and f['quote'] != fact['quote']]
+                    if re.match(r"^(?:This|That|These|Those|Such)\b", fact['en']) and complete:
+                        fact = min(complete, key=lambda f: len(f['quote']))
+                    text = fact.get('short_en' if repeated else 'simple_en', readable_passage(fact['en'], brief=repeated))
+                    if text == bound.get('rendered'):
+                        text = fact.get('short_en', readable_passage(fact['en'], brief=True))
                 if repeated and not fact.get('short_en') and not matched_topic:
                     # A shorter restatement of the explicit purpose, without
                     # adding an analogy or an unsupported capability.
@@ -300,9 +336,11 @@ def prepared_answer(question: str, response: dict, locale: str) -> str:
                 'Choose by the task you need:\n\n') + "\n\n".join(choices)
     expand = how or bool(re.search(r"\bmore\b|daha fazla", question, re.I))
     topic = response.get('interpreted_query') or (response.get('context', {}).get('explanation_topic', '') if expand else '')
+    context = response.setdefault('context', {})
     if response.get('decision', {}).get('outcome') == 'recommended':
-        response['context']['explanation_topic'] = response.get('interpreted_query') or search_language(question, locale)
-    lines = [f'**{title(row)}** — {_fact_text(row, question, locale, topic=topic, expand=expand)}' for row in rows]
+        topic = response.get('interpreted_query') or search_language(question, locale)
+        context['explanation_topic'] = topic
+    lines = [f'**{title(row)}** — {_fact_text(row, question, locale, topic=topic, expand=expand, context=context)}' for row in rows]
     if response.get('decision', {}).get('outcome') == 'recommended':
         direct = bool(re.match(r"(?:can|does|could)\b", normalized, re.I))
         intro = ('Evet.' if locale == 'tr' else 'Yes.') if direct else (
