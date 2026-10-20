@@ -33,23 +33,37 @@ def catalogue_question(message: str) -> bool:
     trailing requirement, filter or extra operation keeps the entire utterance
     on discovery/interpretation; it cannot become an unrestricted listing.
     """
-    clauses = re.split(r"\b(?:and|then)\b", control_words(message))
-    listing = _CATALOGUE.match(clauses[0])
-    if not listing:
-        return False
-    # A second operation can follow a conjunction or a punctuation boundary.
-    # Tokenization treats both consistently; no punctuation whitelist is needed.
-    remainder = clauses[0][listing.end():].strip()
-    inspections = ([remainder] if remainder else []) + clauses[1:]
-    for clause in inspections:
-        clause = clause.strip()
+    # Parse operations before composing them. In particular, "explain <question>"
+    # contains a metadata question, not an App named "what they do". The same
+    # field grammar handles direct questions and embedded question complements.
+    # Consume every token; a partial parse can never discard a constraint.
+    clauses = re.split(r"\b(?:and(?: then)?|then)\b", control_words(message))
+    operations = []
+    for clause in clauses:
+        clause = re.sub(r"^(?:(?:can|could|would) you )?(?:please )?", "", clause.strip())
+        listing = _CATALOGUE.match(clause)
+        if listing:
+            operations.append("browse")
+            clause = clause[listing.end():].strip()
+            if not clause:
+                continue
         target = inspection_target(clause)
-        field = ("purpose", target) if target else factual_question(clause)
-        if not field or field[0] != "purpose" or not re.fullmatch(
-            r"(?:(?:each|every)(?: (?:app|application|one))?|they|them|their purposes?)", field[1]
+        # Unwrap an imperative once, then resolve its metadata operand. Do not
+        # recursively remove arbitrary words or infer missing functional terms.
+        operand = target or re.sub(r"^tell me ", "", clause)
+        field = factual_question(operand, embedded=True)
+        if field:
+            if field[0] != "purpose":
+                return False
+            operand = field[1]
+        elif not target:
+            return False
+        if not re.fullmatch(
+            r"(?:(?:each|every)(?: (?:app|application|one))?|they|them|their purposes?)", operand
         ):
             return False
-    return True
+        operations.append("purpose")
+    return operations.count("browse") == 1
 
 
 def inspection_target(message: str) -> str | None:
@@ -192,14 +206,14 @@ def search_language(query: str, locale: str) -> str:
                    for part in re.split(r'("[^"\n]*")', normalized))
 
 
-def factual_question(message: str) -> tuple[str, str] | None:
+def factual_question(message: str, *, embedded: bool = False) -> tuple[str, str] | None:
     """Closed metadata questions; the dialogue must still resolve the exact target.
 
     Never treat the rest of a functional requirement as an App reference. Targets
     are validated against current names/IDs and existing conversational bindings.
     """
     clean = " ".join(message.split()).rstrip("?!.,")
-    for field, pattern in (
+    patterns = [
         ("provider", r"(?:who|which (?:company|organisation|organization)) "
                      r"(?:provides|supplies) (.+)"),
         ("provider", r"(?:who|what) is (?:the )?provider(?: (?:of|for) (.+))?"),
@@ -207,7 +221,17 @@ def factual_question(message: str) -> tuple[str, str] | None:
         ("provider", r"what is (.+?)[’']s provider"),
         ("purpose", r"what (?:is|are) (.+?) (?:used for|useful for|for)"),
         ("purpose", r"what (?:does|do) (.+) do"),
-    ):
+    ]
+    if embedded:
+        # Embedded questions use subject-before-verb order. Admit these only
+        # inside operation complements; otherwise a modal question such as
+        # "What can <App> do?" could become a source read of "can <App>".
+        patterns += [
+            ("purpose", r"what (.+?) (?:is|are) (?:used for|useful for|for)"),
+            ("purpose", r"what (.+) (?:does|do)"),
+            ("purpose", r"(?:the )?purposes? of (.+)"),
+        ]
+    for field, pattern in patterns:
         match = re.fullmatch(pattern, clean, re.I)
         if match:
             return field, match[1] or "it"

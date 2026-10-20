@@ -7,7 +7,7 @@ import pytest
 from hedge_shared.models_v2 import ChatRequestV2
 from hedge_shared.store_explanations import readable_passage
 from hedge_shared.store_knowledge import prepare
-from hedge_shared.store_language import catalogue_question
+from hedge_shared.store_language import catalogue_question, factual_question
 from hedge_shared.store_v1 import StoreAppMetadata
 
 from scripts.store_v1_playground import load_service
@@ -139,6 +139,85 @@ def test_composed_browse_never_drops_unknown_words_or_constraints():
                    'and describe each one with automatic translation', 'but only free ones']:
         assert not catalogue_question('List applications ' + suffix)
     assert not catalogue_question('List only free applications and describe each one')
+
+
+def test_operation_composition_resolves_embedded_fields_and_sequence(conversation):
+    policy, apps, interpreter = conversation
+    for inspection in ['describe each one', 'explain what they do',
+                       'tell me what every application is for',
+                       'explain the purpose of each app']:
+        for conjunction in ['and', 'then', 'and then']:
+            for question in [f'List applications {conjunction} {inspection}.',
+                             f'{inspection} {conjunction} list applications.']:
+                result = ask(policy, question, {})
+                assert result['intent'] == 'browse', question
+                assert len(result['apps']) == len(apps)
+                assert result['decision']['outcome'] == 'not_applicable'
+    for suffix in ['with a free licence', 'and guarantee free use', 'and delete them',
+                   'without registration', 'and explain automatic forecasting']:
+        assert not catalogue_question('List applications and explain what they do ' + suffix)
+    assert factual_question('What can Device Register do?') is None
+    interpreter.assert_not_called()
+
+
+def test_comparison_assesses_each_app_against_the_same_need(conversation):
+    policy, apps, interpreter = conversation
+    context = {'turn':1, 'last_results':[{'app':a,'rank':i+1} for i,a in enumerate(apps)],
+               'focused_ids':[apps[0]['id']], 'explanation_topic':'publish device records'}
+    result = ask(policy, 'Compare both.', context)
+    assert 'documented match is **Device Register**' in result['message']
+    assert 'don’t confirm that same requirement for **Sample Monitor**' in result['message']
+    assert 'does not support' not in result['message']
+    assert result['context']['focused_ids'] == [apps[0]['id']]
+    # A new comparison criterion overrides the old need, without claiming that
+    # different purpose evidence proves a negative capability.
+    result = ask(policy, 'Compare Device Register and Sample Monitor for monitor laboratory samples.', context)
+    assert 'documented match is **Sample Monitor**' in result['message']
+    result = ask(policy, 'Compare both for monitor laboratory samples and predict prices.', context)
+    assert 'documented match is' not in result['message']
+    assert 'don’t confirm that same requirement' in result['message']
+    result = ask(policy, 'Compare both without a paid account for publish device records.', context)
+    assert 'documented match is' not in result['message']
+    assert not result['apps']  # The commercial restriction still fails closed.
+    result = ask(policy, 'Compare both offline for publish device records.', context)
+    assert 'documented match is' not in result['message']
+    assert 'offline' in result['context']['comparison_need']
+    # An unmatched new need must not resurrect an older supported requirement.
+    policy.interpret = Mock(return_value={'action':'search','apps':[],
+        'query':'predict electricity prices','view':'capability'})
+    result = ask(policy, 'Find an application to predict electricity prices.', context)
+    result = ask(policy, 'Compare both.', result['context'])
+    assert 'documented match is' not in result['message']
+    interpreter.assert_not_called()
+
+
+def test_rejected_commercial_and_typed_filters_keep_their_reason_without_inference(conversation):
+    policy, apps, interpreter = conversation
+    result = ask(policy, 'List only free applications.', {})
+    assert not result['apps']
+    assert result['decision']['reason'] == 'unverified_filters'
+    assert '0 doesn’t confirm free use' in result['message']
+    assert 'provider' in result['message'] and 'listed prices' in result['message']
+    result = asyncio.run(policy.respond_with_history(ChatRequestV2(message='List applications',
+        filters={'capabilities':['MQTT'], 'publisher':'Example Labs'}), 'help', {}, []))
+    assert not result['apps']
+    assert 'capabilities' in result['message']
+    assert result['decision']['reason'] == 'unverified_filters'
+    # A functional use of price vocabulary is not a commercial filter refusal.
+    result = asyncio.run(policy._prepared_response(ChatRequestV2(
+        message='Find applications to predict prices.'), 'search', {}, []))
+    assert result.get('decision', {}).get('reason') != 'unverified_filters'
+    # Suggested source inspection must actually display pricing, independent of
+    # singular/plural wording; zero and false flags never establish free use.
+    for app in apps:
+        app['source_evidence'].update(price='0', billable='false')
+    for q in ['Can you show me the listed prices for Device Register?',
+              'What is the listed price of Device Register?']:
+        result = ask(policy, q, {})
+        assert result['source_field'] == 'billing fields'
+        assert 'Pricing isn’t confirmed' in result['message']
+        assert 'doesn’t establish free use' in result['message']
+    interpreter.assert_not_called()
 
 
 def test_resolved_inspection_uses_sources_and_preserves_topic_switches(conversation):

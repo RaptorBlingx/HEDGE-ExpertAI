@@ -15,7 +15,13 @@ from hedge_shared.config import Settings
 from hedge_shared.models_v2 import ChatRequestV2
 from hedge_shared.store_language import catalogue_question, dialogue_language
 
-from .store_dialogue import _SOURCE_READ, StoreDialogue, _mentions, _search_query
+from .store_dialogue import (
+    _SOURCE_READ,
+    StoreDialogue,
+    _comparison_criterion,
+    _mentions,
+    _search_query,
+)
 
 # Preserve the existing application's explicit discovery boundary. A generative
 # planner must not turn a constrained search command into an unfiltered listing.
@@ -163,7 +169,7 @@ class StoreConversation(StoreDialogue):
                     or fallback["intent"] == "compare" and bool(fallback["apps"])
                     or dialogue_language(req.message, req.locale) in {"Explain it simply", "How does it work?"} and bool(fallback["apps"]))
             if (not self.settings.STORE_SEMANTIC_ENABLED or req.locale != "en" or fast
-                    or fallback.get("decision", {}).get("reason") == "invalid_native_reference"):
+                    or fallback.get("decision", {}).get("reason") in {"invalid_native_reference", "unverified_filters"}):
                 return fallback
             recovery_started = time.monotonic()
             answer = await self._interpreted_response(req, intent, context, history, fallback, nlu=nlu)
@@ -286,6 +292,7 @@ class StoreConversation(StoreDialogue):
                     response["decision"] = {"outcome": "not_applicable", "reason": "source_inspection"}
                 else:
                     response = {**self.decide(decision_query, rows, req.locale), "intent": "search" if action == "search" else "detail", "context": next_context}
+                    next_context["comparison_need"] = decision_query
                 shown = response["apps"]
                 if len(shown) == 1:
                     next_focus = [shown[0]["app"]["id"]]
@@ -299,6 +306,9 @@ class StoreConversation(StoreDialogue):
                     last_results=shown if action in {"search", "compare"} else context.get("last_results", shown))
                 if action == "compare":
                     next_context["comparison_ids"] = [r["app"]["id"] for r in shown]
+                    criterion = _comparison_criterion(req.message, [r["app"] for r in shown])
+                    if criterion:
+                        next_context["comparison_need"] = criterion
                 elif action == "search" and shown:
                     discussed = list(dict.fromkeys((focus or previous) + [r["app"]["id"] for r in shown]))[-5:]
                     if len(discussed) > 1 or not next_context.get("comparison_ids"):

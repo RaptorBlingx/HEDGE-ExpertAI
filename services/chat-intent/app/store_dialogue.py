@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 from hedge_shared.models_v2 import ChatRequestV2
 from hedge_shared.store_language import (
     catalogue_question,
+    control_words,
     dialogue_language,
     factual_question,
     inspection_target,
@@ -50,6 +51,24 @@ def _search_query(message: str) -> str:
     """Remove request boilerplate, retaining functional terms and negation."""
     query = re.sub(r"^(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?(?:find|search(?: for)?|show me|recommend|i need|i am looking for)\s+", "", message, flags=re.I)
     return re.sub(r"^(?:an?\s+)?(?:apps?|applications?)\s+(?:for|to|about|that)\s+", "", query, flags=re.I)
+
+
+def _comparison_criterion(message: str, apps: list[dict]) -> str:
+    """Retain an explicit criterion separately from resolved comparison subjects."""
+    arguments = message
+    identities = {value for app in apps for value in (app.get("name"), app["app_id"]) if value}
+    for value in sorted(identities, key=len, reverse=True):
+        arguments = re.sub(rf"(?<!\w){re.escape(value)}(?!\w)", "", arguments, flags=re.I)
+    criterion = re.search(r"\b(?:for|in terms of)\s+(.+)", arguments, re.I)
+    if not criterion:
+        return ""
+    scaffolding = {"please", "can", "could", "would", "you", "compare", "and", "with", "the", "app", "apps", "one", "ones", "two", "three",
+                   "it", "that", "this", "both", "them", "these", "those", "other", *_ORDINALS}
+    if not set(control_words(arguments[:criterion.start()]).split()) <= scaffolding:
+        # Unknown modifiers before the criterion may be constraints. Keep the
+        # whole operand rather than silently approving a narrower requirement.
+        return arguments.strip()
+    return criterion[1].strip().rstrip("?!.,")
 
 
 class StoreDialogue:
@@ -196,14 +215,21 @@ class StoreDialogue:
             elif _REFERENCE.search(message):
                 selected = comparison if intent == "compare" or re.search(r"\b(both|them|these apps|those apps)\b", message, re.I) else context.get("focused_ids", [])
         selected = list(dict.fromkeys(selected))
-        unsupported = _PRICE.search(message) or (
+        criterion = _comparison_criterion(message, [a for a in current if a["id"] in selected]) if intent == "compare" else ""
+        price_question = _PRICE.search(message) if not criterion else None
+        unsupported = price_question or (
             _UNSUPPORTED_METADATA.search(message) if not self.assess_requirements else False)
+        # Price *words* also occur in functional needs such as forecasting.
+        # Only an explicit commercial condition is a definitive filter refusal;
+        # other substantive requests must retain semantic interpretation.
+        pricing_filter = any(match[0].casefold() in {"free", "paid", "cheapest", "cheaper"}
+                             for match in _PRICE.finditer(message))
         filters = req.filters.model_dump(mode="json")
         if targeted or intent == "refine":
             filters = {**(context.get("filters") or {}),
                        **{k: v for k, v in filters.items() if v not in (None, [], "")}}
         invalid_filters = any(v not in (None, [], "") for k, v in filters.items() if k != "publisher")
-        if (self.catalogue_references and selected and _PRICE.search(message) and not source_read
+        if (self.catalogue_references and selected and price_question and not source_read
                 and not re.search(r"\b(?:only|free|without|instead|not)\b", message, re.I)):
             # A cost question asks for supplied values, never a free/paid verdict.
             # Unsupported filters still fail closed below; this does not rank by price.
@@ -292,8 +318,19 @@ class StoreDialogue:
             if seeded and ordinals and not named:
                 lines.insert(1, "References use the observed catalogue order shown on this page.")
             return {**self._response("\n".join(lines), results, "source_fields", next_context),
+                    "source_field": field,
                     "decision": {"outcome": "not_applicable", "reason": "source_inspection"}}
-        if (unsupported and not (self.catalogue_references and selected and not _PRICE.search(message))) or invalid_filters:
+        if (unsupported and not (self.catalogue_references and selected and not price_question)) or invalid_filters or pricing_filter:
+            if pricing_filter or invalid_filters:
+                # Keep the reason through composition and semantic recovery.
+                # Rejection is an authoritative filter decision, not a failed
+                # capability search which a model should try to broaden.
+                fields = (["pricing"] if pricing_filter else []) + [
+                    key for key, value in filters.items()
+                    if key != "publisher" and value not in (None, [], "")]
+                return {**self._response("I cannot confirm those catalogue filters. I can show an App's supplied fields instead.", [], intent, context),
+                        "unverified_filters": list(dict.fromkeys(fields)),
+                        "decision": {"outcome": "abstained", "reason": "unverified_filters"}}
             limitation = ("This snapshot has no verified price information. I cannot confirm what it costs. "
                           if _PRICE.search(message) else
                           "The supplied Store fields do not verify that capability, metadata or filter. "
@@ -342,7 +379,8 @@ class StoreDialogue:
                             functional_question = re.sub(rf"(?<!\w){re.escape(value)}(?!\w)", "", functional_question, flags=re.I)
                 decision = self.decide(functional_question, results, req.locale)
                 return {**decision, "intent": "detail", "context": {
-                    **context, "filters": filters, "focused_ids": selected}}
+                    **context, "filters": filters, "focused_ids": selected,
+                    "comparison_need": functional_question}}
             text = "Supplied source fields only; missing metadata cannot be confirmed.\n" + self.describe(message, results, req.locale)
             if intent == "compare":
                 text = "Source-field comparison only; no superiority or suitability is inferred.\n" + text
@@ -350,6 +388,8 @@ class StoreDialogue:
             if self.catalogue_references and intent == "compare":
                 next_context["comparison_ids"] = selected
                 next_context["last_results"] = results
+                if criterion:
+                    next_context["comparison_need"] = criterion
             if seeded and named:
                 next_context["last_results"] = results
             if seeded and not named:
@@ -379,6 +419,7 @@ class StoreDialogue:
         response = await self.recommend(query=query, locale=req.locale, filters=filters)
         references = context if self.catalogue_references else {}
         next_context = {"last_query": query, "filters": filters,
+                        "comparison_need": query,
                         "last_results": response["apps"][:5] or references.get("last_results", []),
                         "explanation_topic": references.get("explanation_topic", ""),
                         "focused_ids": [response["apps"][0]["app"]["id"]] if len(response["apps"]) == 1 else (

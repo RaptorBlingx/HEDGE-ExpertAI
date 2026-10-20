@@ -173,6 +173,24 @@ def prepared_answer(question: str, response: dict, locale: str) -> str:
     rows = response.get("apps", [])
     intent = response["intent"]
     normalized = dialogue_language(question, locale)
+    price_read = response.get("source_field") in {"price", "billing fields"} or (
+        intent != "compare" and bool(re.search(r"\b(?:costs?|prices?|pricing|billing)\b", normalized, re.I)))
+    if locale == "en" and response.get("unverified_filters"):
+        labels = {"pricing": "free use or other pricing conditions", "license_spdx": "licensing",
+                  "capabilities": "capabilities", "protocols": "protocol support",
+                  "semantic_uri": "semantic class", "extension_uri": "semantic extension",
+                  "deployment_modes": "deployment modes", "supported_languages": "supported languages",
+                  "data_classifications": "data classifications", "lifecycle_status": "lifecycle status",
+                  "tags": "tags"}
+        fields = response["unverified_filters"]
+        requested = ", ".join(dict.fromkeys(labels.get(key, "catalogue conditions") for key in fields))
+        if fields == ["pricing"]:
+            return ("The Store metadata doesn’t establish which Apps meet your pricing requirement. "
+                    "A listed price of 0 doesn’t confirm free use. Check licence terms and any usage fees "
+                    "with the provider. I can show the listed prices or compare Apps by what they do.")
+        return (f"The Store metadata doesn’t verify the requested {requested}. "
+                "I can show the supplied fields for an App, or compare its documented capabilities. "
+                "Keep that requirement as something to confirm with the provider.")
     factual = factual_question(question) if locale == "en" else None
     if rows and factual and factual[0] == "provider":
         lines = []
@@ -201,7 +219,7 @@ def prepared_answer(question: str, response: dict, locale: str) -> str:
             f"**{_quoted_store_text(row['app'].get('name') or row['app']['app_id'])}** — " +
             _fact_text(row, "", locale, context=context) for row in rows)
     if (intent == "source_fields" and re.match(r"^(?:show|quote|list|(?:can|could|may) (?:i|we) (?:see|read))\b", normalized, re.I)
-            and not re.search(r"\b(?:cost|price|billing)\b", normalized, re.I)):
+            and not price_read):
         # Drop the server's generic inspection preface; keep every source line.
         _, separator, body = response["message"].partition("\n")
         return body.lstrip("\n") if separator else response["message"]
@@ -248,7 +266,7 @@ def prepared_answer(question: str, response: dict, locale: str) -> str:
         return ((f'**{title(rows[0])}** sağlayıcısı: **{provider}**.' if locale == 'tr' else
                  f'**{title(rows[0])}** is provided by **{provider}**.') if provider else
                 ('Sağlayıcı belirtilmemiş.' if locale == 'tr' else 'No provider is listed.'))
-    if re.search(r"\b(?:cost|price|billing)\b", normalized, re.I):
+    if price_read:
         lines = []
         for row in rows:
             price = row["app"].get("source_evidence", {}).get("price")
@@ -330,17 +348,41 @@ def prepared_answer(question: str, response: dict, locale: str) -> str:
         prepared = [_explanation(row, locale) for row in rows]
         tasks = [value[locale]["use_when"].rstrip(".") for value in prepared]
         if locale == "en" and any(value.get("version") == 2 for value in prepared):
-            topic = response.get("context", {}).get("last_query", "")
+            context = response.setdefault("context", {})
+            topic = context.get("comparison_need", context.get("explanation_topic") or context.get("last_query", ""))
+            # Use the complete purpose selected for ordinary inspection, never
+            # the first comma-delimited task in a long purpose statement. Each
+            # App is compared on the same axes: purpose and the established need.
+            purposes = [_fact_text(row, "", locale) for row in rows]
+            same = len(set(text.casefold() for text in purposes)) == 1
+            lines = ["Their documented purposes overlap:" if same else
+                     "The main difference is the job they do:"]
+            supported = set()
             if topic:
-                # Compare in the user's established context. The first noun in
-                # a broad purpose sentence need not be the requested task.
-                return "\n\n".join(f'**{title(row)}** — {_fact_text(row, topic, locale)}' for row in rows)
-            choices = []
-            for row, value, task in zip(rows, prepared, tasks, strict=True):
-                connector = "for" if value.get("noun_task") else "to"
-                choices.append(f'Choose **{title(row)}** {connector} {task[0].lower() + task[1:]}.'
-                               if value.get("task_phrase") else f'**{title(row)}**: {task}.')
-            return "\n\n".join(choices)
+                # Reuse the recommendation assessor; similarity, missing fields
+                # and prepared prose cannot prove support or absence of support.
+                decision = _recommendation_decision(topic, rows, locale)
+                supported = {row['app']['id'] for row in decision['apps']}
+            for row, purpose in zip(rows, purposes, strict=True):
+                line = f'**{title(row)}** — {purpose}'
+                if row['app']['id'] in supported:
+                    detail = _fact_text(row, topic, locale)
+                    if detail != purpose:
+                        line += '\nFor this task: ' + detail
+                lines.append(line)
+            if topic:
+                matched = [title(row) for row in rows if row['app']['id'] in supported]
+                unknown = [title(row) for row in rows if row['app']['id'] not in supported]
+                if matched:
+                    lines.append("For the task you described, the documented " +
+                                 ("match is " if len(matched) == 1 else "matches are ") +
+                                 ", ".join(f'**{name}**' for name in matched) + ".")
+                if unknown:
+                    lines.append("The descriptions don’t confirm that same requirement for " +
+                                 ", ".join(f'**{name}**' for name in unknown) + ".")
+            else:
+                lines.append("Which of these jobs is closer to what you need?")
+            return "\n\n".join(lines)
         if len(set(task.casefold() for task in tasks)) == 1:
             lead = ('Aynı amaca yönelikler: ' if locale == 'tr' else 'They address the same task: ') + tasks[0] + '.'
             return lead + "\n\n" + "\n\n".join(f'**{title(row)}**: {_explanation(row, locale)[locale]["summary"]}' for row in rows)

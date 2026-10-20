@@ -126,7 +126,7 @@ coverage gate (86.02%), Ruff and JavaScript syntax checks. Those are supporting
 checks, not the product acceptance result. Full transcripts, per-turn assessments,
 latencies, stage traces and source hashes are in the private evidence directory.
 
-## Remaining design limits
+## Remaining limits at `dd7b65c`
 
 The catalogue and inspection grammars are deliberately bounded. Nested compound
 requests and unfamiliar operations can still reach an interpreter with no catalogue
@@ -135,3 +135,91 @@ distinction. Conservative unsupported-filter handling can be safe but generic.
 Browsing is capped at five entries and has no conversational pagination; the two
 real Apps do not validate larger-catalogue coverage. Qwen-assisted turns retain
 CPU inference cost and uncertainty; this is not a complete T2 acceptance claim.
+
+## Follow-up from the published `dd7b65c` checkpoint
+
+The clean feature branch was published to Forgejo and its remote SHA verified
+before these local changes. No merge or new tag was created.
+
+The subsequent investigation reproduced the remaining 51-turn issues and froze
+15 systematic variations and 13 fresh multi-turn questions before implementation.
+Stage traces identified three application-policy/composition causes:
+
+- The catalogue grammar split `and then` into an empty operation and treated an
+  embedded metadata question as an identity operand. Composition now parses each
+  operation, resolves an inspection's field complement, and requires every token
+  to be consumed. Listing and per-entry purpose inspection can occur in either
+  order. Embedded subject/verb order is admitted only inside those complements,
+  so modal capability questions cannot become malformed source-field reads.
+  Unknown operations and additional functional/commercial constraints still fail
+  the whole catalogue parse; this is not an unconstrained semantic browse mode.
+- Comparison used a comma-truncated `use_when` fragment or independent summaries.
+  It now uses complete prepared purposes on a common axis, retains the latest
+  functional need separately from explanation selection, and checks that same
+  need for every compared App with the existing recommendation assessor. When
+  relevant evidence differs from the general purpose, it is included. Explicit
+  comparison criteria override the prior need; unknown qualifiers remain intact.
+  Missing support is expressed as unconfirmed, never as proof of an absent
+  capability, inferiority or incompatibility. An unsuccessful new search cannot
+  resurrect a previously supported need.
+- Commercial/typed filter rejection lost its reason during presentation and
+  semantic recovery. It now retains a structured refusal and useful alternatives,
+  with no model call or relaxation of the filter. Price vocabulary used in a
+  functional comparison remains a capability criterion. Source reads carry the
+  selected field through HTTP composition, so suggested pricing inspections show
+  prices instead of a purpose summary. Zero still does not establish free use.
+
+Rasa, Qwen3 4B's one-pass interpretation, E5, authorized synchronization, source
+preparation, migrations, indexing and service configuration are unchanged. No
+App-specific prose, functional synonyms, new model or service is introduced.
+The tests add three behavioral contracts covering composition, comparative need
+assessment and reason-preserving filter refusal, including negative cases.
+
+The disposable loopback 8126 environment uses the two real synchronized Apps and
+the same HTTP service boundaries and shared inference/Discovery as the previous
+evaluation. It owns its application processes, session database and cache;
+8096/8106/8116 and all pre-existing containers, source mounts and data are preserved.
+Questions, source hashes, traces, complete browser transcripts and manual
+assessments remain private under `~/.local/share/hedge-t2-behavior/`.
+
+### Final browser results for this follow-up
+
+Manual review of complete answers, using the same Pass/Partial/Fail criteria:
+
+| Set | Before: Pass / Partial / Fail | After: Pass / Partial / Fail |
+| --- | --- | --- |
+| Original 51 turns | 46 / 4 / 1 | 51 / 0 / 0 |
+| Additional systematic 15 turns | 2 / 7 / 6 | 12 / 3 / 0 |
+| Fresh 13 multi-turn questions | Not replayed on baseline | 10 / 1 / 2 |
+
+There were no functional regressions or unsupported claims observed in the paired
+66 turns. The five new equivalent/reordered catalogue compositions all returned
+both Apps through the prepared route. Comparisons selected the documented fit
+for bid combination and for shared models, included settlement evidence when that
+was the active need, and did not claim either App supported price forecasting.
+The pricing alternative displayed the actual listed zero with its qualification.
+These are engineering assessments against two Apps, not independent acceptance
+or large-catalogue quality evidence.
+
+Prepared replies took 0.167–0.465s on the paired set (median 0.344s); model-assisted
+ones took 7.216–14.861s. Interpretation calls fell from 18 to 10 on those same 66
+turns. The baseline includes one 48.088s cold model response; neither that outlier
+nor the changed assisted case mix establishes faster inference. Fresh prepared
+turns took 0.176–0.415s and assisted turns 10.921–12.430s. All final browser turns
+completed their SSE streams without browser/HTTP errors. Intermediate replays
+are retained separately and not added to the result counts.
+
+The full 1,313-unit suite passed the unchanged coverage gate (86.18% shared-package
+coverage with branches measured); final targeted assertions and Ruff also passed. Real gateway checks
+rejected an out-of-scope Store/App pair, unsupported typed capability filter,
+unmatched publisher and unknown action, without unverified cards or impressions.
+
+Remaining weaknesses are meaningful: a fresh shared-vocabulary paraphrase still
+false-abstained despite relevant Semantic Treehouse evidence, and a provider-check
+follow-up lost the preceding pricing limitation. The next clarification in the
+first session was safe but left the conversation stalled. Mixed requests with
+unsupported operations/functions still give generic recovery, and a singular
+capability follow-up can become an unnecessary comparison. These were retained
+as failures/partials, not tuned away with question-specific handling. The bounded
+operation grammar, five-entry browse cap, CPU inference latency and two-App
+evaluation boundary remain; this is not a claim of complete T2 acceptance.
