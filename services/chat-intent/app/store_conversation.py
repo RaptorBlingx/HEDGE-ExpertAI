@@ -291,7 +291,9 @@ class StoreConversation(StoreDialogue):
     async def _respond_routed(self, req, intent, context, history, *, nlu=None):
         search = conversation_acts.elliptical_search(req.message, context.get("comparison_need", ""))
         if search and self.routine and req.locale == "en" and not req.app_action:
+            # A search for *another* App: the previous focus is not its subject.
             req, intent = req.model_copy(update={"message": search}), "search"
+            context = {**context, "focused_ids": []}
         if req.locale == "en" and context.get("pending_filters"):
             # A closed state command, independent of capability interpretation.
             # Consume the entire clause; negation, unknown operands or compound

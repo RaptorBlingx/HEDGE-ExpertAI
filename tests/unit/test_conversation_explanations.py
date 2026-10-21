@@ -480,3 +480,23 @@ def test_capability_follow_ups_reinterpret_only_when_the_verifier_found_nothing(
     ask(policy, "Does it support settlement?", {"turn": 2, "focused_ids": [RELAY["id"]],
                                                 "last_results": [{"app": RELAY, "rank": 1}]})
     assert interpret.called is planned
+
+
+def test_an_elliptical_search_is_not_bound_to_the_previous_app(monkeypatch):
+    monkeypatch.setenv("STORE_SEMANTIC_ENABLED", "true")
+    interpret = Mock()
+    queries = []
+
+    async def recommend(**kwargs):
+        queries.append(kwargs["query"])
+        return {"apps": [], "candidates": [], "message": "none", "decision": {"outcome": "abstained",
+                                                                            "reason": "partial_matches_only"}}
+
+    policy = dialogue.StoreConversation(
+        recommend, lambda ids: [deepcopy(a) for a in [RELAY, HUB] if ids is None or a["id"] in ids],
+        lambda *args: "fields", interpret, None, decide=Mock(), present=lambda q, r, locale: "presented",
+        explainer=lambda *args: explainer.respond(*args))
+    ask(policy, "Find me one that does", {"turn": 3, "focused_ids": [RELAY["id"]],
+                                          "comparison_need": "does it forecast prices?"})
+    assert queries == ["forecast prices"]
+    interpret.assert_not_called()
