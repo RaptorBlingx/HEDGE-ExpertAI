@@ -26,18 +26,18 @@ Prepared explanations need no flag and no model.
 
 ## Verification performed
 
-- Ruff clean; 1,523 unit tests pass (baseline 1,483; 24 elaboration tests
-  replaced by 64 explanation, act, streaming and safety tests).
+- Ruff clean; 1,542 unit tests pass (baseline 1,483; the 24 elaboration tests are
+  replaced by explanation, act, streaming, routing and safety tests).
 - OpenAPI export regenerated: no diff (internal routes are not public).
 - Integration suite against disposable PostgreSQL/Qdrant/Valkey on an internal
   network: 206 pass, 27 fail, the same 27 on `a2a02ad` (stale expectations).
 - Recommendation decisions identical to `a2a02ad` on both unseen sets.
-- Conversation evaluation (offline, no model): see the design document; private
-  transcripts are in `/home/ubuntu/.local/share/hedge-t2-conversation-20261021/`.
+- Offline conversation sets (no model) and live Qwen runs on an isolated,
+  read-only copy of the approved model; an isolated end-to-end stack with the
+  unchanged Angular build in headless Chromium, prepared and streamed model
+  answers. Results: [design document](t2-conversational-experience.md#live-model-and-end-to-end-validation-2122-october).
 
-Not performed: live Qwen calls (no verified isolation from the 8156 deployment and
-no memory for a second model), an isolated HTTP/browser stack run of this branch,
-Rasa NLU in the loop, and real-user review.
+Not performed: Rasa in the loop, a real-user session, multi-user load.
 
 ## Rollout notes
 
@@ -51,11 +51,10 @@ Rasa NLU in the loop, and real-user review.
 
 ## Recommended next steps
 
-1. Independent review of this branch, especially the act grammar, the glossary
-   text (domain review) and the sentence checks.
-2. A bounded, authorized live-model run: either a release of this branch in a
-   separate isolated project with its own capacity plan, or a maintenance window
-   on 8156. Measure first-sentence and complete latency, citation compliance and
-   grounding of 15–20 open questions; read every answer.
-3. A short real-user session in the Angular widget with a new, independent
-   conversation set.
+1. Independent review, especially the act grammar, the glossary text (domain
+   review), the sentence checks and the routing default for conversational
+   questions.
+2. Before deploying to 8156: give the model service memory headroom or periodic
+   recycling (the evaluation copy was OOM-killed in the same 3 GiB limit), then
+   release this branch in a maintenance window and repeat the widget run with Rasa.
+3. A short real-user session with a new, independent conversation set.

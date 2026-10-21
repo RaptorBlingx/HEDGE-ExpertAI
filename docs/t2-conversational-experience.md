@@ -151,40 +151,86 @@ Representative replies (fictional catalogue, prepared, no model):
   maintenance notes." Nothing of "Ignore previous instructions" or the claimed
   5000 bids per second appears in any answer.
 
+## Live-model and end-to-end validation (21–22 October)
+
+**Isolation.** A separate container ran the approved Ollama binary and Qwen3 4B
+Q4_K_M files, mounted read-only exactly as the 8156 model service mounts them, on
+its own internal network with the same limits (3 GiB, 1.5 CPU, one parallel
+request, q8_0 KV cache, 2048-token context). A watchdog stopped *only* this
+container whenever the 8156 model loaded (a real user) or host memory fell below
+its floor; it fired twice for memory, never for user activity. Nothing in the 8156
+project was restarted or contacted; all evaluation resources were removed.
+
+**Conversations.** `live.json` (written before the first live run: open
+questions, an exhausted explanation ladder, unknown terms, planner-only phrasing)
+and the model-dependent turns of the development and held-out sets were run
+through the dialogue with the live model, and every answer was read.
+
+The first live run exposed defects the offline harness could not:
+questions outside the act grammar ("Can I rely on its forecasts for trading?",
+"Could you break that down?", "What has the weather got to do with it?") reached
+the ~780-token planner, took 63–88 s and were turned into capability checks
+answered "fits what you need"; "So who gets paid in the end?" was read as a
+pricing filter; the model invented a negative claim ("OfferBridge itself does not
+handle payments") and audiences ("data engineers or domain experts"). Fixes:
+conversational questions about an App in the conversation go to the cited
+explainer; capability follow-ups reinterpret only when the verifier found nothing
+without similarity; statements are chosen by glossary concept as well as by word;
+App-subject negations need a stated limitation; answers do not open with a bare
+verdict; "who is it for?" is a prepared answer from documented roles; an
+exhausted ladder asks which part is unclear (a generated rephrase took 39 s and
+was worse than the prepared analogies).
+
+After the fixes: in the live set, 13 model turns, median 18 s and at most 32 s,
+no planner calls and no recommendation from an explanation turn; checks stopped
+3 answers at a failing sentence, with a visible note. Answers were useful and
+mostly well hedged ("The statements do not say how accurate PriceLens is",
+"Automatic settlement is not available now. It is planned for a future
+release."). The 4B model still adds small unstated specifics ("devices like wind
+turbines", "supply chain partners"), framed as reasoning; these remain a risk.
+
+**End to end.** This branch's Gateway, Chat, Expert and Discovery ran from
+read-only source in hardened containers with disposable PostgreSQL and Valkey and
+a copy of the two authorized Apps; the approved Angular build was served unchanged
+by a loopback copy of the deployment adapter and driven by headless Chromium.
+Prepared pass (E5, no model): 19 turns over four conversations all completed, a
+typical turn ~0.25 s, the first search 9.5 s (E5 cold start); badges appeared only
+on the documented match. Model pass (Discovery without E5): streamed answers
+arrived as 3–5 checked sentences; first sentence after 6.6–16.3 s, complete in
+15–28 s; with the model stopped, an open question received the prepared fallback
+in 0.23 s. The only browser console errors were `/api/v2/status` 503s because
+metadata-ingest was not started.
+
 ## Performance
 
-Measured in the offline harness (one capped CPU): explanation acts take 0–30 ms;
-search and decision turns 0.1–1.4 s (E5 included). In the observed 8156 widget
-conversations, the same explanation requests took 13–43 s with Qwen and a
-capability follow-up 73 s. These now need no model call.
+| Turn | Before (observed 8156) | Now |
+| --- | --- | --- |
+| Explanation acts (simple, meaning, example, compare, term, audience) | 13–43 s with Qwen | 0–30 ms prepared |
+| Decided capability follow-up | 73 s (planner) | 0.1–0.4 s |
+| Open question, widget | not available | first sentence 6.6–16.3 s, complete 15–28 s |
+| Search | 0.4 s | 0.1–1.4 s (9.5 s cold E5) |
 
-Model-assisted answers were **not run live** (see limits). Deployment logs give
-the 8156 model service's rates: ~12 prompt tokens/s and ~4.5 output tokens/s.
-The open-question prompt is 1,100–1,350 characters for the real Apps (the removed
-elaborator's was ~1,700 characters, measured at 474 tokens), of which ~600 are
-the stable system prompt reusable from the model's prefix cache. Expect roughly
-15–25 s before the first checked sentence and 35–50 s for a complete 80-word
-answer on this hardware, a minority of turns rather than every explanation.
+Prompt reading dominates CPU latency: ~14 prompt tokens/s and ~5 output tokens/s
+were measured on the evaluation copy. Open-question prompts are 260–380 tokens;
+the planner's are ~780.
 
 ## Remaining limits
 
-- **Live model behavior is unverified.** The 8156 model is reachable only on the
-  deployment's internal network, which also carries its database, so isolation
-  could not be verified, and no second model fits in memory. Grounding of
-  generated sentences, citation discipline of the 4B model, and real latency need
-  a bounded, authorized run (`evaluation/conversation/run.py --model-url`).
-- Glossary definitions are agent-authored and need domain review; concepts outside
-  it get no prepared definition (the model, if enabled, answers them as labelled
-  general background).
-- The act grammar is English-only and closed; unknown phrasings fall through to the
-  existing paths (and to the planner when the model is enabled).
-- Structural sentence checks are not entailment; a generated sentence can still
-  overstate a cited statement.
+- The model can still embellish with unstated specifics; sentence checks catch
+  links, quantities, guarantees, integrations and unsupported negations, not
+  entailment. Read-before-release is not possible while streaming.
+- Without Discovery similarity (degraded mode), an undocumented capability
+  follow-up still reaches the planner (72–74 s observed).
+- **Operational risk for 8156:** the evaluation copy was OOM-killed inside its
+  3 GiB limit after ~25 minutes of varied prompts, with no model reload; memory
+  grows with Ollama's prompt cache. The deployed model service has the same
+  version and limit (2.89 GiB observed earlier) and may need more headroom or
+  periodic recycling under varied traffic. Not changed here.
+- Glossary definitions are agent-authored and need domain review.
+- The act grammar is English-only; Rasa was not in the loop; no real-user session.
 - Recommendation strictness is unchanged: paraphrases are closest statements.
-- No isolated browser or HTTP-stack run of this branch was performed; the
-  streaming path is covered by unit tests through FastAPI test clients.
 - 27 integration tests fail identically on `a2a02ad` and this branch (stale wording
   expectations and legacy playground 503s); 206 pass on both.
 
-Private transcripts are outside Git at
-`/home/ubuntu/.local/share/hedge-t2-conversation-20261021/`.
+Private transcripts, browser results, screenshots and model timings are outside
+Git at `/home/ubuntu/.local/share/hedge-t2-conversation-20261021/`.
