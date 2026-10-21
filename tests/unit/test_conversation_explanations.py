@@ -209,6 +209,7 @@ def test_streamed_text_call_reuses_the_loaded_model_configuration(monkeypatch):
     ("Why would I choose one over the other?", "choose"),
     ("Who provides it, and how can I access it?", "facts"),
     ("How would a utility use it in practice?", "open"), ("Would it help a small energy cooperative?", "open"),
+    ("What is a container image?", "term"),
 ])
 def test_explanation_acts(message, kind):
     assert acts.parse(message, ["EdgeConnect", "LoadAhead", "MeaningHub"]).kind == kind
@@ -218,6 +219,9 @@ def test_explanation_acts(message, kind):
     "Does it also generate earthquake warnings?", "Can it submit bids to a live market?", "Does it forecast prices?",
     "Find an app to publish shared data models", "Which App can forward sensor data?", "Who provides it?",
     "Compare them for bid aggregation", "List the available Apps.", "What is the price?", "Show me something that can",
+    "How much does it cost?", "How do I get started with it?", "How can I access it?", "Is it free?",
+    "Is it open source?", "Which version is current?", "How do I install it?", "Compare their prices",
+    "Explain the licence in simple terms",
 ])
 def test_capability_checks_searches_and_metadata_keep_their_verified_paths(message):
     assert acts.parse(message, ["EdgeConnect"]) is None

@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass
 
 from hedge_shared import glossary
+from hedge_shared.store_language import cost_question
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,11 @@ _OVERVIEW = (
 _PROVIDER = re.compile(r"\bwho\b.{0,30}\b(?:provides?|makes|develops|developed|operates|offers|supplies|is behind)\b|"
                        r"\bprovider\b", re.I)
 _ACCESS = re.compile(r"\b(?:access|get started|start using|sign up|log ?in|try it|where (?:can|do) i (?:find|use))\b", re.I)
+# Price, access, licence, version and similar metadata questions have prepared
+# source-field answers; they are never open model questions.
+_METADATA = re.compile(r"\b(?:cost|costs|price|prices|pricing|free|paid|licen[cs]e\w*|open[- ]source|versions?|"
+                       r"install\w*|download\w*|deploy\w*|container|self-host\w*|ratings?|reviews?|rated|"
+                       r"certifi\w*|support (?:contact|team)|contact)\b", re.I)
 _OPEN = re.compile(r"^(?:how|why|would|could|should|is it|are they|what if|in what way|what problems?|"
                    r"who (?:would|should|could|is it for)|what kind|explain why|what happens)\b|\bwhy\b", re.I)
 
@@ -96,6 +102,10 @@ def parse(message: str, app_names: list[str] | tuple[str, ...] = ()) -> Act | No
     named = [n for n in app_names if n and re.search(rf"(?<!\w){re.escape(n)}(?!\w)", text, re.I)]
     sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
     last = _clean(sentences[-1]) if sentences else text
+    # "Compare their prices" or "explain the licence simply" read source fields;
+    # only a definition question ("what does open source mean?") is an act.
+    if cost_question(text) or _METADATA.search(text) and not any(p.match(last) for p in _TERM):
+        return None
     if _COMPARE.search(text) or _CHOOSE.search(text):
         # A functional criterion ("compare them for bid aggregation") is a decision.
         criterion = _CRITERION.search(re.sub(r"\b(?:in )?plain (?:english|language)\b|\bin simple terms\b", "", text, flags=re.I))
@@ -136,7 +146,7 @@ def parse(message: str, app_names: list[str] | tuple[str, ...] = ()) -> Act | No
             if _PRONOUNS.match(operand) or any(operand.casefold() == n.casefold() for n in named):
                 return Act("overview", operand)
             return None
-    if _OPEN.search(text) and not _CAPABILITY.match(text) and not _PROVIDER.search(text):
+    if _OPEN.search(text) and not _CAPABILITY.match(text) and not _PROVIDER.search(text) and not _ACCESS.search(text):
         return Act("open")
     return None
 

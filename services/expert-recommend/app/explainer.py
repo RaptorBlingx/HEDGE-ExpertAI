@@ -28,7 +28,6 @@ from .recommender import _quoted_store_text
 # "Explain it differently" moves to the next one not yet used for that App.
 LADDER = ("overview", "simple", "analogy", "example", "how")
 PREPARED_ACTS = {*LADDER, "term", "compare", "choose", "differently", "meaning", "facts"}
-MODEL_ACTS = {"open"}
 _MAX_DEFINITIONS = 3
 
 
@@ -91,7 +90,7 @@ def _definition(term: glossary.Term, *, why: bool = False) -> str:
     return line
 
 
-def _state(state: dict, guide: app_guide.Guide, app_id: str) -> dict:
+def _state(state: dict, app_id: str) -> dict:
     entry = state.setdefault("apps", {}).setdefault(app_id, {})
     entry.setdefault("used", [])
     entry.setdefault("shown", [])
@@ -124,7 +123,7 @@ def _caveats(guide: app_guide.Guide, limit: int = 2) -> list[app_guide.Statement
 
 
 def overview(guide: app_guide.Guide, state: dict, app_id: str) -> str:
-    entry = _state(state, guide, app_id)
+    entry = _state(state, app_id)
     main = guide.main
     if not main:
         statements = [s for s in guide.statements if s.role in {"limitation", "context", "scheme"}]
@@ -153,7 +152,7 @@ def overview(guide: app_guide.Guide, state: dict, app_id: str) -> str:
 
 
 def simple(guide: app_guide.Guide, state: dict, app_id: str) -> str:
-    entry = _state(state, guide, app_id)
+    entry = _state(state, app_id)
     lead = guide.lead
     terms = _fresh_terms(guide, state)
     if not lead:
@@ -184,7 +183,7 @@ def example(guide: app_guide.Guide, state: dict, app_id: str) -> str:
     Each request shows something not shown before: source cases once, then the
     scenario for the next concept that has one.
     """
-    entry = _state(state, guide, app_id)
+    entry = _state(state, app_id)
     entry.setdefault("examples", [])
     lines = []
     schemes = [s for s in guide.by_role("scheme") if s.id not in entry["shown"]][:2]
@@ -347,6 +346,9 @@ def facts(guide: app_guide.Guide, app: dict, question: str) -> str:
     return "\n\n".join(lines)
 
 
+_LAYERS = {"overview": overview, "simple": simple, "analogy": analogy, "example": example, "how": how}
+
+
 def prepared(act: str, question: str, apps: list[dict], state: dict, *, phrase: str = "") -> tuple[str, str]:
     """(message, act actually used); an empty message means this act has nothing to add."""
     guides = [app_guide.build(app) for app in apps]
@@ -357,18 +359,18 @@ def prepared(act: str, question: str, apps: list[dict], state: dict, *, phrase: 
     if not guides:
         return "", act
     guide, app_id = guides[0], apps[0]["id"]
-    entry = _state(state, guide, app_id)
+    entry = _state(state, app_id)
     if act == "facts":
         return facts(guide, apps[0], question), act
     if act in {"differently", "meaning"}:
         # A different representation each time; never the same overview again.
         for candidate in [a for a in LADDER[1:] if a not in entry["used"]]:
-            message = globals()[candidate](guide, state, app_id)
+            message = _LAYERS[candidate](guide, state, app_id)
             if message:
                 entry["used"].append(candidate)
                 return message, candidate
         return "", act
-    message = globals()[act](guide, state, app_id)
+    message = _LAYERS[act](guide, state, app_id)
     if message:
         entry["used"].append(act)
     return message, act
