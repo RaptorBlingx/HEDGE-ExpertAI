@@ -27,7 +27,7 @@ from .recommender import _quoted_store_text
 # Each App is explained through progressively different representations.
 # "Explain it differently" moves to the next one not yet used for that App.
 LADDER = ("overview", "simple", "analogy", "example", "how")
-PREPARED_ACTS = {*LADDER, "term", "compare", "choose", "differently", "meaning", "facts"}
+PREPARED_ACTS = {*LADDER, "term", "compare", "choose", "differently", "meaning", "facts", "audience"}
 _MAX_DEFINITIONS = 3
 
 
@@ -269,6 +269,36 @@ def term(phrase: str, guides: list[app_guide.Guide], state: dict) -> str:
     return "\n\n".join(lines)
 
 
+def audience(guide: app_guide.Guide, state: dict, app_id: str) -> str:
+    """Who an App is for: the roles its description names, else a labelled general note."""
+    roles = [glossary.BY_ID[r] for r in guide.roles]
+    if roles:
+        def plural(term):
+            return term if term.acronym else re.sub(r"y$", "ie", term.term) + "s"
+        names = [f"**{plural(r)}**" for r in roles[:4]]
+        lines = ["Its description names these roles: " + (", ".join(names[:-1]) + " and " + names[-1]
+                                                          if len(names) > 1 else names[0]) + "."]
+        lines.append("\n".join(f"- {_definition(r)}" for r in roles[:4] if r.id not in _defined(state)))
+        naming = next((s for s in guide.statements if set(s.terms) & set(guide.roles) and s.owned), None)
+        if naming:
+            lines.append(f"For example, it says: “{_q(naming.text)}”")
+        _defined(state).extend(r.id for r in roles[:4])
+        return "\n\n".join(line for line in lines if line)
+    if not guide.lead:
+        return ""
+    category = glossary.BY_ID[_central_terms(guide, 1)[0]].category if _central_terms(guide, 1) else ""
+    users = glossary.CATEGORIES[category].users if category else ""
+    people = guide.by_role("context")[:1]
+    answer = (f"{_name(guide)}’s description doesn’t say who uses it. It describes what it does: "
+              + _claim(guide, guide.lead).replace(_name(guide), "it", 1).replace("it’s description says", "it says"))
+    if people:
+        answer += f" It also mentions: “{_q(people[0].text)}”"
+    if users:
+        answer += (f"\n\nIn general, tools for {glossary.CATEGORIES[category].label} are used by {users}. "
+                   "*(General background, not a statement about this App.)*")
+    return answer
+
+
 def _areas(guide: app_guide.Guide) -> list[str]:
     return list(dict.fromkeys(glossary.BY_ID[t].category for t in _central_terms(guide, 4)))
 
@@ -346,7 +376,8 @@ def facts(guide: app_guide.Guide, app: dict, question: str) -> str:
     return "\n\n".join(lines)
 
 
-_LAYERS = {"overview": overview, "simple": simple, "analogy": analogy, "example": example, "how": how}
+_LAYERS = {"overview": overview, "simple": simple, "analogy": analogy, "example": example, "how": how,
+           "audience": audience}
 
 
 def prepared(act: str, question: str, apps: list[dict], state: dict, *, phrase: str = "") -> tuple[str, str]:
@@ -386,7 +417,8 @@ SYSTEM = (
     "- You may explain general ideas in your own words, as general background, not as App features.\n"
     "- Don't add benefits, outcomes, customers or industries the statements don't mention; mark any example "
     "as hypothetical. Avoid words like ensures or guarantees.\n"
-    "- Keep stated limitations. If the statements don't answer the question, say so and say what they cover.\n"
+    "- Keep stated limitations. If the statements don't say something (such as who uses it, accuracy or price), "
+    "say so first; any reasoning after that is general, not about this App.\n"
     "- Don't decide whether an App meets a requirement and don't start with Yes or No. No headings or links."
 )
 _RISKY = re.compile(r"\b(?:guarantee\w*|certif\w*|complian\w*|free of charge|integrat\w*|automatic\w*|"

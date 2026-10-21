@@ -213,6 +213,7 @@ def test_streamed_text_call_reuses_the_loaded_model_configuration(monkeypatch):
     ("Could you break that down for me?", "meaning"), ("Can I rely on its forecasts for trading?", "open"),
     ("What has the weather got to do with it?", "open"), ("So who gets paid in the end?", "open"),
     ("Is automatic settlement available now?", "open"),
+    ("Who is it for?", "audience"), ("Who would typically use it?", "audience"),
 ])
 def test_explanation_acts(message, kind):
     assert acts.parse(message, ["EdgeConnect", "LoadAhead", "MeaningHub"]).kind == kind
@@ -500,3 +501,15 @@ def test_an_elliptical_search_is_not_bound_to_the_previous_app(monkeypatch):
                                           "comparison_need": "does it forecast prices?"})
     assert queries == ["forecast prices"]
     interpret.assert_not_called()
+
+
+def test_who_an_app_is_for_comes_from_documented_roles_or_says_it_is_not_stated():
+    message, _ = explainer.prepared("audience", "", [RELAY_WITH_ROLES], {})
+    assert message.startswith("Its description names these roles: **aggregators** and **market operators**.")
+    message, _ = explainer.prepared("audience", "", [WATCH], {})
+    assert message.startswith("**TurbineWatch**’s description doesn’t say who uses it.")
+    assert "It also mentions: “Engineers review the alerts before scheduling maintenance.”" in message
+    assert "*(General background, not a statement about this App.)*" in message
+
+
+RELAY_WITH_ROLES = app("PoolLink", "PoolLink combines flexibility bids from aggregators and sends them to the market operator.")

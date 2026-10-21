@@ -19,6 +19,7 @@ REVIEW = "agent_authored_pending_domain_review"
 class Category:
     label: str
     context: str
+    users: str = ""  # who typically works with tools in this area (general, not App-specific)
 
 
 CATEGORIES = {
@@ -26,47 +27,60 @@ CATEGORIES = {
         "energy flexibility",
         "Electricity use and production have to stay in balance at every moment, and local grids "
         "can only "
-        "carry so much power. Changing when electricity is used helps keep that balance."),
+        "carry so much power. Changing when electricity is used helps keep that balance.",
+        users="aggregators, energy communities, grid operators and the businesses or households "
+              "whose flexibility they coordinate"),
     "markets": Category(
         "energy markets",
         "Electricity, and services that keep the grid stable, are bought and sold on markets with "
         "strict "
-        "rules about who may take part and how offers are submitted."),
+        "rules about who may take part and how offers are submitted.",
+        users="aggregators, traders, balancing service providers, market operators and grid "
+              "operators"),
     "grid": Category(
         "electricity grids",
         "The electricity grid carries power from producers to consumers through networks that are "
         "run by "
-        "system operators."),
+        "system operators.",
+        users="grid operators and the planners and engineers who run electricity networks"),
     "data": Category(
         "shared data definitions",
         "When organisations exchange data, each tends to name and structure the same information "
-        "differently, so their systems can't understand each other automatically."),
+        "differently, so their systems can't understand each other automatically.",
+        users="organisations that exchange data with partners, usually their data, integration "
+              "or standards teams"),
     "messaging": Category(
         "data exchange between systems",
         "Software systems exchange data as messages. Each side has to agree on the format, or the "
         "receiver "
-        "can't use what it gets."),
+        "can't use what it gets.",
+        users="software and integration teams that connect systems which must exchange messages"),
     "iot": Category(
         "connected devices",
         "Sensors, meters and other connected devices send measurements over networks so software "
         "can "
-        "monitor equipment and buildings."),
+        "monitor equipment and buildings.",
+        users="teams that operate equipment, buildings or sensor networks"),
     "maintenance": Category(
         "equipment maintenance",
         "Machines wear out. Their measurements can reveal problems early, before they cause a "
-        "breakdown."),
+        "breakdown.",
+        users="maintenance engineers and operators of machines such as wind turbines"),
     "forecasting": Category(
         "forecasting",
         "Forecasts estimate future values, such as prices or demand, from past data so people can "
-        "plan ahead."),
+        "plan ahead.",
+        users="planners, traders and grid operators who need to anticipate demand or prices"),
     "access": Category(
         "access and data protection",
         "Shared platforms have to control who may see which data and protect sensitive "
-        "information."),
+        "information.",
+        users="platform operators and the organisations whose data the platform holds"),
     "software": Category(
         "software delivery",
         "Software can be installed on your own servers or used as a service that the provider runs "
-        "for you."),
+        "for you.",
+        users="IT teams that install or operate software"),
 }
 
 

@@ -96,7 +96,7 @@ def reason(req: Reason):
 
 
 class Explain(BaseModel):
-    act: str = Field(pattern=r"^(?:overview|simple|example|analogy|how|term|meaning|differently|compare|choose|facts|open)$")
+    act: str = Field(pattern=r"^(?:overview|simple|example|analogy|how|term|meaning|differently|compare|choose|facts|audience|open)$")
     question: str = Field(max_length=2000)
     apps: list[dict] = Field(default_factory=list, max_length=5)
     state: dict = Field(default_factory=dict)

@@ -79,6 +79,10 @@ _OVERVIEW = (
     re.compile(r"^what (?:does|do) (?P<x>.+?) do$", re.I),
     re.compile(r"^(?:what can|what would) (?P<x>.+?) (?:do|help (?:me )?with)(?: for me)?$", re.I),
 )
+_AUDIENCE = re.compile(r"^who (?:is (?:it|this|that|[\w -]{1,40}?) (?:for|meant for|aimed at)|"
+                       r"(?:would|should|could|might) (?:typically |usually |actually )?(?:use|need|want) (?:it|this|that)|"
+                       r"(?:typically |usually )?uses (?:it|this|that)|benefits?|(?:would|could) benefit)\b|"
+                       r"\b(?:target (?:audience|users?)|typical users?|intended users?)\b", re.I)
 _PROVIDER = re.compile(r"\bwho\b.{0,30}\b(?:provides?|makes|develops|developed|operates|offers|supplies|is behind)\b|"
                        r"\bprovider\b", re.I)
 _ACCESS = re.compile(r"\b(?:access|get started|start using|sign up|log ?in|try it|where (?:can|do) i (?:find|use))\b", re.I)
@@ -124,6 +128,8 @@ def parse(message: str, app_names: list[str] | tuple[str, ...] = ()) -> Act | No
         return None
     if _PROVIDER.search(text) and _ACCESS.search(text):
         return Act("facts")
+    if _AUDIENCE.search(text) and not _PROVIDER.search(text):
+        return Act("audience")
     if _DIFFERENTLY.search(text):
         return Act("differently")
     if _MEANING.search(last) or _MEANING.search(text):
