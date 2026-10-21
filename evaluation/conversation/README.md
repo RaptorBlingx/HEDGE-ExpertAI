@@ -27,7 +27,9 @@ docker run --rm --network none --memory 1100m --memory-swap 1100m --cpus 1 --use
   --scenarios evaluation/conversation/heldout.json --output /evidence/heldout.json
 ```
 
-`--model-url` points explanation and interpretation calls at an Ollama endpoint.
+`--lexical` replaces E5 pools with word-overlap pools and disables similarity, saving
+~1 GB for runs beside a model; capability follow-ups then reach the planner more
+often than in production. `--model-url` points explanation and interpretation calls at an Ollama endpoint.
 Use it only for an isolated, verified model service with an explicit capacity
 plan; it must not compete with a deployed prototype's model. Results and design:
 [conversational experience](../../docs/t2-conversational-experience.md).
