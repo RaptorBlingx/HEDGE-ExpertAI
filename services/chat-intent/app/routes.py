@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -618,13 +619,40 @@ async def chat_stream_v2(req: ChatRequestV2):
         from hedge_shared.private_store import scope
 
         if scope():
+            from .private_store import STREAM
             yield _sse_v2("1", {"type": "stage", "stage": "retrieval"})
+            # Model-assisted explanations release checked sentences while they
+            # are generated; everything else still arrives as one message.
+            loop = asyncio.get_running_loop()
+            deltas: asyncio.Queue = asyncio.Queue()
+            token = STREAM.set(lambda text: loop.call_soon_threadsafe(deltas.put_nowait, text))
             try:
-                result = await run_chat_v2(req)
+                task = asyncio.create_task(run_chat_v2(req))
+            finally:
+                STREAM.reset(token)
+            streamed = ""
+            try:
+                while True:
+                    waiting = asyncio.ensure_future(deltas.get())
+                    done, _ = await asyncio.wait({task, waiting}, return_when=asyncio.FIRST_COMPLETED)
+                    if waiting not in done:
+                        waiting.cancel()
+                        break
+                    if not streamed:
+                        yield _sse_v2(str(uuid.uuid4()), {"type": "stage", "stage": "explanation"})
+                    streamed += waiting.result()
+                    yield _sse_v2(str(uuid.uuid4()), {"type": "explanation_delta", "content": waiting.result()})
+                while not deltas.empty():
+                    text = deltas.get_nowait()
+                    streamed += text
+                    yield _sse_v2(str(uuid.uuid4()), {"type": "explanation_delta", "content": text})
+                result = task.result()
+                message = result["message"]
+                rest = message[len(streamed):] if message.startswith(streamed) else "\n\n" + message
                 for payload in [
                     {"type": "recommendations", "apps": result["apps"],
                      **{k: result[k] for k in ("decision", "candidates", "impression_id") if k in result}},
-                    {"type": "explanation_delta", "content": result["message"]},
+                    *([{"type": "explanation_delta", "content": rest}] if rest else []),
                     {"type": "complete", **{k: result[k] for k in
                      ("session_id", "intent", "nlu", "generation", "decision", "timings", "impression_id") if k in result}},
                 ]:

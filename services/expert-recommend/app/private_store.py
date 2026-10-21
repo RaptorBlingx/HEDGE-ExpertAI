@@ -1,7 +1,11 @@
 """Internal composition by the existing expert; no duplicate recommendation logic."""
+import json
+import queue
+import threading
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from hedge_shared.config import Settings
 from hedge_shared.private_store import require_internal_key
 from hedge_shared.store_language import search_language
@@ -98,10 +102,36 @@ class Explain(BaseModel):
     state: dict = Field(default_factory=dict)
     history: list[dict] = Field(default_factory=list, max_length=20)
     phrase: str = Field(default="", max_length=120)
+    stream: bool = False
 
 
 @router.post("/explain")
 def explain(req: Explain):
-    """Conversational explanation; never a recommendation decision or new evidence."""
+    """Conversational explanation; never a recommendation decision or new evidence.
+
+    With stream=true the response is NDJSON: {"delta": ...} lines carrying
+    checked model sentences as they are generated, then {"final": <answer>}.
+    """
     from .explainer import respond as explain_apps
-    return explain_apps(req.act, req.question, req.apps, req.state, req.history, req.phrase)
+    if not req.stream:
+        return explain_apps(req.act, req.question, req.apps, req.state, req.history, req.phrase)
+    updates: queue.Queue = queue.Queue()
+
+    def work():
+        try:
+            final = explain_apps(req.act, req.question, req.apps, req.state, req.history, req.phrase,
+                                 on_delta=lambda text: updates.put({"delta": text}))
+        except Exception:
+            final = {"message": "", "error": "explanation_unavailable"}
+        updates.put({"final": final})
+
+    threading.Thread(target=work, daemon=True).start()
+
+    def lines():
+        while True:
+            item = updates.get()
+            yield json.dumps(item, ensure_ascii=False) + "\n"
+            if "final" in item:
+                return
+
+    return StreamingResponse(lines(), media_type="application/x-ndjson")

@@ -377,88 +377,153 @@ def prepared(act: str, question: str, apps: list[dict], state: dict, *, phrase: 
 # --- Model-assisted answers -------------------------------------------------
 
 SYSTEM = (
-    "You are ExpertAI, a friendly assistant for the HEDGE-IoT App Store. Answer the user's latest question "
-    "in plain English for someone without technical background.\n"
-    "Rules:\n"
-    "1. Facts about an App come only from its numbered statements. Cite them like [S2]. Never add features, "
-    "integrations, users, guarantees, prices, certifications or access conditions they do not state.\n"
-    "2. You may explain general ideas in your own words, using the background notes. Present them as general "
-    "background, not as something the App does.\n"
-    "3. Keep stated conditions and limitations. If the statements don't answer the question, say so plainly and "
-    "say what the description does cover.\n"
-    "4. Do not say whether an App meets a requirement; say what its description documents.\n"
-    "5. At most 110 words, no headings, no links. Answer directly; don't repeat the question."
+    "You are ExpertAI, a friendly guide to the HEDGE-IoT App Store. Answer the latest question in plain "
+    "English for someone without technical background, in at most 80 words.\n"
+    "- App facts come only from the numbered statements; cite them like [S2]. Never add features, users, "
+    "integrations, guarantees, prices or access conditions they don't state.\n"
+    "- You may explain general ideas in your own words, as general background, not as App features.\n"
+    "- Keep stated limitations. If the statements don't answer the question, say so and say what they cover.\n"
+    "- Don't decide whether an App meets a requirement. No headings or links."
 )
 _RISKY = re.compile(r"\b(?:guarantee\w*|certif\w*|complian\w*|free of charge|integrat\w*|automatic\w*|"
                     r"real[- ]time|machine learning|artificial intelligence|ai-powered|encrypt\w*|secure\w*)\b", re.I)
 _CITATION = re.compile(r"\s*\[(S\d+(?:\s*,\s*S\d+)*)\]")
+_SENTENCE_END = re.compile(r"(?<=[.!?])(?:\s*\[S\d+(?:\s*,\s*S\d+)*\])?\s+")
+_BUDGET = {"statements": 5, "background": 3, "previous": 240}
 
 
-def _relevant(guide: app_guide.Guide, question: str, limit: int = 7) -> list[app_guide.Statement]:
-    asked = set(glossary.mentioned(question)) | {w for w in re.findall(r"[a-z]{5,}", question.casefold())}
-    def score(s):
-        words = set(re.findall(r"[a-z]{5,}", s.text.casefold()))
-        return -(len(asked & set(s.terms)) * 2 + len(asked & words))
-    core = guide.main[:2] + guide.by_role("limitation")[:2]
-    rest = sorted((s for s in guide.statements if s not in core and s.role != "access"), key=score)
-    return list(dict.fromkeys(core + rest))[:limit]
+def _relevant(guide: app_guide.Guide, question: str, limit: int) -> list[app_guide.Statement]:
+    """The lead, then the statements sharing most with the question; one limitation at most."""
+    asked = evidence_terms(question)
+    scored = sorted((s for s in guide.statements if s.role not in {"access", "attribution"}),
+                    key=lambda s: -len(asked & evidence_terms(s.text)))
+    chosen = [s for s in guide.main[:1]]
+    chosen += [s for s in scored if s not in chosen and asked & evidence_terms(s.text)]
+    limitations = [s for s in guide.by_role("limitation") if s not in chosen][:1]
+    return list(dict.fromkeys(chosen[:limit - len(limitations)] + limitations))[:limit]
+
+
+def _prompt(question: str, guides: list[app_guide.Guide], history: list[dict]):
+    """A small prompt: prompt reading, not generation, dominates CPU latency on this hardware."""
+    sources, payload = {}, []
+    for guide in guides:
+        statements = {}
+        for statement in _relevant(guide, question, _BUDGET["statements"] if len(guides) == 1 else 3):
+            key = f"S{len(sources) + 1}"
+            sources[key] = (guide, statement)
+            statements[key] = statement.text
+        payload.append({"app": guide.name, "statements": statements})
+    terms = list(dict.fromkeys(glossary.mentioned(question) + [t for g in guides for t in _central_terms(g, 2)]))
+    background = {glossary.BY_ID[t].term: glossary.BY_ID[t].plain for t in terms[:_BUDGET["background"]]}
+    # The previous answer gives "that"/"it" a referent; it is not evidence.
+    previous = next((" ".join(str(m.get("content", "")).split()) for m in reversed(history)
+                     if m.get("role") == "assistant"), "")[:_BUDGET["previous"]]
+    data = {"apps": payload, "background": background, "previous_answer": previous, "question": question}
+    messages = [{"role": "system", "content": SYSTEM},
+                {"role": "user", "content": json.dumps(data, ensure_ascii=False, separators=(",", ":"))}]
+    grounds = " ".join([question, previous, *background.values(), *(s.text for _, s in sources.values())])
+    return messages, sources, grounds
+
+
+def _sentence_problems(sentence: str, sources: dict, grounds: str) -> list[str]:
+    problems = []
+    cited = [k for group in _CITATION.findall(sentence) for k in re.split(r"\s*,\s*", group)]
+    if any(k not in sources for k in cited):
+        problems.append("citations")
+    text = _CITATION.sub("", sentence)
+    if re.search(r"https?://|<[a-z/]|\]\(", text, re.I):
+        problems.append("markup")
+    if set(re.findall(r"\d+(?:[.,]\d+)?", text)) - set(re.findall(r"\d+(?:[.,]\d+)?", grounds)):
+        problems.append("quantity")
+    if {m.casefold() for m in _RISKY.findall(text)} - {m.casefold() for m in _RISKY.findall(grounds)}:
+        problems.append("unsupported_claim")
+    return problems
+
+
+class _Gate:
+    """Release model text one checked sentence at a time; stop at the first ungrounded one."""
+
+    def __init__(self, sources: dict, grounds: str, emit=None):
+        self.sources, self.grounds, self.emit = sources, grounds, emit
+        self.raw, self.released, self.cited, self.problems = "", [], [], []
+
+    def feed(self, chunk: str) -> None:
+        self.raw += chunk
+        while not self.problems:
+            match = _SENTENCE_END.search(self.raw)
+            if not match:
+                return
+            self._release(self.raw[:match.end()])
+            self.raw = self.raw[match.end():]
+        raise _Ungrounded()
+
+    def finish(self) -> None:
+        if self.raw.strip() and not self.problems:
+            self._release(self.raw)
+        self.raw = ""
+
+    def _release(self, sentence: str) -> None:
+        problems = _sentence_problems(sentence, self.sources, self.grounds)
+        if problems:
+            self.problems = problems
+            raise _Ungrounded()
+        self.cited += [k for group in _CITATION.findall(sentence) for k in re.split(r"\s*,\s*", group)]
+        text = _q(_CITATION.sub("", sentence).strip())  # model text is untrusted: no markup of its own
+        if text:
+            text = ("" if not self.released else " ") + text
+            self.released.append(text)
+            if self.emit:
+                self.emit(text)
+
+    @property
+    def text(self) -> str:
+        return "".join(self.released)
+
+
+class _Ungrounded(Exception):
+    pass
 
 
 def open_answer(question: str, apps: list[dict], history: list[dict], *, on_delta=None) -> dict:
-    """One bounded, cited model answer; never a recommendation or new evidence."""
+    """One bounded, cited model answer; never a recommendation or new evidence.
+
+    With on_delta, checked sentences are released as they are generated. A
+    sentence failing a check stops the answer there; without streaming the
+    whole answer falls back. Released text is never withdrawn.
+    """
     settings = Settings()
     guides = [app_guide.build(app) for app in apps]
-    sources, payload_apps = {}, []
-    for guide in guides:
-        facts_ = {}
-        for statement in _relevant(guide, question, 7 if len(guides) == 1 else 4):
-            key = f"S{len(sources) + 1}"
-            sources[key] = (guide, statement)
-            facts_[key] = statement.text
-        payload_apps.append({"name": guide.name, "provider": guide.provider, "statements": facts_})
-    asked = glossary.mentioned(question)
-    background = {glossary.BY_ID[t].term: glossary.BY_ID[t].plain
-                  for t in list(dict.fromkeys(asked + [t for g in guides for t in _central_terms(g, 2)]))[:4]}
-    conversation = []
-    for message in history[-4:]:
-        text = " ".join(str(message.get("content", "")).split())
-        if message.get("role") in {"user", "assistant"} and text:
-            conversation.append({"role": message["role"], "text": text[:300]})
-    data = {"apps": payload_apps, "background": background, "conversation": conversation, "question": question}
+    messages, sources, grounds = _prompt(question, guides, history)
+    gate = _Gate(sources, grounds, on_delta)
     started = time.monotonic()
     try:
-        text = OllamaClient().chat_text([
-            {"role": "system", "content": SYSTEM},
-            {"role": "user", "content": json.dumps(data, ensure_ascii=False, separators=(",", ":"))},
-        ], max_tokens=settings.STORE_EXPLANATION_TOKENS, context_tokens=settings.STORE_MODEL_CONTEXT_TOKENS,
-            timeout=settings.STORE_MODEL_TIMEOUT_SECONDS, deadline=started + settings.STORE_MODEL_TIMEOUT_SECONDS,
-            on_delta=on_delta)
+        streamed = []
+        text = OllamaClient().chat_text(messages, max_tokens=settings.STORE_EXPLANATION_TOKENS,
+                                        context_tokens=settings.STORE_MODEL_CONTEXT_TOKENS,
+                                        timeout=settings.STORE_MODEL_TIMEOUT_SECONDS,
+                                        deadline=started + settings.STORE_MODEL_TIMEOUT_SECONDS,
+                                        on_delta=lambda chunk: (streamed.append(chunk), gate.feed(chunk)))
+        if not streamed:
+            gate.feed(text)
+        gate.finish()
+    except _Ungrounded:
+        pass
     except Exception:
-        return {"completed": False, "reason": "model_unavailable"}
-    cited = list(dict.fromkeys(k for group in _CITATION.findall(text) for k in re.split(r"\s*,\s*", group)))
-    answer = _CITATION.sub("", text).strip()
-    grounds = " ".join([question, *background.values(), *(s.text for _, s in sources.values()),
-                        *(c["text"] for c in conversation)])
-    reasons = []
-    if not answer or any(k not in sources for k in cited) or not cited:
-        reasons.append("citations")
-    if re.search(r"https?://|<[a-z/]", answer, re.I):
-        reasons.append("markup")
-    if set(re.findall(r"\d+(?:[.,]\d+)?", answer)) - set(re.findall(r"\d+(?:[.,]\d+)?", grounds)):
-        reasons.append("quantity")
-    risky = {m.casefold() for m in _RISKY.findall(answer)} - {m.casefold() for m in _RISKY.findall(grounds)}
-    if risky:
-        reasons.append("unsupported_claim")
-    if len(answer.split()) > 170:
-        reasons.append("length")
+        if not gate.released:
+            return {"completed": False, "reason": "model_unavailable"}
+        gate.problems = gate.problems or ["incomplete"]
     elapsed = time.monotonic() - started
-    if reasons:
-        return {"completed": False, "reason": "ungrounded_answer", "checks": reasons, "seconds": elapsed}
-    basis = [sources[k] for k in cited[:2]]
-    message = _q(answer)  # model text is untrusted: no markup of its own
-    if basis:
-        message += "\n\n" + "\n".join(f"*From {_q(g.name)}’s description:* “{_q(s.text)}”" for g, s in basis)
-    return {"completed": True, "message": message, "seconds": elapsed,
+    stats = {"seconds": elapsed, "prompt_chars": sum(len(m["content"]) for m in messages)}
+    if not gate.released or not on_delta and (gate.problems or not gate.cited):
+        return {"completed": False, "reason": "ungrounded_answer", "checks": gate.problems or ["citations"], **stats}
+    message = gate.text
+    if gate.problems:
+        message += " …\n\n*(I stopped there: I couldn’t ground the rest in the description.)*"
+    basis = [sources[k] for k in dict.fromkeys(gate.cited)][:2] or [(g, g.lead) for g in guides[:1] if g.lead]
+    label = "From" if gate.cited else "For reference, from"
+    message += "\n\n" + "\n".join(f"*{label} {_q(g.name)}’s description:* “{_q(s.text)}”" for g, s in basis)
+    return {"completed": True, "message": message, "streamed": gate.text if on_delta else "", **stats,
+            "cited": bool(gate.cited), "stopped": gate.problems,
             "evidence": [{"app": g.name, "path": s.path, "quote": s.quote} for g, s in basis]}
 
 
@@ -517,6 +582,7 @@ def respond(act: str, question: str, apps: list[dict], state: dict, history: lis
             return {"message": answer["message"], "act": "open", "state": _bounded(state), "generation": {
                 "source": "ollama", "reason": "explanation_open", "model_completed": True, "model_calls": 1,
                 "model": settings.OLLAMA_MODEL, "explanation_seconds": answer["seconds"],
+                "prompt_chars": answer["prompt_chars"], "cited": answer["cited"], "stopped": answer["stopped"],
                 "evidence": answer["evidence"]}}
         fallback_reason = answer.get("reason")
     else:

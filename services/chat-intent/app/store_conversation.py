@@ -611,6 +611,20 @@ class StoreConversation(StoreDialogue):
                 response["interpreted_query"] = query
                 presentation = {"workflow": "How does it work?", "simple": "Explain it simply", "pricing": "What does it cost?", "access": "How do I get started?", "provider": "Who provides it?"}.get(view, req.message)
                 response["message"] = self.present(presentation, response, req.locale) if self.present else response["message"]
+                # An interpreted explanation uses the same layered explainer as a parsed one.
+                act = {"simple": "simple", "purpose": "overview", "workflow": "how",
+                       "comparison": "compare"}.get(view) if inspection else None
+                if act and self.explainer and shown and (act != "compare" or len(shown) > 1):
+                    try:
+                        explained = await asyncio.to_thread(
+                            self.explainer, act, req.message, [r["app"] for r in shown],
+                            deepcopy(context.get("explanations", {})), history[-6:], "")
+                    except Exception:
+                        explained = {}
+                    if explained.get("message"):
+                        response["message"] = explained["message"]
+                        response["context"]["explanations"] = explained.get("state", {})
+                        generation["explanation"] = explained.get("generation", {}).get("reason")
                 partial = any(r.get("suitability", {}).get("status") == "partial" for r in response.get("candidates", []))
                 if not shown and not response.get("unverified_filters") and not partial:
                     if action != "answer" or not response.get("candidates"):

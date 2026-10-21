@@ -1,5 +1,7 @@
 """Bind the existing Store dialogue to deployed HTTP services."""
+import json
 import os
+from contextvars import ContextVar
 from functools import lru_cache
 
 import httpx
@@ -7,6 +9,10 @@ from fastapi import HTTPException
 from hedge_shared.config import Settings
 
 from .store_conversation import StoreConversation
+
+# Set by the streaming chat route for the current request only: receives text
+# the widget may show before the reply completes.
+STREAM: ContextVar = ContextVar("store_explanation_stream", default=None)
 
 client = httpx.Client(timeout=Settings().STORE_MODEL_TIMEOUT_SECONDS + 10, trust_env=False,
                       headers={"X-API-Key": os.environ.get("GATEWAY_API_KEY", "")})
@@ -54,9 +60,25 @@ def policy():
             "nlu": kwargs.get("nlu_hint", {})})
 
     def explainer(act, question, apps, state, history, phrase=""):
-        return call("EXPERT_RECOMMEND_URL", "/internal/store/explain", {
-            "act": act, "question": question, "apps": apps, "state": state,
-            "history": history[-6:], "phrase": phrase[:120]})
+        body = {"act": act, "question": question, "apps": apps, "state": state,
+                "history": history[-6:], "phrase": phrase[:120]}
+        relay = STREAM.get()
+        if relay is None:
+            return call("EXPERT_RECOMMEND_URL", "/internal/store/explain", body)
+        # Forward checked sentences to the widget while the answer is generated.
+        try:
+            with client.stream("POST", os.environ["EXPERT_RECOMMEND_URL"] + "/internal/store/explain",
+                               json={**body, "stream": True}) as response:
+                response.raise_for_status()
+                for line in response.iter_lines():
+                    item = json.loads(line) if line else {}
+                    if "delta" in item:
+                        relay(str(item["delta"]))
+                    elif "final" in item:
+                        return item["final"]
+        except (httpx.HTTPError, ValueError):
+            pass
+        raise HTTPException(503, "Store service unavailable")
 
     return StoreConversation(
         _recommend_v2, resolve,
