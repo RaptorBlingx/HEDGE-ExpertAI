@@ -273,3 +273,43 @@ def test_a_catalogue_change_during_an_explanation_withdraws_it(monkeypatch):
     calls.side_effect = change
     result = ask(policy, "Explain BidRelay simply", {})
     assert result["decision"]["reason"] == "catalogue_changed" and not result["apps"]
+
+
+WATCH = app("TurbineWatch", "TurbineWatch analyses gearbox vibration measurements and flags patterns associated "
+                            "with bearing failures. Engineers review the alerts before scheduling maintenance. "
+                            "It does not control turbine operation.")
+LOOP = app("LoopLab", "LoopLab combines flexibility offers only in simulation. Live market submission is not supported.")
+
+
+def test_examples_fall_back_to_documented_workflow_and_overviews_do_not_repeat_the_lead():
+    message, _ = explainer.prepared("example", "", [WATCH], {})
+    assert "**How it is used, according to its description:**" in message
+    assert "“Engineers review the alerts before scheduling maintenance.”" in message
+    overview, _ = explainer.prepared("overview", "", [LOOP], {})
+    assert overview.count("combines flexibility offers only in simulation") == 1
+
+
+def test_an_unconfirmed_capability_shows_the_nearest_statement_without_confirming_it():
+    statement = explainer.related_statement(guide_module.build(WATCH), "Can it schedule maintenance automatically?")
+    assert statement.text == "Engineers review the alerts before scheduling maintenance."
+    presenter = expert("store_conversation")
+    row = {"app": WATCH, "rank": 1, "suitability": {"status": "uncertain", "requirements": [
+        {"requirement": "schedule maintenance automatically", "status": "not_documented"}]}}
+    message = presenter.prepared_answer("Can it schedule maintenance automatically?",
+                                        {"intent": "detail", "apps": [], "candidates": [row], "context": {}}, "en")
+    assert message.startswith("I couldn’t confirm that from **TurbineWatch**’s description.")
+    assert "It also says: “Engineers review the alerts before scheduling maintenance.”" in message
+    both = presenter.prepared_answer("Which one schedules maintenance?", {
+        "intent": "detail", "apps": [], "context": {},
+        "candidates": [row, {**row, "app": LOOP, "rank": 2}]}, "en")
+    assert both.startswith("I couldn’t confirm that from the descriptions of **TurbineWatch** or **LoopLab**.")
+    assert "fits what you need" not in both
+
+
+def test_an_elliptical_follow_up_searches_for_the_previous_need():
+    assert acts.elliptical_search("Find me one that does", "does it predict electricity prices?") == \
+        "Find an app to predict electricity prices"
+    assert acts.elliptical_search("Show me something that can", "can it submit bids to a live market?") == \
+        "Find an app to submit bids to a live market"
+    assert acts.elliptical_search("Find me one that does", "") is None
+    assert acts.elliptical_search("Find an app for weather forecasts", "does it forecast prices") is None

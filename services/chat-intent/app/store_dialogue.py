@@ -42,7 +42,7 @@ _SOURCE_READ = re.compile(
     r")(?: (?:for|of) (.+?))?[?!.]*", re.I,
 )
 _REFERENCE = re.compile(r"\b(it|that app|this app|that one|this one|both|them|these apps|those apps|the other (?:app|one)|"
-                        r"which one|bu uygulama|bunu)\b", re.I)
+                        r"which one|which of the two|bu uygulama|bunu)\b", re.I)
 
 
 def _mentions(app: dict, message: str) -> bool:
@@ -241,7 +241,7 @@ class StoreDialogue:
                 if selected and intent == "compare":
                     selected = context["focused_ids"] + selected
             elif _REFERENCE.search(message):
-                selected = comparison if intent == "compare" or re.search(r"\b(both|them|these apps|those apps|which one)\b", message, re.I) else context.get("focused_ids", [])
+                selected = comparison if intent == "compare" or re.search(r"\b(both|them|these apps|those apps|which one|which of)\b", message, re.I) else context.get("focused_ids", [])
         selected = list(dict.fromkeys(selected))
         criterion = _comparison_criterion(message, [a for a in current if a["id"] in selected]) if intent == "compare" else ""
         price_question = cost_question(message) if not criterion else None

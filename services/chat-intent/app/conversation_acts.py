@@ -69,7 +69,8 @@ _TERM = (
                r"(?:is|are|means)$", re.I),
 )
 _OVERVIEW = (
-    re.compile(r"^(?:so )?(?:what(?:'s| is| are)|who is) (?P<x>.+?)(?: (?:useful|good|used|meant|designed) for)?$", re.I),
+    re.compile(r"^(?:so )?(?:what(?:'s| is| are)|who is) (?P<x>.+?)(?: (?:useful|good|used|meant|designed))?(?: for)?$",
+               re.I),
     re.compile(r"^(?:can you |could you )?(?:please )?(?:tell me (?:more )?about|describe|introduce|explain|"
                r"what about|how about|and) (?P<x>.+?)(?: please)?$", re.I),
     re.compile(r"^what (?:does|do) (?P<x>.+?) do$", re.I),
@@ -138,3 +139,22 @@ def parse(message: str, app_names: list[str] | tuple[str, ...] = ()) -> Act | No
     if _OPEN.search(text) and not _CAPABILITY.match(text) and not _PROVIDER.search(text):
         return Act("open")
     return None
+
+
+_ELLIPTICAL = re.compile(
+    r"^(?:(?:can|could) you )?(?:please )?(?:show|find|give|recommend|suggest)(?: me| us)? "
+    r"(?:something|one|an app|apps|any(?:thing| app| apps)?|another(?: one| app)?|an alternative|alternatives)"
+    r"(?: (?:that|which) (?:can|does|do|could|will|would)(?: (?:it|that|this|so))?)?$|"
+    r"^(?:is|are) there (?:one|any|an app|apps|something|anything|another)"
+    r"(?: (?:that|which) (?:can|does|do))?(?: (?:it|that))?$|"
+    r"^(?:which|what) (?:app|one) (?:can|does|do)(?: (?:it|that))?$", re.I)
+_AUXILIARY = re.compile(r"^(?:(?:so|and)\s+)?(?:does|do|can|could|will|would|is|are)\s+"
+                        r"(?:it|they|this|that|this app|that app)?\s*(?:also\s+)?(?:able to\s+)?", re.I)
+
+
+def elliptical_search(message: str, need: str) -> str | None:
+    """'Find me one that does' after a capability question searches for that same need."""
+    if not need or not _ELLIPTICAL.match(_clean(message)):
+        return None
+    need = _AUXILIARY.sub("", _clean(need)).strip()
+    return f"Find an app to {need}" if need else None

@@ -250,11 +250,25 @@ def _prepared_answer(question: str, response: dict, locale: str) -> str:
                 if guide.lead:
                     answer = (f'I couldn’t confirm that from **{name}**’s description. What it does document: '
                               + explainer._claim(guide, guide.lead))
+                    nearby = explainer.related_statement(guide, question, (guide.lead.id,))
+                    if nearby:
+                        answer += f'\n\nIt also says: “{_quoted_store_text(nearby.text)}”'
+
             return answer
         if locale == "en" and intent == "detail" and any(
                 r.get("suitability", {}).get("status") == "partial" for r in candidates):
             # A decision over the Apps already referenced ("Which of them can ...?").
             return decision_message([], candidates)
+        if locale == "en" and intent == "detail" and len(candidates) > 1:
+            # The Apps are known; none of their descriptions confirms the request.
+            names = [_quoted_store_text(r["app"].get("name") or r["app"]["app_id"]) for r in candidates]
+            lines = ["I couldn’t confirm that from the descriptions of "
+                     + ", ".join(f"**{n}**" for n in names[:-1]) + f" or **{names[-1]}**."]
+            for row, name in zip(candidates, names, strict=True):
+                nearby = explainer.related_statement(app_guide.build(row["app"]), question)
+                if nearby:
+                    lines.append(f"- **{name}** says: “{_quoted_store_text(nearby.text)}”")
+            return "\n\n".join(lines[:1] + ["\n".join(lines[1:])] if len(lines) > 1 else lines)
         if intent in {"detail", "compare", "clarify"}:
             return ("Hangi uygulamayı kastediyorsunuz? Adını söyleyebilir veya uygulamaları listeleyebilirsiniz." if locale == "tr" else
                     "Which App do you mean? You can name it or ask me to list the Apps.")

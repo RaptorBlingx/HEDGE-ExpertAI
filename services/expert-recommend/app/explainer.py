@@ -20,6 +20,7 @@ from hedge_shared import glossary
 from hedge_shared.config import Settings
 
 from . import app_guide
+from .evidence import terms as evidence_terms
 from .llm_client import OllamaClient
 from .recommender import _quoted_store_text
 
@@ -70,6 +71,19 @@ def _phrase(guide: app_guide.Guide, statement: app_guide.Statement) -> str:
     return f"what you need matches “{_q(text)}”"
 
 
+def related_statement(guide: app_guide.Guide, question: str, exclude: tuple[str, ...] = ()) -> app_guide.Statement | None:
+    """The App's sentence sharing the most content words with a question; context, never confirmation."""
+    asked = evidence_terms(question) - evidence_terms(guide.name)
+    best, score = None, 0
+    for statement in guide.statements:
+        if statement.id in exclude or statement.role in {"attribution", "access"}:
+            continue
+        overlap = len(asked & evidence_terms(statement.text))
+        if overlap > score:
+            best, score = statement, overlap
+    return best
+
+
 def _definition(term: glossary.Term, *, why: bool = False) -> str:
     line = f"**{term.term[:1].upper() + term.term[1:]}**: {term.plain}."
     if why and term.why:
@@ -89,8 +103,9 @@ def _defined(state: dict) -> list[str]:
 
 
 def _central_terms(guide: app_guide.Guide, limit: int = 4) -> list[str]:
-    terms = [t for s in guide.main[:2] for t in s.terms]
-    return list(dict.fromkeys(terms + list(guide.terms)))[:limit]
+    """Concepts in what the App does; others (e.g. from a negation) only if there are none."""
+    terms = list(dict.fromkeys(t for s in guide.main[:3] for t in s.terms))
+    return (terms or list(guide.terms))[:limit]
 
 
 def _fresh_terms(guide: app_guide.Guide, state: dict, limit: int = _MAX_DEFINITIONS) -> list[glossary.Term]:
@@ -98,8 +113,8 @@ def _fresh_terms(guide: app_guide.Guide, state: dict, limit: int = _MAX_DEFINITI
     defined = set(_defined(state))
     ordered: list[str] = []
     for term_id in _central_terms(guide, 4):
-        basics = [r for r in glossary.BY_ID[term_id].related
-                  if r in glossary.BY_ID and glossary.BY_ID[r].category == "flexibility" and r != term_id]
+        basics = [r for r in glossary.BY_ID[term_id].related if r != term_id
+                  and glossary.BY_ID[r].category == "flexibility" and (r in guide.terms or r == "flexibility")]
         ordered += [*basics[:1], term_id]
     return [glossary.BY_ID[t] for t in dict.fromkeys(ordered) if t not in defined][:limit]
 
@@ -124,7 +139,8 @@ def overview(guide: app_guide.Guide, state: dict, app_id: str) -> str:
             f"- “{_q(s.text)}”" for s in [*more, *context]))
     if guide.features:
         lines.append("Listed features: " + " · ".join(_q(f) for f in guide.features) + ".")
-    caveats = _caveats(guide, 1)
+    shown = {s.id for s in [main[0], *more, *context]}
+    caveats = [c for c in guide.by_role("limitation") if c.id not in shown][:1]
     if caveats:
         lines.append(f"Worth knowing: “{_q(caveats[0].text)}”")
     terms = [glossary.BY_ID[t].term for t in _central_terms(guide, 3) if t not in _defined(state)][:2]
@@ -181,6 +197,11 @@ def example(guide: app_guide.Guide, state: dict, app_id: str) -> str:
         lines.append(f"**An illustrative scenario** (made up to show the idea of *{illustrative.term}*, not taken "
                      f"from the App’s description): {glossary.sentence(illustrative.example)}")
         entry["examples"].append(illustrative.id)
+    workflow = [s for s in guide.by_role("context") if s.id not in entry["shown"]][:2]
+    if workflow and not schemes:
+        lines.insert(0, "**How it is used, according to its description:**\n"
+                     + "\n".join(f"- “{_q(s.text)}”" for s in workflow))
+        schemes = workflow
     lead = guide.lead
     if lead and lines and lead.id not in state.get("last_shown", []):
         lines.append(f"**Where {_q(guide.name)} fits, per its description:** "
@@ -299,8 +320,8 @@ def compare(guides: list[app_guide.Guide], state: dict, *, choose: bool = False)
         if notes:
             lines.append("**Worth knowing:** " + " ".join(notes))
         terms = list(dict.fromkeys(t for g in guides for t in _central_terms(g, 2) if t not in _defined(state)))
-        lines.append(("I can explain " + ", ".join(f"*{glossary.BY_ID[t].term}*" for t in terms[:3]) + ", or "
-                      if terms else "") + "tell me what you need to do and I’ll check which description covers it.")
+        lines.append(("I can explain " + ", ".join(f"*{glossary.BY_ID[t].term}*" for t in terms[:3]) + ", or tell"
+                      if terms else "Tell") + " me what you need to do and I’ll check which description covers it.")
         state["last_terms"] = terms[:3]
     state["last_act"], state["last_apps"] = "compare", [g.name for g in guides]
     return "\n\n".join(lines)
@@ -452,6 +473,9 @@ def _without_model(act: str, question: str, apps: list[dict], state: dict, phras
     guides = [app_guide.build(app) for app in apps]
     if act in {"differently", "meaning"} and guides:
         return _unclear(guides[0], state)
+    if act == "example" and guides and guides[0].lead:
+        return (f"{_q(guides[0].name)}’s description doesn’t include a worked example, and I don’t have a "
+                f"general one ready for this topic. What it documents: {_claim(guides[0], guides[0].lead)}")
     if act == "term":
         lines = [f"I don’t have a reliable general definition of “{_q(phrase)}”."]
         for guide in guides[:1]:
@@ -483,6 +507,9 @@ def respond(act: str, question: str, apps: list[dict], state: dict, history: lis
             asked = (f"{question} — The user is still confused after the earlier explanations in the conversation. "
                      "Explain the App's main idea once more from a new angle, with one everyday comparison, "
                      "in simpler words than before.")
+        elif act == "example":
+            asked = (f"{question} — Give one short, clearly hypothetical everyday example of using this App, "
+                     "built only from what its statements document.")
         elif act == "term":
             asked = f"What does “{phrase}” mean in general, and how is it used in this App's description? ({question})"
         answer = open_answer(asked, apps, history, on_delta=on_delta)
