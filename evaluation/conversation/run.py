@@ -94,6 +94,21 @@ async def main(args) -> None:
         return list(by_id.values()) if ids is None else [by_id[i] for i in ids if i in by_id]
 
     calls = {"explain": 0, "interpret": 0}
+    raw: list[str] = []
+    if args.model_url:
+        # Record raw model text for reading; it is never part of the reply.
+        client = explainer.OllamaClient
+
+        class Tracing(client):
+            def chat_text(self, *a, **kw):
+                chunks, relay = [], kw.get("on_delta")
+                kw["on_delta"] = lambda chunk: (chunks.append(chunk), relay(chunk) if relay else None)
+                try:
+                    return super().chat_text(*a, **kw)
+                finally:  # also when a sentence check stops the answer
+                    raw.append("".join(chunks))
+
+        explainer.OllamaClient = Tracing
 
     def interpret(question, locale, directory, context, history):
         calls["interpret"] += 1
@@ -118,6 +133,7 @@ async def main(args) -> None:
             req = ChatRequestV2(message=turn["message"], locale="en")
             intent = policy.route_intent(req.message, classifier.classify(req.message).intent, context)
             before = dict(calls)
+            raw.clear()
             started = time.monotonic()
             reply = await policy.respond_with_history(req, intent, context, history, nlu={"intent": intent})
             seconds = time.monotonic() - started
@@ -135,13 +151,15 @@ async def main(args) -> None:
             record = {"message": turn["message"], "reply": reply["message"], "apps": names,
                       "decision": reply.get("decision"), "generation": generation, "seconds": round(seconds, 2),
                       "repetition": round(rep, 2), "calls": {k: calls[k] - before[k] for k in calls},
-                      "problems": problems}
+                      "problems": problems, "model_text": list(raw)}
             turns.append(record)
             path = generation.get("reason") or generation.get("source")
             lines.append(f"**User:** {turn['message']}\n\n*[{path}; {reply.get('decision', {}).get('outcome')}; "
                          f"cards={names}; {seconds:.2f}s; model={bool(generation.get('model_completed'))}]*"
                          + (f" **CHECK: {'; '.join(problems)}**" if problems else "")
-                         + f"\n\n{reply['message']}\n\n---\n")
+                         + f"\n\n{reply['message']}\n\n"
+                         + "".join(f"> raw model text: {t}\n\n" for t in raw if t not in reply["message"])
+                         + "---\n")
         out.append({"id": case["id"], "turns": turns})
     args.output.write_text(json.dumps(out, indent=1, ensure_ascii=False))
     args.output.with_suffix(".md").write_text("\n".join(lines))

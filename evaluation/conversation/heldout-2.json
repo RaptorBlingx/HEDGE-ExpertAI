@@ -13,7 +13,7 @@
       {"message": "What's OpenTherm for?", "expect": {"subject": ["OpenTherm"], "model": false}},
       {"message": "Can it trade energy on a market?", "expect": {"forbid": ["fits what you need"], "concepts_any": ["No energy-market services"]}},
       {"message": "Put it more simply", "expect": {"subject": ["OpenTherm"], "concepts_any": ["sensor"], "model": false}},
-      {"message": "Give me an example of how someone would use it", "expect": {"subject": ["OpenTherm"], "forbid": ["can’t reason"], "model": false}}
+      {"message": "Give me an example of how someone would use it", "expect": {"subject": ["OpenTherm"], "forbid": ["can’t reason", "don’t have a reliable answer"], "model": false}}
     ]},
     {"id": "K3", "turns": [
       {"message": "What does MaintenanceDocs do?", "expect": {"subject": ["MaintenanceDocs"], "model": false}},

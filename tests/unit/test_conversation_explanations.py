@@ -157,13 +157,14 @@ def test_open_question_uses_one_cited_model_answer_with_labelled_evidence(model)
     "It guarantees delivery to energy communities [S1].",        # unsupported claim
     "It serves 400 energy communities [S1].",                    # unsupported quantity
     "See https://example.invalid for details [S1].",             # navigation
+    "BidRelay itself does not handle payments [S1].",            # negation no limitation states
 ])
 def test_ungrounded_model_answers_fall_back_without_retry(model, reply):
     model.return_value = reply
     answer = explainer.respond("open", "Would it help an energy community?", [RELAY], {}, [])
     assert answer["generation"]["model_completed"] is False
     assert answer["generation"]["model_fallback"] == "ungrounded_answer"
-    assert "I can’t reason through that specific situation right now" in answer["message"]
+    assert "I don’t have a reliable answer to that from the description of **BidRelay**" in answer["message"]
     model.assert_called_once()
 
 
@@ -210,6 +211,9 @@ def test_streamed_text_call_reuses_the_loaded_model_configuration(monkeypatch):
     ("Who provides it, and how can I access it?", "facts"),
     ("How would a utility use it in practice?", "open"), ("Would it help a small energy cooperative?", "open"),
     ("What is a container image?", "term"),
+    ("Could you break that down for me?", "meaning"), ("Can I rely on its forecasts for trading?", "open"),
+    ("What has the weather got to do with it?", "open"), ("So who gets paid in the end?", "open"),
+    ("Is automatic settlement available now?", "open"),
 ])
 def test_explanation_acts(message, kind):
     assert acts.parse(message, ["EdgeConnect", "LoadAhead", "MeaningHub"]).kind == kind
@@ -221,7 +225,8 @@ def test_explanation_acts(message, kind):
     "Compare them for bid aggregation", "List the available Apps.", "What is the price?", "Show me something that can",
     "How much does it cost?", "How do I get started with it?", "How can I access it?", "Is it free?",
     "Is it open source?", "Which version is current?", "How do I install it?", "Compare their prices",
-    "Explain the licence in simple terms",
+    "Explain the licence in simple terms", "What Apps are available?", "Which one converts messages?",
+    "Is it able to forecast prices?", "Can we use it without installing a container?",
 ])
 def test_capability_checks_searches_and_metadata_keep_their_verified_paths(message):
     assert acts.parse(message, ["EdgeConnect"]) is None
@@ -423,7 +428,20 @@ def test_an_interpreted_explanation_uses_the_same_explainer(monkeypatch):
         lambda *args: "source fields", interpret, None, decide=Mock(), present=lambda q, r, locale: "template",
         explainer=lambda *args: explainer.respond(*args))
     context = {"turn": 2, "focused_ids": [RELAY["id"]], "last_results": [{"app": RELAY, "rank": 1}]}
-    result = ask(policy, "Could you break that down for me?", context)
+    result = ask(policy, "Break it into smaller pieces for me.", context)
     interpret.assert_called_once()
     assert "**The background, in general terms:**" in result["message"]
     assert result["generation"]["explanation"] == "explanation_simple"
+
+
+def test_answers_never_open_with_a_verdict_and_questions_find_statements_by_meaning(model):
+    model.return_value = "Yes, it could help an energy community [S1]."
+    answer = explainer.respond("open", "Would it help an energy community?", [RELAY], {}, [])
+    assert answer["message"].startswith("It could help an energy community.")
+    guide = guide_module.build(RELAY)
+    assert "settlement" in explainer._concepts("So who gets paid in the end?", guide)
+    assert not explainer._negative_claim("It does not forecast prices.", {
+        "names": ["BidRelay"], "terms": explainer.evidence_terms("It does not forecast prices.")})
+    assert explainer._negative_claim("BidRelay itself does not handle payments.", {
+        "names": ["BidRelay"], "terms": explainer.evidence_terms("It does not forecast prices.")})
+    assert not explainer._negative_claim("You can't use it for trading on its own.", {"names": ["BidRelay"], "terms": set()})

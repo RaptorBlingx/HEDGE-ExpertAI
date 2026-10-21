@@ -385,24 +385,37 @@ SYSTEM = (
     "integrations, guarantees, prices or access conditions they don't state.\n"
     "- You may explain general ideas in your own words, as general background, not as App features.\n"
     "- Keep stated limitations. If the statements don't answer the question, say so and say what they cover.\n"
-    "- Don't decide whether an App meets a requirement. No headings or links."
+    "- Don't decide whether an App meets a requirement and don't start with Yes or No. No headings or links."
 )
 _RISKY = re.compile(r"\b(?:guarantee\w*|certif\w*|complian\w*|free of charge|integrat\w*|automatic\w*|"
                     r"real[- ]time|machine learning|artificial intelligence|ai-powered|encrypt\w*|secure\w*)\b", re.I)
 _CITATION = re.compile(r"\s*\[(S\d+(?:\s*,\s*S\d+)*)\]")
 _SENTENCE_END = re.compile(r"(?<=[.!?])(?:\s*\[S\d+(?:\s*,\s*S\d+)*\])?\s+")
 # Whole statements only, never cut: a budget chooses fewer and shorter ones instead.
-_BUDGET = {"statements": 4, "long_statement": 260, "background": 2, "previous": 200}
+_BUDGET = {"statements": 4, "long_statement": 260, "short_description": 420, "background": 2, "previous": 200}
+
+
+def _concepts(question: str, guide: app_guide.Guide) -> set[str]:
+    """Glossary concepts a question is about, by name or by meaning ("who gets paid?" -> settlement)."""
+    words = evidence_terms(question)
+    related = {t for t in guide.terms if words & evidence_terms(glossary.BY_ID[t].plain + " " + glossary.BY_ID[t].why)}
+    return set(glossary.mentioned(question)) | related
 
 
 def _relevant(guide: app_guide.Guide, question: str, limit: int) -> list[app_guide.Statement]:
-    """The lead, then short statements sharing most with the question; one limitation at most."""
-    asked = evidence_terms(question)
+    """Whole short statements: all of them for a short description, else the most relevant."""
     candidates = [s for s in guide.statements if s.role not in {"access", "attribution"}
                   and len(s.text) <= _BUDGET["long_statement"]]
-    scored = sorted(candidates, key=lambda s: (-len(asked & evidence_terms(s.text)), len(s.text)))
+    if sum(len(s.text) for s in candidates) <= _BUDGET["short_description"]:
+        return candidates
+    asked, concepts = evidence_terms(question), _concepts(question, guide)
+
+    def score(s):
+        return len(asked & evidence_terms(s.text)) + 2 * len(concepts & set(s.terms))
+
+    scored = sorted(candidates, key=lambda s: (-score(s), len(s.text)))
     chosen = [s for s in guide.main[:1]]
-    chosen += [s for s in scored if s not in chosen and asked & evidence_terms(s.text)]
+    chosen += [s for s in scored if s not in chosen and score(s)]
     limitations = [s for s in guide.by_role("limitation") if s not in chosen and s in candidates][:1]
     return list(dict.fromkeys(chosen[:limit - len(limitations)] + limitations))[:limit]
 
@@ -428,10 +441,31 @@ def _prompt(question: str, guides: list[app_guide.Guide], history: list[dict]):
     messages = [{"role": "system", "content": SYSTEM},
                 {"role": "user", "content": json.dumps(data, ensure_ascii=False, separators=(",", ":"))}]
     grounds = " ".join([question, previous, *background.values(), *(s.text for _, s in sources.values())])
-    return messages, sources, grounds
+    # A negative claim about an App needs a stated limitation of that App.
+    limits = {"names": [g.name for g in guides],
+              "terms": set().union(*[evidence_terms(s.text) for g in guides for s in g.by_role("limitation")])}
+    return messages, sources, grounds, limits
 
 
-def _sentence_problems(sentence: str, sources: dict, grounds: str) -> list[str]:
+_NEGATED = re.compile(r"\b(?:does not|doesn't|do not|don't|cannot|can't|is not|isn't|won't|will not|never|"
+                      r"no longer|lacks?)\b", re.I)
+
+
+def _negative_claim(text: str, limits: dict) -> bool:
+    """An App-subject negation ("X itself does not handle payments") no stated limitation supports."""
+    if not limits or not _NEGATED.search(text):
+        return False
+    names = [n for n in limits["names"] if n]
+    subject = any(n.casefold() in text.casefold() for n in names) or re.search(
+        r"\b(?:it|itself|the app)\s+(?:also\s+)?(?:does not|doesn't|cannot|can't|is not|isn't|won't|will not|never|lacks?)\b",
+        text, re.I)
+    if not subject:
+        return False
+    claimed = evidence_terms(_NEGATED.sub(" ", text)) - set().union(*[evidence_terms(n) for n in names])
+    return not claimed & limits["terms"]
+
+
+def _sentence_problems(sentence: str, sources: dict, grounds: str, limits: dict | None = None) -> list[str]:
     problems = []
     cited = [k for group in _CITATION.findall(sentence) for k in re.split(r"\s*,\s*", group)]
     if any(k not in sources for k in cited):
@@ -443,14 +477,16 @@ def _sentence_problems(sentence: str, sources: dict, grounds: str) -> list[str]:
         problems.append("quantity")
     if {m.casefold() for m in _RISKY.findall(text)} - {m.casefold() for m in _RISKY.findall(grounds)}:
         problems.append("unsupported_claim")
+    if _negative_claim(text, limits or {}):
+        problems.append("unsupported_negation")
     return problems
 
 
 class _Gate:
     """Release model text one checked sentence at a time; stop at the first ungrounded one."""
 
-    def __init__(self, sources: dict, grounds: str, emit=None):
-        self.sources, self.grounds, self.emit = sources, grounds, emit
+    def __init__(self, sources: dict, grounds: str, emit=None, limits: dict | None = None):
+        self.sources, self.grounds, self.emit, self.limits = sources, grounds, emit, limits
         self.raw, self.released, self.cited, self.problems = "", [], [], []
 
     def feed(self, chunk: str) -> None:
@@ -469,12 +505,17 @@ class _Gate:
         self.raw = ""
 
     def _release(self, sentence: str) -> None:
-        problems = _sentence_problems(sentence, self.sources, self.grounds)
+        problems = _sentence_problems(sentence, self.sources, self.grounds, self.limits)
         if problems:
             self.problems = problems
             raise _Ungrounded()
         self.cited += [k for group in _CITATION.findall(sentence) for k in re.split(r"\s*,\s*", group)]
-        text = _q(_CITATION.sub("", sentence).strip())  # model text is untrusted: no markup of its own
+        text = _CITATION.sub("", sentence).strip()
+        if not self.released:
+            # Suitability verdicts belong to the verifier, not to an explanation.
+            text = re.sub(r"^(?:yes|no)\s*[,.!]\s*", "", text, flags=re.I)
+            text = text[:1].upper() + text[1:]
+        text = _q(text)  # model text is untrusted: no markup of its own
         if text:
             text = ("" if not self.released else " ") + text
             self.released.append(text)
@@ -499,8 +540,8 @@ def open_answer(question: str, apps: list[dict], history: list[dict], *, on_delt
     """
     settings = Settings()
     guides = [app_guide.build(app) for app in apps]
-    messages, sources, grounds = _prompt(question, guides, history)
-    gate = _Gate(sources, grounds, on_delta)
+    messages, sources, grounds, limits = _prompt(question, guides, history)
+    gate = _Gate(sources, grounds, on_delta, limits)
     started = time.monotonic()
     try:
         streamed = []
@@ -557,8 +598,8 @@ def _without_model(act: str, question: str, apps: list[dict], state: dict, phras
     if guides and guides[0].lead:
         names = " and ".join(_name(g) for g in guides)
         documented = "\n".join(f"- {_claim(g, g.lead)}" for g in guides if g.lead)
-        return (f"I can’t reason through that specific situation right now, so here is what the description"
-                f"{'s' if len(guides) > 1 else ''} of {names} document{'' if len(guides) > 1 else 's'}:\n"
+        return (f"I don’t have a reliable answer to that from the description{'s' if len(guides) > 1 else ''} "
+                f"of {names}. What {'they' if len(guides) > 1 else 'it'} document{'' if len(guides) > 1 else 's'}:\n"
                 f"{documented}\n\nIf you name a specific capability you need, I can check it against the description.")
     return ""
 
@@ -591,11 +632,14 @@ def respond(act: str, question: str, apps: list[dict], state: dict, history: lis
                 "prompt_chars": answer["prompt_chars"], "cited": answer["cited"], "stopped": answer["stopped"],
                 "evidence": answer["evidence"]}}
         fallback_reason = answer.get("reason")
+        checks = answer.get("checks", [])
     else:
+        checks = []
         fallback_reason = "model_disabled"
     return {"message": _without_model(act, question, apps, state, phrase), "act": act, "state": _bounded(state),
             "generation": {"source": "prepared", "reason": f"explanation_{act}_fallback",
-                           "model_completed": False, "model_fallback": fallback_reason}}
+                           "model_completed": False, "model_fallback": fallback_reason,
+                           **({"model_checks": checks} if checks else {})}}
 
 
 def _bounded(state: dict) -> dict:

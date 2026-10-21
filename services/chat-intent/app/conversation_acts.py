@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 
 from hedge_shared import glossary
-from hedge_shared.store_language import cost_question
+from hedge_shared.store_language import catalogue_question
 
 
 @dataclass(frozen=True)
@@ -25,12 +25,13 @@ _PRONOUN = r"(?:it|that|this|they|them|these|those|this app|that app|that one|th
 _PRONOUNS = re.compile(rf"^{_PRONOUN}$", re.I)
 _QUOTE = "\"“”'‘’"
 # Capability questions and new searches belong to the verified decision path.
-_CAPABILITY = re.compile(r"^(?:does|do|can|could|will|is|are)\s+(?:it|they|this|that|\w+)\s+(?:also\s+)?"
+# "Can I rely on it?" is about the user's situation, not an App capability.
+_CAPABILITY = re.compile(r"^(?:does|do|can|could|will|is|are)\s+(?!(?:i|we|you)\b)(?:it|they|this|that|\w+)\s+(?:also\s+)?"
                          r"(?:support|supports|provide|provides|offer|offers|handle|handles|do|have|has|"
                          r"generate|generates|send|sends|integrate|integrates|work with|connect|connects|"
                          r"forecast|forecasts|combine|combines|submit|submits|transform|transforms|validate|"
                          r"validates|able to|capable of|compatible)\b|"
-                         r"^(?:does|do|can|could)\s+(?:it|they|this|that|\w+)\s+\w+", re.I)
+                         r"^(?:does|do|can|could)\s+(?!(?:i|we|you)\b)(?:it|they|this|that|\w+)\s+\w+", re.I)
 _SEARCH = re.compile(r"\b(?:find|search|recommend|looking for|show me (?:something|an app|apps)|"
                      r"i need|i want|we need|is there (?:an|any) app|which apps?\b(?! (?:should|would) i))\b", re.I)
 _CRITERION = re.compile(r"\b(?:for|in terms of|regarding|when it comes to)\s+(?!(?:a |an |the )?"
@@ -46,7 +47,8 @@ _DIFFERENTLY = re.compile(r"\b(?:explain|say|put|describe|phrase)\b.{0,15}\b(?:d
 _MEANING = re.compile(rf"^(?:so )?what (?:does|do|did) {_PRONOUN} (?:mean|stand for)$|\bwhat do you mean\b|"
                       r"^(?:i )?(?:still )?(?:don'?t|do not|didn'?t) (?:get|understand)(?: (?:it|that|this|you))?$|"
                       r"\bi'?m (?:still )?(?:confused|lost)\b|^(?:huh|sorry|meaning|pardon)$|"
-                      r"^(?:that|this|it) (?:is|was|sounds) (?:confusing|complicated|too technical)$", re.I)
+                      r"^(?:that|this|it) (?:is|was|sounds) (?:confusing|complicated|too technical)$|"
+                      r"\bbreak (?:it|that|this) down\b|\bunpack (?:it|that|this)\b|\bin other words\b", re.I)
 _EXAMPLE = re.compile(r"\b(?:give|show|provide|share|offer)(?: me| us)? (?:an? |some )?(?:practical |concrete |"
                       r"real(?:[- ]world|[- ]life)? |simple |everyday )?(?:examples?|use cases?|scenarios?)\b|"
                       r"^(?:an? |any )?(?:practical |concrete |real(?:[- ]world)? )?examples?(?: please)?$|"
@@ -82,11 +84,17 @@ _PROVIDER = re.compile(r"\bwho\b.{0,30}\b(?:provides?|makes|develops|developed|o
 _ACCESS = re.compile(r"\b(?:access|get started|start using|sign up|log ?in|try it|where (?:can|do) i (?:find|use))\b", re.I)
 # Price, access, licence, version and similar metadata questions have prepared
 # source-field answers; they are never open model questions.
-_METADATA = re.compile(r"\b(?:cost|costs|price|prices|pricing|free|paid|licen[cs]e\w*|open[- ]source|versions?|"
+# Words such as "paid" also occur in ordinary questions ("who gets paid in the end?").
+_METADATA = re.compile(r"\b(?:cost|costs|price|prices|pricing|fees?|subscription|licen[cs]e\w*|open[- ]source|versions?|"
+                       r"(?:is|are) (?:it|they|this|that)\s+(?:free|paid)|free (?:to use|of charge|apps?)|"
+                       r"paid (?:apps?|plan|version)|"
                        r"install\w*|download\w*|deploy\w*|container|self-host\w*|ratings?|reviews?|rated|"
                        r"certifi\w*|support (?:contact|team)|contact)\b", re.I)
-_OPEN = re.compile(r"^(?:how|why|would|could|should|is it|are they|what if|in what way|what problems?|"
-                   r"who (?:would|should|could|is it for)|what kind|explain why|what happens)\b|\bwhy\b", re.I)
+# Any other question about an App already in the conversation is answered by the
+# cited explainer. It cannot recommend, so a misread question costs one hedged
+# answer instead of a planner call that may turn it into a capability verdict.
+_QUESTION = re.compile(r"\?\s*$|^(?:what|why|how|who|when|where|would|could|should|can (?:i|we)|is|are|"
+                       r"do (?:i|we)|does (?:it|that) matter|so|explain why|tell me why)\b", re.I)
 
 
 def _clean(message: str) -> str:
@@ -104,7 +112,7 @@ def parse(message: str, app_names: list[str] | tuple[str, ...] = ()) -> Act | No
     last = _clean(sentences[-1]) if sentences else text
     # "Compare their prices" or "explain the licence simply" read source fields;
     # only a definition question ("what does open source mean?") is an act.
-    if cost_question(text) or _METADATA.search(text) and not any(p.match(last) for p in _TERM):
+    if _METADATA.search(text) and not any(p.match(last) for p in _TERM):
         return None
     if _COMPARE.search(text) or _CHOOSE.search(text):
         # A functional criterion ("compare them for bid aggregation") is a decision.
@@ -146,7 +154,8 @@ def parse(message: str, app_names: list[str] | tuple[str, ...] = ()) -> Act | No
             if _PRONOUNS.match(operand) or any(operand.casefold() == n.casefold() for n in named):
                 return Act("overview", operand)
             return None
-    if _OPEN.search(text) and not _CAPABILITY.match(text) and not _PROVIDER.search(text) and not _ACCESS.search(text):
+    if (_QUESTION.search(message.strip()) and not _CAPABILITY.match(text) and not _PROVIDER.search(text)
+            and not _ACCESS.search(text) and not re.match(r"which\b", text, re.I) and not catalogue_question(text)):
         return Act("open")
     return None
 
