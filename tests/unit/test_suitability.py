@@ -353,3 +353,21 @@ def test_structured_feature_prose_restrictions_are_not_flat_positive_labels(labe
         dataspace_app_description=json.dumps({'properties':{'featureList':[label]}})
     ).recommendation_projection()
     assert policy.assess('shared data models', app, 'en')['status'] == 'uncertain'
+
+
+@pytest.mark.parametrize('label,readme,supported', [
+    ('Stream handover services', '', True),
+    ('Stream handover services only in simulation', '', False),
+    ('Stream handover services', 'Stream handover services are disabled.', False),
+])
+def test_complete_typed_feature_label_is_evidence_without_overriding_qualifications(label,readme,supported):
+    app = StoreAppMetadata(store_id='Contract', app_id='opaque-label', name='Test utility',
+        description='Cross-sector software utility', readme=readme,
+        dataspace_app_description=json.dumps({'properties':{'featureList':[label]}})
+    ).recommendation_projection()
+    result = policy.assess('stream handover services', app, 'en')
+    assert (result['status'] == 'source_supported') is supported
+    if supported:
+        assert result['evidence_fields'] == ['dataspaceAppDescription.properties.featureList[0]']
+        assert result['evidence_spans'] == [label]
+    assert policy.assess('earthquake warnings', app, 'en')['status'] == 'uncertain'

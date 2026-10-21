@@ -214,6 +214,14 @@ def _transport(text: str) -> tuple[str, frozenset[str]]:
     return parts[0], frozenset(_terms(_scope_text(parts[1]))) if len(parts) > 1 else frozenset()
 
 
+def _flat_feature_label(path: str, text: str) -> bool:
+    """Typed nominal declarations, excluding qualified or sentence-shaped prose."""
+    return bool(path.startswith('dataspaceAppDescription.properties.featureList[')
+        and re.fullmatch(r"[\w -]{1,180}", text)
+        and not _NEGATION.search(text) and not _QUALIFIED.search(text)
+        and not re.search(r"\b(?:another|other|external|is|are|was|were|has|have)\b", text))
+
+
 def _claims(path: str, text: str, query_terms: set[str], names: list[str], synthetic: bool, declarations: list[str]) -> list[_Claim]:
     """Extract owned assertions; references never cross field/paragraph boundaries."""
     # Preserve the pinned fixture's informational annotations in output, without
@@ -276,11 +284,7 @@ def _claims(path: str, text: str, query_terms: set[str], names: list[str], synth
             # conditional, relational and sentence-shaped items still use the
             # full parser below; this never promotes an unparsed feature.
             declared = _terms(clause)
-            if (path.startswith('dataspaceAppDescription.properties.featureList[')
-                    and re.fullmatch(r"[\w -]{1,180}", clause)
-                    and not _NEGATION.search(clause) and not _QUALIFIED.search(clause)
-                    and not re.search(r"\b(?:another|other|external|is|are|was|were|has|have)\b", clause)
-                    and declared - (query_terms | named | labels)):
+            if (_flat_feature_label(path, clause) and declared - (query_terms | named | labels)):
                 claims.append(_Claim(path, span, frozenset(declared), frozenset(),
                                      'unresolved', 'feature'))
                 previous = []
@@ -510,15 +514,23 @@ def _prepared_support(query: str, app: dict, locale: str, claims: list[_Claim]) 
     Strict/negative requests remain on the normal conservative path. A source
     change invalidates preparation in the authoritative projection reader.
     """
-    prepared = explanation(app)
-    if not prepared:
-        return None
     terms = _terms(query)
     if any(c.kind not in {'affirmation', 'unresolved', 'no_prerequisite'}
            and _applies(c, frozenset(terms), terms, set()) for c in claims):
         return None
     # Uninterpreted negative assertions are not cleared by positive preparation.
     if any(c.kind == 'unresolved' and _NEGATION.search(_fold(c.span)) for c in claims):
+        return None
+    # A complete source-declared feature is already a source assertion. It
+    # must not disappear because neutral surrounding prose cannot be parsed, or
+    # because English preparation selected only README passages. Use exactly the
+    # same qualification/negative guards as prepared source passages above.
+    for path, quote in source_text(app, locale).items():
+        if _flat_feature_label(path, _fold(quote).strip().rstrip('.!')) and terms == _terms(quote):
+            return {"status": "source_supported", "reason": "source_declared_feature",
+                    "evidence_fields": [path], "evidence_spans": [quote]}
+    prepared = explanation(app)
+    if not prepared:
         return None
     for fact in prepared.get("facts", []):
         if fact.get("qualified"):
@@ -616,6 +628,12 @@ def assess(query: str, app: dict[str, Any], locale: str, *, reviewed_support: Re
             relevant = [c for c in claims if c.status != 'affirmed' and
                         _applies(c, feature, requirement - feature, attributes)]
             if relevant:
+                # Neutral prose may be unparseable without contradicting an
+                # exact typed declaration. Its source-bound proof still checks
+                # every applicable qualification and uninterpreted negation.
+                declared = _prepared_support(query, app, locale, claims)
+                if declared and declared["reason"] == "source_declared_feature":
+                    return declared
                 return {"status": "uncertain", "reason": "qualified_or_unresolved_source",
                         "evidence_fields": list(dict.fromkeys(c.path for c in [*evidence, *relevant]))}
             support.extend(evidence)

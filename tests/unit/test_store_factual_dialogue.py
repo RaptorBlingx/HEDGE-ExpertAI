@@ -37,9 +37,9 @@ def conversation(monkeypatch):
     return policy, apps, interpreter
 
 
-def ask(policy, question, context):
+def ask(policy, question, context, *, nlu_intent='compare'):
     return asyncio.run(policy.respond_with_history(ChatRequestV2(message=question,locale='en'),
-        'compare', context, [], nlu={'source':'rasa','intent':'compare','confidence':1.0}))
+        nlu_intent, context, [], nlu={'source':'rasa','intent':nlu_intent,'confidence':1.0}))
 
 
 @pytest.mark.parametrize('question', ['Who provides it?', 'Who is the provider of Device Register?',
@@ -79,8 +79,8 @@ def test_implicit_subject_cannot_be_replaced_by_a_better_functional_match(conver
     result = ask(policy, 'Could this application publish device records?', context)
     assert not result['apps']
     assert result['context']['focused_ids'] == [apps[1]['id']]
-    assert result['intent'] == 'clarify'
-    assert 'App we were discussing' in result['message']
+    assert result['intent'] == 'detail'
+    assert result['message'] == 'I couldn’t confirm that feature for **Sample Monitor**.'
     interpreter.assert_called_once()
     # An explicit new discovery request still uses the proven prepared path.
     result = ask(policy, 'Find an app to publish device records.', context)
@@ -99,7 +99,7 @@ def test_resolved_singular_subject_stays_singular_after_negative_capability_chec
                'last_results':[{'app':a, 'rank':i+1} for i,a in enumerate(apps)]}
     result = ask(policy, 'Does the other one do that too?', context)
     assert not result['apps'] and result['intent'] == 'detail'
-    assert 'feature isn’t described for **Sample Monitor**' in result['message']
+    assert 'couldn’t confirm that feature for **Sample Monitor**' in result['message']
     assert 'main difference' not in result['message']
     result = ask(policy, 'Who provides it?', result['context'])
     assert result['message'] == '**Sample Monitor** is provided by **Other Labs**.'
@@ -315,3 +315,140 @@ def test_broader_synthetic_catalogue_is_bounded_without_ranking_or_manual_prepar
     assert 'Catalogue Tool 0' in result['message']
     # This is an authored fixture contract check, not live retrieval-quality evidence.
     interpreter.assert_not_called()
+
+
+@pytest.mark.parametrize('question', ['Can you name the provider of that app?', 'Find the provider of Device Register.'])
+def test_interpreted_metadata_operation_survives_functional_fallback(conversation, question):
+    policy, apps, interpreter = conversation
+    interpreter.side_effect = None
+    interpreter.return_value = {'action':'answer', 'view':'provider', 'query':'',
+                                'apps':['1'], 'reference':'focus'}
+    result = ask(policy, question, {'turn':1, 'focused_ids':[apps[0]['id']],
+        'last_results':[{'app':apps[0], 'rank':1}], 'comparison_need':'publish device records',
+        'last_outcome':'abstained'}, nlu_intent='help')
+    assert result['message'] == '**Device Register** is provided by **Example Labs**.'
+    assert result['generation']['routing']['view'] == 'provider'
+    assert result['decision']['reason'] == 'source_inspection'
+
+
+def test_ordering_adverb_is_not_an_app_ordinal_or_a_capability(conversation):
+    policy, apps, interpreter = conversation
+    interpreter.side_effect = None
+    interpreter.return_value = {'action':'answer', 'view':'access', 'query':'',
+                                'apps':['2'], 'reference':'focus'}
+    result = ask(policy, 'What should we check first to start using it?',
+        {'turn':2, 'focused_ids':[apps[1]['id']], 'comparison_ids':[a['id'] for a in apps],
+         'last_results':[{'app':a, 'rank':i+1} for i,a in enumerate(apps)]})
+    assert result['generation']['routing']['subject_ids'] == [apps[1]['id']]
+    assert result['decision']['reason'] == 'source_inspection'
+    assert 'Installation steps' in result['message'] and 'Sample Monitor' in result['message']
+
+
+def test_selection_from_displayed_set_checks_all_bound_candidates(conversation):
+    policy, apps, interpreter = conversation
+    interpreter.side_effect = None
+    interpreter.return_value = {'action':'search', 'view':'capability', 'query':'publish device records',
+                                'apps':['1','2'], 'reference':'both'}
+    # Retrieval can miss an explicitly displayed candidate; this question asks
+    # about that complete set, so resolve it authoritatively before assessment.
+    async def missed_candidate(**kwargs):
+        return expert._recommendation_decision(kwargs['query'], [{'app':apps[1], 'rank':1}], 'en')
+    policy.recommend = missed_candidate
+    result = ask(policy, 'From those options, which would publish device records?',
+        {'turn':2, 'focused_ids':[apps[1]['id']], 'comparison_ids':[a['id'] for a in apps],
+         'last_results':[{'app':a, 'rank':i+1} for i,a in enumerate(apps)]})
+    assert result['intent'] == 'search' and result['decision']['outcome'] == 'recommended'
+    assert [r['app']['id'] for r in result['apps']] == [apps[0]['id']]
+    assert set(result['generation']['routing']['candidate_ids']) == {a['id'] for a in apps}
+
+
+def test_model_focus_hint_cannot_turn_unbound_discovery_into_single_app_check(conversation):
+    policy, apps, interpreter = conversation
+    interpreter.side_effect = None
+    interpreter.return_value = {'action':'answer', 'view':'capability', 'query':'publish device records',
+                                'apps':['2'], 'reference':'focus'}
+    result = ask(policy, 'Which of those would publish device records?',
+        {'turn':2, 'focused_ids':[apps[1]['id']], 'comparison_ids':[a['id'] for a in apps],
+         'last_results':[{'app':a, 'rank':i+1} for i,a in enumerate(apps)]}, nlu_intent='search')
+    assert result['intent'] == 'search' and result['decision']['outcome'] == 'recommended'
+    assert [r['app']['id'] for r in result['apps']] == [apps[0]['id']]
+
+
+def test_semantic_singular_reference_survives_missing_lexical_reference(conversation):
+    policy, apps, interpreter = conversation
+    interpreter.side_effect = None
+    interpreter.return_value = {'action':'answer', 'view':'capability', 'query':'publish device records',
+                                'apps':['2'], 'reference':'focus'}
+    for reference in ['focus', 'none']:
+        interpreter.return_value['reference'] = reference
+        result = ask(policy, 'Would the application from our earlier discussion publish device records?',
+            {'turn':2, 'focused_ids':[apps[1]['id']], 'comparison_ids':[a['id'] for a in apps],
+             'last_results':[{'app':apps[1], 'rank':1}]}, nlu_intent='detail')
+        assert result['intent'] == 'detail' and not result['apps']
+        assert result['context']['focused_ids'] == [apps[1]['id']]
+        assert result['generation']['routing']['subject_ids'] == [apps[1]['id']]
+    interpreter.return_value.update(action='search', reference='none', apps=[])
+    result = ask(policy, 'Does it publish device records?',
+        {'turn':2, 'focused_ids':[apps[1]['id']], 'comparison_ids':[a['id'] for a in apps],
+         'last_results':[{'app':apps[1], 'rank':1}]}, nlu_intent='detail')
+    assert result['intent'] == 'detail' and not result['apps']
+    assert result['generation']['routing']['subject_ids'] == [apps[1]['id']]
+
+
+def test_comparison_does_not_replace_normalized_need_with_operation_text(conversation):
+    policy, apps, interpreter = conversation
+    interpreter.side_effect = None
+    interpreter.return_value = {'action':'compare', 'view':'comparison', 'query':'publish device records',
+                                'apps':['1','2'], 'reference':'both'}
+    result = ask(policy, 'How would the two fit publication of device records?',
+        {'turn':2, 'focused_ids':[apps[1]['id']], 'comparison_ids':[a['id'] for a in apps],
+         'last_results':[{'app':a, 'rank':i+1} for i,a in enumerate(apps)],
+         'comparison_need':'monitor laboratory samples'})
+    assert result['context']['comparison_need'] == 'publish device records'
+    assert 'documented match is **Device Register**' in result['message']
+    assert 'same requirement for **Sample Monitor**' in result['message']
+
+
+def test_unextracted_comparison_command_cannot_replace_established_need(conversation):
+    policy, apps, interpreter = conversation
+    interpreter.side_effect = None
+    question = "Compare its role with the other application's."
+    interpreter.return_value = {'action':'compare', 'view':'comparison', 'query':question.rstrip('.'),
+                                'apps':['1'], 'reference':'focus'}
+    result = ask(policy, question,
+        {'turn':2, 'focused_ids':[apps[0]['id']], 'comparison_ids':[a['id'] for a in apps],
+         'last_results':[{'app':apps[0], 'rank':1}], 'comparison_need':'publish device records',
+        'last_outcome':'abstained'}, nlu_intent='help')
+    assert result['context']['comparison_need'] == 'publish device records'
+    assert 'documented match is **Device Register**' in result['message']
+    interpreter.assert_called_once()
+
+
+def test_interpretation_preserves_retrieval_order_instead_of_native_id_order(conversation):
+    policy, apps, interpreter = conversation
+    interpreter.side_effect = None
+    interpreter.return_value = {'action':'search', 'view':'capability', 'query':'monitor room temperatures',
+                                'apps':[], 'reference':'none'}
+    async def ranked(**kwargs):
+        return {'message':'No confirmed match.', 'apps':[],
+                'candidates':[{'app':apps[1], 'rank':1}, {'app':apps[0], 'rank':2}],
+                'decision':{'outcome':'abstained', 'reason':'insufficient_evidence'}}
+    policy.recommend = ranked
+    result = ask(policy, 'We need a tool for monitoring temperatures in rooms.', {}, nlu_intent='search')
+    assert [entry['app']['id'] for entry in interpreter.call_args.args[2]] == [apps[1]['id'], apps[0]['id']]
+    assert result['generation']['interpretation']['catalogue_ids'] == [apps[1]['id'], apps[0]['id']]
+
+
+def test_failed_new_search_retains_discussed_app_for_factual_followups(conversation):
+    policy, apps, interpreter = conversation
+    interpreter.side_effect = None
+    interpreter.return_value = {'action':'search', 'view':'capability', 'query':'forecast storms',
+                                'apps':[], 'reference':'none'}
+    result = ask(policy, 'Find a tool to forecast storms.',
+        {'turn':2, 'focused_ids':[apps[1]['id']], 'last_results':[{'app':apps[1], 'rank':1}]},
+        nlu_intent='search')
+    assert not result['apps'] and not result['context']['last_results']
+    assert result['context']['focused_ids'] == [apps[1]['id']]
+    answer = ask(policy, 'Who provides it?', result['context'], nlu_intent='detail')
+    assert answer['message'] == '**Sample Monitor** is provided by **Other Labs**.'
+    interpreter.assert_called_once()

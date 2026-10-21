@@ -59,6 +59,16 @@ def test_simplification_keeps_current_topic_then_condenses_it_further():
     assert len(second) < len(first)
 
 
+def test_specific_new_question_selects_its_source_passage_before_broad_topic():
+    app = app_for(FIRST + ' ' + SECOND + ' The app records sensor calibration dates.')
+    response = {'intent':'detail', 'apps':[{'app':app, 'rank':1}],
+                'interpreted_query':'combine records from multiple sensors',
+                'decision':{'outcome':'recommended'}, 'context':{}}
+    answer = answers.prepared_answer('Does it record sensor calibration dates?', response, 'en')
+    assert 'records sensor calibration dates' in answer
+    assert 'records coming from multiple sensors' not in answer
+
+
 @pytest.mark.parametrize('billable', ['false', 'true'])
 def test_zero_price_is_not_a_free_use_claim_even_when_billable_is_false(billable):
     app = app_for(FIRST)

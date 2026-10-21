@@ -53,18 +53,35 @@ def _search_query(message: str) -> str:
     return re.sub(r"^(?:an?\s+)?(?:apps?|applications?)\s+(?:for|to|about|that)\s+", "", query, flags=re.I)
 
 
-def _comparison_criterion(message: str, apps: list[dict]) -> str:
-    """Retain an explicit criterion separately from resolved comparison subjects."""
+_COMPARISON_SCAFFOLD = frozenset({
+    "please", "can", "could", "would", "you", "compare", "and", "with", "the", "app", "apps", "one", "ones", "two", "three",
+    "it", "that", "this", "both", "them", "these", "those", "other", *_ORDINALS,
+})
+
+
+def _comparison_arguments(message: str, apps: list[dict]) -> str:
     arguments = message
     identities = {value for app in apps for value in (app.get("name"), app["app_id"]) if value}
     for value in sorted(identities, key=len, reverse=True):
         arguments = re.sub(rf"(?<!\w){re.escape(value)}(?!\w)", "", arguments, flags=re.I)
+    return arguments
+
+
+def _comparison_command(message: str, apps: list[dict]) -> bool:
+    """Operation scaffolding is not a functional comparison criterion."""
+    arguments = _comparison_arguments(message, apps)
+    operand = " ".join(w for w in control_words(arguments).split() if w not in _COMPARISON_SCAFFOLD)
+    # Reuse the catalogue's complete noun grammar; unknown conditions survive.
+    return not operand or catalogue_question("Show " + operand)
+
+
+def _comparison_criterion(message: str, apps: list[dict]) -> str:
+    """Retain an explicit criterion separately from resolved comparison subjects."""
+    arguments = _comparison_arguments(message, apps)
     criterion = re.search(r"\b(?:for|in terms of)\s+(.+)", arguments, re.I)
     if not criterion:
         return ""
-    scaffolding = {"please", "can", "could", "would", "you", "compare", "and", "with", "the", "app", "apps", "one", "ones", "two", "three",
-                   "it", "that", "this", "both", "them", "these", "those", "other", *_ORDINALS}
-    if not set(control_words(arguments[:criterion.start()]).split()) <= scaffolding:
+    if not _comparison_command(arguments[:criterion.start()], []):
         # Unknown modifiers before the criterion may be constraints. Keep the
         # whole operand rather than silently approving a narrower requirement.
         return arguments.strip()
@@ -190,12 +207,14 @@ class StoreDialogue:
         named = [app["id"] for app in named_apps]
         ordinals = [index for token, index in _ORDINALS.items()
                     if (intent in {"detail", "compare"} or source_read)
-                    and re.search(rf"\b{re.escape(token)}\b", message, re.I)]
+                    and re.search((rf"\b{re.escape(token)}\b" if intent == "compare" or req.locale != "en" else
+                                   rf"\b(?:the {re.escape(token)}|{re.escape(token)} (?:app|one))\b"), message, re.I)]
         targeted = bool(source_read) or intent in {"detail", "compare"} or bool(ordinals) or bool(_REFERENCE.search(message))
         if targeted and len(named_apps) > 1 and not any(
             app["app_id"] in message for app in named_apps
         ) and len({(app.get("name") or "").casefold() for app in named_apps}) < len(named_apps):
-            return self._response("Multiple Apps have that name. Please use the exact native App ID.", [], intent, context)
+            return {**self._response("Multiple Apps have that name. Please use the exact native App ID.", [], intent, context),
+                    "decision": {"outcome": "not_applicable", "reason": "ambiguous_native_reference"}}
         selected = named if targeted else []
         if intent == "compare" and len(named) == 1 and len(context.get("focused_ids", [])) == 1:
             # An explicit comparison with a named peer includes the current
@@ -260,8 +279,9 @@ class StoreDialogue:
                 ordinal = next((index for token, index in _ORDINALS.items()
                                 if source_target.casefold() == f"the {token} app"), None)
                 if len(exact_ids) > 1 or len(exact_names) > 1 and not exact_ids:
-                    return self._response("Multiple Apps have that identity. Choose an App card or use a unique native ID.",
-                                          [], "source_fields", context)
+                    return {**self._response("Multiple Apps have that identity. Choose an App card or use a unique native ID.",
+                                            [], "source_fields", context),
+                            "decision": {"outcome": "not_applicable", "reason": "ambiguous_native_reference"}}
                 if exact_ids:
                     selected = exact_ids
                 elif len(exact_names) == 1:
@@ -280,9 +300,10 @@ class StoreDialogue:
             if filters.get("publisher"):
                 apps = [a for a in apps if filters["publisher"].casefold() in (a.get("provider") or "").casefold()]
             if not selected or len(apps) != len(selected):
-                return self._response("I cannot resolve that reference. Choose a currently published App by exact name/native ID or an existing reference; "
-                                      "source-field reads do not apply additional constraints.",
-                                      [], "source_fields", context)
+                return {**self._response("I cannot resolve that reference. Choose a currently published App by exact name/native ID or an existing reference; "
+                                        "source-field reads do not apply additional constraints.",
+                                        [], "source_fields", context),
+                        "source_field": source_read[1].casefold(), "reference_target": source_target}
             field = source_read[1].casefold()
             prefixes = _SOURCE_FIELDS[field]
             results = [{"app": app, "rank": i + 1, "evidence_fields": ["reference"]}

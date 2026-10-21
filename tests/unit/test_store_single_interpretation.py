@@ -23,45 +23,116 @@ def app():
     return {**knowledge["projection"], "prepared_explanation": knowledge["explanation"]}
 
 
+def model_frame(function="none", remaining=None, *, operation="search", reference="none"):
+    return json.dumps({"operation": operation, "reference": reference,
+                       "source_function": function, "unmatched_requirements": remaining or []})
+
+
 def test_interpreter_selects_current_assessed_preparation_in_one_bounded_call(monkeypatch, app):
-    call = Mock(return_value=json.dumps({"query": "collect device measurements", "mode": "search", "task": "1.1"}))
+    call = Mock(return_value=model_frame("collect device measurements (1.1)"))
     monkeypatch.setattr(expert, "OllamaClient", lambda: SimpleNamespace(chat_structured=call))
     result = expert.understand("Gather our devices' readings", [{"key": "1", "app": app}],
-                              {'nlu':{'intent':'compare','confidence':1.0}}, [])
+                              {'nlu': {'intent': 'compare', 'confidence': 1.0}}, [])
     call.assert_called_once()
-    assert result["apps"] == ["1"] and "collect" in result["query"]
+    assert result["apps"] == [] and "collect" in result["query"]
     assert call.call_args.kwargs["max_tokens"] == 80
     assert call.call_args.kwargs["deadline"] > 0
     payload = json.loads(call.call_args.args[0][1]["content"])
-    assert payload["catalogue"][0]["tasks"][0]["text"] == "Used to collect device measurements."
-    assert payload.get('nlu_intent') is None
-    assert 'reference' not in call.call_args.args[1]['properties']
-    call.return_value = json.dumps({"query": "collect device measurements", "mode": "search", "task": "invented"})
-    with pytest.raises(ValueError, match="Unknown"):
+    assert payload["catalogue_vocabulary"][0]["tasks"][0]["text"] == "Used to collect device measurements."
+    assert payload.get('nlu_intent') is None and 'recent_questions' not in payload
+    properties = list(call.call_args.args[1]['properties'])
+    assert properties == ['operation', 'reference', 'source_function', 'unmatched_requirements']
+    assert sorted(properties) == properties  # Native Ollama also emits alphabetically.
+    call.return_value = model_frame(reference="invented")
+    with pytest.raises(ValueError, match="reference"):
+        expert.understand("Anything", [{"key": "1", "app": app}], {}, [])
+    call.return_value = model_frame("undeclared function")
+    with pytest.raises(ValueError, match="source function"):
         expert.understand("Anything", [{"key": "1", "app": app}], {}, [])
 
 
-def test_unknown_function_survives_even_when_model_selects_a_partial_task(monkeypatch, app):
+def test_unknown_function_survives_partial_source_function_selection(monkeypatch, app):
     query = "collect measurements and forecast storms"
-    call = Mock(return_value=json.dumps({"query": query, "task": "1.1", "mode": "search"}))
+    call = Mock(return_value=model_frame("collect device measurements (1.1)", ["forecast storms"]))
     monkeypatch.setattr(expert, "OllamaClient", lambda: SimpleNamespace(chat_structured=call))
     result = expert.understand(query, [{"key": "1", "app": app}], {}, [])
-    assert result["query"] == query
+    assert "forecast storms" in result["query"]
     assert not expert._recommendation_decision(result["query"], [{"app": app, "rank": 1}], "en")["apps"]
+    # Missing meaning degrades to the original source check, not an HTTP error
+    # or approval inferred from an unrelated available function.
+    call.return_value = model_frame()
+    result = expert.understand(query, [{"key": "1", "app": app}], {}, [])
+    assert result['query'] == query and result['normalization'] == 'original_request'
 
 
-def test_conversational_subject_is_independent_of_task_match(monkeypatch, app):
-    call = Mock(return_value=json.dumps({'query':'collect device measurements', 'task':'1.1',
-                                        'mode':'capability', 'reference':'other'}))
+def test_pending_filter_interpretation_receives_its_value_not_just_field(monkeypatch, app):
+    call = Mock(return_value=model_frame(operation='next_steps'))
     monkeypatch.setattr(expert, 'OllamaClient', lambda: SimpleNamespace(chat_structured=call))
-    other = {**app, 'id':'other-local', 'app_id':'other-native'}
-    directory = [{'key':'1', 'app':app}, {'key':'2', 'app':other}]
+    expert.understand('How can we verify that condition?', [{'key': '1', 'app': app}],
+        {'pending_filters': ['pricing'], 'constraint_request': 'confirmed free use'}, [])
+    payload = json.loads(call.call_args.args[0][1]['content'])
+    assert payload['unverified_filters'] == ['pricing']
+    assert payload['constraint_request'] == 'confirmed free use'
+    assert list(payload)[-1] == 'question'
+    expert.understand('What next?', [{'key': '1', 'app': app}], {}, [])
+    assert 'constraint_request' not in json.loads(call.call_args.args[0][1]['content'])
+
+
+def test_selected_source_workflow_keeps_its_complete_source_proof(monkeypatch):
+    knowledge = prepare(StoreAppMetadata(store_id='contract-only', app_id='opaque-workflow',
+        name='Sample Joiner', active=True, visible=True,
+        readme='Sample Joiner provides a service for records coming from multiple sensors in one site. '
+               'Those records are then combined, according to available agreements and sent under a common record.'))
+    app = {**knowledge['projection'], 'prepared_explanation': knowledge['explanation']}
+    def select(messages, schema, **kwargs):
+        label = next(k for k in schema['properties']['source_function']['enum'] if 'combines records' in k)
+        return model_frame(label, operation='capability', reference='focus')
+    call = Mock(side_effect=select)
+    monkeypatch.setattr(expert, 'OllamaClient', lambda: SimpleNamespace(chat_structured=call))
+    result = expert.understand('Could it combine the records?', [{'key': '1', 'app': app}], {'focus': ['1']}, [])
+    assert result['normalization'] == 'source_function'
+    assert expert._recommendation_decision(result['query'], [{'app': app, 'rank': 1}], 'en')['apps']
+    assert call.call_args.args[1]['properties']['unmatched_requirements']['items']['maxLength'] == 160
+
+
+def test_function_selection_does_not_bind_to_another_apps_identity(monkeypatch, app):
+    knowledge = prepare(StoreAppMetadata(store_id='contract-only', app_id='other-native',
+        name='Sample Monitor', readme='Used to monitor room temperatures.', active=True, visible=True))
+    other = {**knowledge['projection'], 'prepared_explanation': knowledge['explanation']}
+    call = Mock(return_value=model_frame('collect device measurements (1.1)'))
+    monkeypatch.setattr(expert, 'OllamaClient', lambda: SimpleNamespace(chat_structured=call))
+    result = expert.understand('Collect device measurements',
+        [{'key': '1', 'app': app}, {'key': '2', 'app': other}], {}, [])
+    assert 'collect' in result['query'] and 'temperatures' not in result['query']
+    assert result['normalization'] == 'source_function' and result['apps'] == []
+
+
+def test_native_source_fact_enters_the_same_assessed_function_menu(monkeypatch):
+    knowledge = prepare(StoreAppMetadata(store_id='contract-only', app_id='opaque-declared',
+        name='Sample Utility', readme='Used to collect device measurements.', active=True, visible=True,
+        dataspace_app_description=json.dumps({'properties': {'featureList': ['Sensor handover services']}})))
+    app = {**knowledge['projection'], 'prepared_explanation': knowledge['explanation']}
+    label = 'sensor handover services (1.2)'
+    call = Mock(return_value=model_frame(label, operation='capability', reference='focus'))
+    monkeypatch.setattr(expert, 'OllamaClient', lambda: SimpleNamespace(chat_structured=call))
+    result = expert.understand('Would it handle the handover?', [{'key': '1', 'app': app}],
+                              {'focus': ['1'], 'previous': ['1']}, [])
+    assert result['query'] == 'Sensor handover services' and result['apps'] == ['1']
+    payload = json.loads(call.call_args.args[0][1]['content'])
+    assert {'key': label, 'text': 'Sensor handover services'} in payload['catalogue_vocabulary'][0]['tasks']
+
+
+def test_conversational_subject_is_independent_of_function_match(monkeypatch, app):
+    call = Mock(return_value=model_frame('collect device measurements (1.1)',
+                                       operation='capability', reference='other'))
+    monkeypatch.setattr(expert, 'OllamaClient', lambda: SimpleNamespace(chat_structured=call))
+    other = {**app, 'id': 'other-local', 'app_id': 'other-native'}
+    directory = [{'key': '1', 'app': app}, {'key': '2', 'app': other}]
     result = expert.understand('Could the other application gather readings?', directory,
-        {'focus':['1'], 'previous':['1','2']}, [])
+        {'focus': ['1'], 'previous': ['1', '2']}, [])
     assert result['apps'] == ['2'] and result['reference'] == 'other'
-    # An unresolved reference cannot bind to the App with the nearest task.
     result = expert.understand('Could the other application gather readings?', directory,
-        {'focus':[], 'previous':['1','2']}, [])
+        {'focus': [], 'previous': ['1', '2']}, [])
     assert not result['apps']
 
 
@@ -147,7 +218,7 @@ def test_prepared_simplification_stays_fast_on_repeat_without_masking_new_search
 
 
 @pytest.mark.parametrize("query,expected", [("forecast storms", "abstained"), ("collect device measurements", "recommended")])
-def test_rasa_help_uses_no_match_state_but_cannot_veto_source_support(monkeypatch, app, query, expected):
+def test_rasa_help_cannot_replace_the_interpreted_operation_or_veto_source_support(monkeypatch, app, query, expected):
     instance, interpreter, writer = policy(monkeypatch, app)
     interpreter.side_effect = None
     interpreter.return_value = {"action": "search", "apps": [], "query": query, "view": "capability"}
@@ -155,12 +226,17 @@ def test_rasa_help_uses_no_match_state_but_cannot_veto_source_support(monkeypatc
         "help", {"last_outcome": "abstained", "turn": 1}, [],
         nlu={"source": "rasa", "intent": "help", "confidence": 1.0}))
     assert result["decision"]["outcome"] == expected
-    if expected == "abstained":
-        assert result["generation"]["nlu_policy"] == "no_match_recovery"
-        assert result["intent"] == "conversation"
-    else:
-        assert "nlu_policy" not in result["generation"]
+    assert "nlu_policy" not in result["generation"]
+    assert result["intent"] == "search"
     writer.assert_not_called()
+    if expected == "abstained":
+        result = asyncio.run(instance.respond_with_history(
+            ChatRequestV2(message="What options could you offer?", locale="en"), "help",
+            {"last_outcome": "abstained", "turn": 1, "comparison_need": query}, [],
+            nlu={"source": "rasa", "intent": "help", "confidence": 1.0}))
+        assert result['intent'] == 'conversation' and not result['apps']
+        assert 'ask the provider' in result['message']
+        assert result['context']['comparison_need'] == query
 
 
 def test_model_clarification_cannot_discard_a_resolved_app_or_approve_an_unknown_feature(monkeypatch, app):
@@ -235,8 +311,8 @@ def test_pending_conditions_are_passed_to_one_pass_recovery(monkeypatch, app):
         'help', {'turn':1, 'last_outcome':'abstained', 'pending_filters':['pricing']}, [],
         nlu={'source':'rasa', 'intent':'help', 'confidence':1.0}))
     assert result['message'].startswith('Ask the provider to confirm the licence terms')
-    assert result['generation']['nlu_policy'] == 'constraint_help'
-    interpreter.assert_not_called()
+    assert result['generation']['model_calls'] == 1
+    interpreter.assert_called_once()
 
 
 def test_constraint_removal_consumes_the_whole_operand_and_preserves_remaining_request(monkeypatch, app):
@@ -257,3 +333,50 @@ def test_constraint_removal_consumes_the_whole_operand_and_preserves_remaining_r
             'search', context, []))
         assert not result['apps']
         assert result['context']['pending_filters'] == ['pricing']
+
+
+def test_unresolved_metadata_recovers_only_identity_in_one_short_call(monkeypatch, app):
+    call = Mock(return_value=json.dumps({'reference': 'focus'}))
+    monkeypatch.setattr(expert, 'OllamaClient', lambda: SimpleNamespace(chat_structured=call))
+    result = expert.understand('Who supplies the product we were discussing?', [{'key': '1', 'app': app}],
+        {'source_field': 'provider', 'focus': ['1'], 'previous': ['1'], 'need': 'unrelated old task'}, [])
+    assert result['apps'] == ['1'] and result['view'] == 'source_fields'
+    assert result['normalization'] == 'reference_only' and not result['query']
+    assert call.call_args.kwargs['max_tokens'] == 24
+    assert list(call.call_args.args[1]['properties']) == ['reference']
+    payload = json.loads(call.call_args.args[0][1]['content'])
+    assert 'previous_need' not in payload and 'catalogue_vocabulary' not in payload
+    call.return_value = json.dumps({'reference': 'none'})
+    assert not expert.understand('Who supplies an unknown product?', [{'key': '1', 'app': app}],
+        {'source_field': 'provider', 'focus': ['1']}, [])['apps']
+
+
+def test_browse_interpretation_cannot_drop_functional_requirements(monkeypatch, app):
+    call = Mock(return_value=model_frame(operation='browse'))
+    monkeypatch.setattr(expert, 'OllamaClient', lambda: SimpleNamespace(chat_structured=call))
+    assert expert.understand('Show available applications and their purposes',
+        [{'key': '1', 'app': app}], {}, [])['action'] == 'browse'
+    call.return_value = model_frame(remaining=['forecast storms'], operation='browse')
+    result = expert.understand('Show applications that forecast storms', [{'key': '1', 'app': app}], {}, [])
+    assert result['action'] == 'search' and result['query'] == 'forecast storms'
+
+
+def test_known_comparison_operation_constrains_recovery_schema(monkeypatch, app):
+    call = Mock(return_value=model_frame(operation='comparison', reference='both'))
+    monkeypatch.setattr(expert, 'OllamaClient', lambda: SimpleNamespace(chat_structured=call))
+    expert.understand('Compare the two applications', [{'key': '1', 'app': app}],
+        {'operation_hint': 'comparison', 'previous': ['1', '2']}, [])
+    assert call.call_args.args[1]['properties']['operation']['enum'] == ['comparison']
+
+
+def test_provider_attribution_is_metadata_not_a_recommendation_function(monkeypatch):
+    knowledge = prepare(StoreAppMetadata(store_id='contract-only', app_id='opaque-provider',
+        name='Sample Utility', provider='Example Institute', active=True, visible=True,
+        readme='Developed and operated by Example Institute. Used to collect device measurements.'))
+    app = {**knowledge['projection'], 'prepared_explanation': knowledge['explanation']}
+    call = Mock(return_value=model_frame(operation='provider', reference='focus'))
+    monkeypatch.setattr(expert, 'OllamaClient', lambda: SimpleNamespace(chat_structured=call))
+    expert.understand('Who supplies this application?', [{'key': '1', 'app': app}], {'focus': ['1']}, [])
+    item = json.loads(call.call_args.args[0][1]['content'])['catalogue_vocabulary'][0]
+    assert item['metadata']['provider'] == 'Example Institute'
+    assert all('operated by' not in task['text'] for task in item['tasks'])
