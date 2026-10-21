@@ -9,6 +9,7 @@ from collections.abc import Awaitable, Callable
 from hedge_shared.models_v2 import ChatRequestV2
 from hedge_shared.store_language import (
     catalogue_question,
+    catalogue_reference,
     control_words,
     dialogue_language,
     factual_question,
@@ -277,7 +278,7 @@ class StoreDialogue:
                 exact_names = [a["id"] for a in current
                                if (a.get("name") or "").casefold() == source_target.casefold()]
                 ordinal = next((index for token, index in _ORDINALS.items()
-                                if source_target.casefold() == f"the {token} app"), None)
+                                if re.fullmatch(rf"(?:the )?{re.escape(token)} (?:app(?:lication)?|product|tool|one)", source_target, re.I)), None)
                 if len(exact_ids) > 1 or len(exact_names) > 1 and not exact_ids:
                     return {**self._response("Multiple Apps have that identity. Choose an App card or use a unique native ID.",
                                             [], "source_fields", context),
@@ -286,15 +287,25 @@ class StoreDialogue:
                     selected = exact_ids
                 elif len(exact_names) == 1:
                     selected = exact_names
-                elif source_target.casefold() in {"both", "both apps", "them", "these apps", "those apps"}:
+                elif catalogue_reference(source_target) == "both":
                     selected = comparison
-                elif source_target.casefold() in {"the other app", "the other one"}:
+                elif catalogue_reference(source_target) == "other":
                     group = context.get("comparison_ids") or previous
                     alternatives = [i for i in group if i not in context.get("focused_ids", [])]
                     selected = alternatives if len(context.get("focused_ids", [])) == 1 and len(alternatives) == 1 else []
                 elif ordinal is not None:
                     selected = [previous[ordinal]] if ordinal < len(previous) else []
-                elif not _REFERENCE.fullmatch(source_target):
+                elif catalogue_reference(source_target) == "focus":
+                    focus = context.get("focused_ids", [])
+                    selected = focus if len(focus) == 1 else []
+                elif catalogue_reference(source_target) == "before_search":
+                    selected = context.get("search_origin_ids", [])
+                    # Sessions created before search provenance was recorded
+                    # can still resolve an immediately failed search safely.
+                    if not selected and context.get("last_outcome") == "abstained":
+                        selected = context.get("focused_ids", [])
+                    selected = selected if len(selected) == 1 else []
+                else:
                     selected = []
             apps = self.resolve(selected)
             if filters.get("publisher"):
@@ -445,6 +456,7 @@ class StoreDialogue:
         response = await self.recommend(query=query, locale=req.locale, filters=filters)
         references = context if self.catalogue_references else {}
         next_context = {"last_query": query, "filters": filters,
+                        "search_origin_ids": references.get("focused_ids", []),
                         "comparison_need": query,
                         "last_results": response["apps"][:5] or references.get("last_results", []),
                         "explanation_topic": references.get("explanation_topic", ""),

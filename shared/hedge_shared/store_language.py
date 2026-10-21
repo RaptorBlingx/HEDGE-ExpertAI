@@ -206,6 +206,44 @@ def search_language(query: str, locale: str) -> str:
                    for part in re.split(r'("[^"\n]*")', normalized))
 
 
+def catalogue_reference(target: str) -> str | None:
+    """Parse a complete referent, never discard unknown target qualifications."""
+    clean = " ".join(target.casefold().split())
+    noun = r"(?:app(?:lication)?|product|tool|one)"
+    if re.fullmatch(r"(?:the )?other " + noun, clean):
+        return "other"
+    if re.fullmatch(r"(?:both|these|those|the two)(?: " + noun + r"s)?|them|they|their", clean):
+        return "both"
+    if re.fullmatch(r"it|this|that|(?:this|that|the) " + noun, clean):
+        return "focus"
+    discussed = r"the " + noun + r" (?:we|you) (?:previously )?(?:discussed|mentioned)"
+    if re.fullmatch(discussed + r" before (?:that|the last) search", clean):
+        return "before_search"
+    if re.fullmatch(discussed + r"(?: earlier)?", clean):
+        return "focus"
+    return None
+
+
+def comparison_question(message: str) -> str | None:
+    """A complete comparison frame with a bound referent and purpose axis.
+
+    Selection questions and unknown axes/qualifications are not rewritten.
+    Functional interpretation remains the semantic path's responsibility.
+    """
+    clean = " ".join(message.split()).rstrip("?!.,")
+    frame = re.fullmatch(r"how (?:do|does|are|is) (.+?) (?:differ|different)", clean, re.I)
+    if not frame:
+        frame = re.fullmatch(
+            r"what (?:is|are) (?:the )?(?:main )?differences? (?:between|in) (.+)", clean, re.I)
+    if not frame:
+        return None
+    subject = frame[1]
+    purpose = re.fullmatch(r"their (?:roles?|purposes?)", subject, re.I)
+    if purpose:
+        subject = "their"
+    return "Compare both" if catalogue_reference(subject) == "both" else None
+
+
 def factual_question(message: str, *, embedded: bool = False) -> tuple[str, str] | None:
     """Closed metadata questions; the dialogue must still resolve the exact target.
 
@@ -213,10 +251,29 @@ def factual_question(message: str, *, embedded: bool = False) -> tuple[str, str]
     are validated against current names/IDs and existing conversational bindings.
     """
     clean = " ".join(message.split()).rstrip("?!.,")
+    # Request wrappers and field complements compose independently. The whole
+    # target survives parsing; only catalogue resolution can establish identity.
+    wrapper = re.match(
+        r"(?:(?:can|could|would) you )?(?:please )?(?:(?:tell|show|give) me|name|state)\s+|"
+        r"(?:can|could|may) (?:i|we) (?:see|read)\s+", clean, re.I)
+    if wrapper:
+        clean = clean[wrapper.end():]
+    fields = {"provider": "provider", "supplier": "provider", "purpose": "purpose"}
+    field = "(?:" + "|".join(fields) + ")"
+    nominal = re.fullmatch(r"(?:the )?(" + field + r")(?: (?:of|for) (.+))?", clean, re.I)
+    if nominal:
+        return fields[nominal[1].casefold()], nominal[2] or "it"
+    possessive = re.fullmatch(
+        r"(.+?)[’']s (" + field + r")|(?:its|their) (" + field + r")", clean, re.I)
+    if possessive:
+        return (fields[(possessive[2] or possessive[3]).casefold()],
+                possessive[1] or ("both" if clean.casefold().startswith("their ") else "it"))
     patterns = [
         ("provider", r"(?:who|which (?:company|organisation|organization)) "
                      r"(?:provides|supplies) (.+)"),
-        ("provider", r"(?:who|what) is (?:the )?provider(?: (?:of|for) (.+))?"),
+        ("provider", r"(?:who|what) is (?:the )?(?:provider|supplier)(?: (?:of|for) (.+))?"),
+        ("provider", r"(?:who|which (?:company|organisation|organization)) "
+                     r"(?:is|are) (?:responsible for|behind) (.+)"),
         ("provider", r"who (?:is|are) (.+) (?:provided|supplied) by"),
         ("provider", r"what is (.+?)[’']s provider"),
         ("purpose", r"what (?:is|are) (.+?) (?:used for|useful for|for)"),
@@ -241,6 +298,9 @@ def factual_question(message: str, *, embedded: bool = False) -> tuple[str, str]
 def dialogue_language(message: str, locale: str) -> str:
     """A closed grammar for common Turkish controls; constraints do not disappear."""
     clean = message.strip().rstrip("?!.,")
+    comparison = comparison_question(clean)
+    if comparison:
+        return comparison
     # Conversation controls carry no capability requirement. Match their whole
     # shape so constraints (free, offline, a protocol, etc.) cannot disappear.
     if re.fullmatch(r"(?:even |much )?(?:simpler|less technical)(?:,? please)?", clean, re.I):

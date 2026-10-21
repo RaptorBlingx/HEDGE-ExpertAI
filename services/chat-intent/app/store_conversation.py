@@ -220,14 +220,13 @@ class StoreConversation(StoreDialogue):
             # needs interpretation; explicit new searches retain the fast path.
             shifted = self._implicit_subject_shift(req.message, fallback, context)
             fast = not _COMPLEX.match(req.message) and (fallback.get("decision", {}).get("outcome") == "recommended" and not shifted
-                    or fallback["intent"] == "source_fields" and (bool(fallback["apps"])
-                        or not (context.get("focused_ids") or context.get("last_results") or context.get("comparison_ids"))
-                        or any(_mentions(a, req.message) for a in self.resolve(None)))
                     or fallback["intent"] == "browse"
                     or self.route_intent(req.message, intent) in {"greeting", "help", "reset", "out_of_scope"}
                     or fallback["intent"] == "compare" and bool(fallback["apps"])
                     or dialogue_language(req.message, req.locale) in {"Explain it simply", "How does it work?"} and bool(fallback["apps"]))
-            if (not self.settings.STORE_SEMANTIC_ENABLED or req.locale != "en" or fast
+            # A parsed field read already owns the operation and complete target.
+            # Missing/ambiguous identity needs clarification, not model widening.
+            if (fallback["intent"] == "source_fields" or not self.settings.STORE_SEMANTIC_ENABLED or req.locale != "en" or fast
                     or fallback.get("decision", {}).get("reason") in {"invalid_native_reference", "ambiguous_native_reference", "unverified_filters"}):
                 return fallback
             recovery_started = time.monotonic()
@@ -356,6 +355,8 @@ class StoreConversation(StoreDialogue):
                                          "operation_source": "prepared" if source_field or fallback["intent"] == "compare" else "model",
                                          "raw_query": plan.get("raw_query", plan["query"])}, "model_calls": 1}
         next_context = {**context, "filters": filters}
+        if action == "search":
+            next_context["search_origin_ids"] = [i for i in focus if i in {a["id"] for a in current}]
         if not context.get("turn") and not context.get("last_results"):
             # Preserve the existing initial catalogue bindings, not hidden
             # retrieval candidates. Semantic recovery must not erase UI peers.

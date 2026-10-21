@@ -1,6 +1,7 @@
 # T2 decision consistency
 
 Engineering follow-up to `9e7bf78`, on `feat/t2-backend-completion`.
+Subsequent bounded work from checkpoint `2cde320`: [operation/reference handoff](t2-operation-reference.md).
 The approved Angular frontend, Store synchronization, E5/ranking algorithm, model weights,
 authorization boundary and existing previews are unchanged.
 

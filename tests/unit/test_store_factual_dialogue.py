@@ -7,7 +7,12 @@ import pytest
 from hedge_shared.models_v2 import ChatRequestV2
 from hedge_shared.store_explanations import readable_passage
 from hedge_shared.store_knowledge import prepare
-from hedge_shared.store_language import catalogue_question, factual_question
+from hedge_shared.store_language import (
+    catalogue_question,
+    catalogue_reference,
+    comparison_question,
+    factual_question,
+)
 from hedge_shared.store_v1 import StoreAppMetadata
 
 from scripts.store_v1_playground import load_service
@@ -327,7 +332,12 @@ def test_interpreted_metadata_operation_survives_functional_fallback(conversatio
         'last_results':[{'app':apps[0], 'rank':1}], 'comparison_need':'publish device records',
         'last_outcome':'abstained'}, nlu_intent='help')
     assert result['message'] == '**Device Register** is provided by **Example Labs**.'
-    assert result['generation']['routing']['view'] == 'provider'
+    if factual_question(question):
+        assert result['generation']['source'] == 'prepared'
+        interpreter.assert_not_called()
+    else:
+        assert result['generation']['routing']['view'] == 'provider'
+        interpreter.assert_called_once()
     assert result['decision']['reason'] == 'source_inspection'
 
 
@@ -452,3 +462,75 @@ def test_failed_new_search_retains_discussed_app_for_factual_followups(conversat
     answer = ask(policy, 'Who provides it?', result['context'], nlu_intent='detail')
     assert answer['message'] == '**Sample Monitor** is provided by **Other Labs**.'
     interpreter.assert_called_once()
+
+
+@pytest.mark.parametrize('question', [
+    'Could you state the supplier of Device Register?',
+    'Which organisation is responsible for this application?',
+    'Please name its provider.',
+    'Can I see who provides that product?',
+])
+def test_metadata_operation_and_reference_compose_without_model(conversation, question):
+    policy, apps, interpreter = conversation
+    result = ask(policy, question, {'turn':2, 'focused_ids':[apps[0]['id']],
+        'last_query':'forecast storms', 'comparison_need':'forecast storms'}, nlu_intent='out_of_scope')
+    assert result['message'] == '**Device Register** is provided by **Example Labs**.'
+    assert result['generation']['source'] == 'prepared'
+    assert result['context']['comparison_need'] == 'forecast storms'
+    interpreter.assert_not_called()
+
+
+def test_historical_search_reference_is_independent_of_current_focus(conversation):
+    policy, apps, interpreter = conversation
+    result = ask(policy, 'Who supplies the tool we mentioned before the last search?',
+        {'turn':3, 'focused_ids':[apps[0]['id']], 'search_origin_ids':[apps[1]['id']]})
+    assert result['message'] == '**Sample Monitor** is provided by **Other Labs**.'
+    # A stale historical identity cannot silently fall back to the current App.
+    result = ask(policy, 'Who supplies the tool we mentioned before the last search?',
+        {'turn':3, 'focused_ids':[apps[0]['id']], 'search_origin_ids':['withdrawn-native']})
+    assert not result['apps']
+    interpreter.assert_not_called()
+
+
+@pytest.mark.parametrize('target', ['it with automatic forecasting', 'an unknown product'])
+def test_unresolved_metadata_target_is_not_widened_by_semantic_recovery(conversation, target):
+    policy, apps, interpreter = conversation
+    result = ask(policy, 'Who provides ' + target + '?', {'turn':2, 'focused_ids':[apps[0]['id']]})
+    assert not result['apps'] and result['context']['focused_ids'] == [apps[0]['id']]
+    interpreter.assert_not_called()
+
+
+def test_singular_reference_does_not_choose_between_two_focused_apps(conversation):
+    policy, apps, interpreter = conversation
+    result = ask(policy, 'Who provides this application?', {'turn':2, 'focused_ids':[a['id'] for a in apps]})
+    assert not result['apps']
+    interpreter.assert_not_called()
+
+
+@pytest.mark.parametrize('question', ['How do their purposes differ?',
+                                    'What are the differences between their roles?'])
+def test_comparison_frame_owns_operation_and_displayed_set(conversation, question):
+    policy, apps, interpreter = conversation
+    result = ask(policy, question, {'turn':2, 'last_results':[{'app':a,'rank':i+1} for i,a in enumerate(apps)],
+        'comparison_ids':[a['id'] for a in apps]}, nlu_intent='compare')
+    assert result['intent'] == 'compare'
+    assert {r['app']['id'] for r in result['apps']} == {a['id'] for a in apps}
+    assert 'main difference' in result['message']
+    interpreter.assert_not_called()
+
+
+@pytest.mark.parametrize('question', ['Which of them publishes device records?',
+    'How do their roles differ for automatic forecasting?',
+    'What are the differences between their prices?'])
+def test_purpose_comparison_parser_never_drops_unknown_axis_or_requirement(question):
+    assert comparison_question(question) is None
+
+
+def test_reference_parser_consumes_complete_targets():
+    assert catalogue_reference('that application') == 'focus'
+    assert catalogue_reference('the tool we discussed earlier') == 'focus'
+    assert catalogue_reference('the product we mentioned before that search') == 'before_search'
+    assert catalogue_reference('the other application') == 'other'
+    assert catalogue_reference('these products') == 'both'
+    assert catalogue_reference('this application with offline support') is None
+    assert catalogue_reference('another application') is None
