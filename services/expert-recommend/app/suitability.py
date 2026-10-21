@@ -505,6 +505,24 @@ def source_text(app: dict[str, Any], locale: str) -> dict[str, str]:
     return evidence
 
 
+def _owned_prepared_passage(fact: dict, names: list[str]) -> bool:
+    """Machine extraction is proof only for an explicit App-owned assertion.
+
+    A bare imperative can repeat every requested word without asserting that the
+    App implements it. Do not grow an instruction blacklist: require a bounded
+    declarative subject/predicate or the preparer's validated purpose/passive
+    construction. Unknown grammar remains uncertain.
+    """
+    quote = _fold(fact.get("quote", "")).strip()
+    if quote.startswith("used to ") or fact.get("simple_en"):
+        # simple_en is emitted only by the source-bound linked-passage grammar;
+        # explanation() has already reproduced the entire machine extraction.
+        return True
+    # Use the existing actor grammar verbatim, plus exact source App names.
+    actor = "|".join([_APP, *(re.escape(_fold(name)) for name in names)])
+    return bool(re.match(rf"^(?:{actor})\s+(?:now\s+)?[a-z-]+s\b", quote))
+
+
 def _prepared_support(query: str, app: dict, locale: str, claims: list[_Claim]) -> dict | None:
     """Interpret current source-bound passages within the existing assessor.
 
@@ -534,6 +552,10 @@ def _prepared_support(query: str, app: dict, locale: str, claims: list[_Claim]) 
         return None
     for fact in prepared.get("facts", []):
         if fact.get("qualified"):
+            continue
+        if prepared.get("version") == 2 and not _owned_prepared_passage(
+            fact, [app["name"]] if isinstance(app.get("name"), str) else []
+        ):
             continue
         path, quote, prose = fact.get("path"), fact.get("quote", ""), fact.get("en", "")
         if not quote or quote not in source_text(app, locale).get(path, ""):
@@ -628,11 +650,11 @@ def assess(query: str, app: dict[str, Any], locale: str, *, reviewed_support: Re
             relevant = [c for c in claims if c.status != 'affirmed' and
                         _applies(c, feature, requirement - feature, attributes)]
             if relevant:
-                # Neutral prose may be unparseable without contradicting an
-                # exact typed declaration. Its source-bound proof still checks
-                # every applicable qualification and uninterpreted negation.
+                # Neutral prose may be unparseable without contradicting a
+                # typed feature or complete owned source passage. Preparation
+                # still checks applicable qualifications and unresolved negation.
                 declared = _prepared_support(query, app, locale, claims)
-                if declared and declared["reason"] == "source_declared_feature":
+                if declared and declared["reason"] in {"source_declared_feature", "source_extracted_passage"}:
                     return declared
                 return {"status": "uncertain", "reason": "qualified_or_unresolved_source",
                         "evidence_fields": list(dict.fromkeys(c.path for c in [*evidence, *relevant]))}

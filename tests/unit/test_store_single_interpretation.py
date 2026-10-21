@@ -107,6 +107,27 @@ def test_function_selection_does_not_bind_to_another_apps_identity(monkeypatch, 
     assert result['normalization'] == 'source_function' and result['apps'] == []
 
 
+def test_source_actor_is_not_a_requirement_that_excludes_equivalent_apps(monkeypatch):
+    apps = []
+    for name in ("Sample-Joiner", "Alternative Joiner"):
+        knowledge = prepare(StoreAppMetadata(store_id="contract-only", app_id=name,
+            name=name, active=True, visible=True, description="Record coordination",
+            readme=name + " combines device records into a common report."))
+        apps.append({**knowledge["projection"], "prepared_explanation": knowledge["explanation"]})
+    def select(messages, schema, **kwargs):
+        label = next(key for key in schema["properties"]["source_function"]["enum"]
+                     if key.endswith("(1.1)"))
+        return model_frame(label)
+    monkeypatch.setattr(expert, "OllamaClient", lambda: SimpleNamespace(chat_structured=select))
+    result = expert.understand("Combine device records in a report",
+        [{"key": str(i + 1), "app": app} for i, app in enumerate(apps)], {}, [])
+    assert "Joiner" not in result["query"]
+    assert result["source_function"] != "none"
+    decision = expert._recommendation_decision(result["query"],
+        [{"app": app, "rank": i + 1} for i, app in enumerate(apps)], "en")
+    assert {r["app"]["id"] for r in decision["apps"]} == {a["id"] for a in apps}
+
+
 def test_native_source_fact_enters_the_same_assessed_function_menu(monkeypatch):
     knowledge = prepare(StoreAppMetadata(store_id='contract-only', app_id='opaque-declared',
         name='Sample Utility', readme='Used to collect device measurements.', active=True, visible=True,

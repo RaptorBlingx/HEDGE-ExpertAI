@@ -572,7 +572,13 @@ def understand(question, directory, context, history):
             # Keep source vocabulary in explanatory order, including logical
             # connectors. Words introduced by explanation are never evidence.
             original_terms = _terms(fact["quote"])
-            query = " ".join(w for w in re.findall(r"[^\W_]+", fact["en"])
+            # A source's grammatical actor is provenance, not a user requirement.
+            # Remove it before tokenization so native-name punctuation survives
+            # the match. Identity binding remains separate from functional need.
+            task_text = fact["en"]
+            if app.get("name"):
+                task_text = re.sub(r"^" + re.escape(app["name"]) + r"\s+(?:now\s+)?", "", task_text, count=1, flags=re.I)
+            query = " ".join(w for w in re.findall(r"[^\W_]+", task_text)
                              if _terms(w) <= original_terms)
             if not query or not _recommendation_decision(query, [{"app": app, "rank": 1}], "en")["apps"]:
                 continue

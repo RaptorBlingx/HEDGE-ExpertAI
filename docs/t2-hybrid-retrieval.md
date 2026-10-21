@@ -131,3 +131,46 @@ acceptance is claimed from 19 eligible fixtures and two real Apps.
 Reproduction: [evaluation guide](../evaluation/retrieval/README.md). Protected raw
 rankings, full evidence, frozen hashes, HTTP responses and preservation checks
 remain outside Git under `~/.local/share/hedge-t2-retrieval/`.
+
+## Bounded recommendation-boundary follow-up
+
+Checkpoint `36345e0` was published normally and verified on Forgejo before this
+follow-up. Twelve existing frozen requests were selected without changing the
+20-App authored catalogue. Fresh Discovery/Expert HTTP calls reproduced identical
+rankings: relevant Apps were in the top two for all eight positive requests, with
+96.875% Recall@5. Prepared final recommendations were **4 Pass / 0 Partial / 8 Fail**
+before and after: eight false abstentions and no unsupported recommendations.
+These failures cannot be attributed to missing candidates alone.
+
+The source boundary had two confirmed defects: neutral unparsed context could
+veto a complete owned extracted assertion; a bare imperative could instead become
+an admitted source function. Machine-extracted passage proof now requires a
+bounded App-owned declaration or validated purpose/passive construction. Existing
+qualification and unresolved-negation checks remain. Valid extracted proof can
+resolve neutral context. A source's grammatical App name is removed before task
+tokenization so it does not become a functional requirement excluding equivalent
+Apps. Native identity, exact quotations and authoritative revalidation are unchanged.
+Canonical source probes demonstrate the repaired false rejection and removal of
+an imperative-based false approval; these are not natural-language quality scores.
+
+Six actual Qwen calls were capped in one warm-model session. The final three
+scored **1 Pass / 0 Partial / 2 Fail**: unsupported throughput was correctly declined,
+but simple bid aggregation and compound aggregation/submission/settlement still
+abstained. Qwen ignored an available admissible aggregation task; the compound
+request retained all three requirements but lacked admissible complete source
+support. Restricted/preparation passages and one-function normalization remain
+substantive limitations. No fusion, E5, NLU, UI or model weights were changed.
+
+Two baseline calls were unassessed after a recorder dependency failure; the one
+complete baseline case passed. They were retained and not replayed or counted as
+product failures. Fixed-pool model/Expert HTTP checks were followed by captured-plan
+replay through the actual dialogue policy and fresh Discovery/Expert HTTP routes.
+This phased execution avoided E5/Qwen residency overlap; it is not a live Angular,
+Rasa or concurrent-serving acceptance run. No additional inference was used.
+
+Focused guards passed, and the full unit suite ran once: **1,367 passed**, shared
+branch coverage **88.14%**. Complete answers, stage traces, frozen selection,
+source probes and resource/preservation evidence are private under
+`~/.local/share/hedge-t2-recommendation/`. This does **not** close recommendation
+quality or establish T2 prototype acceptance, despite strong retrieval on this
+controlled catalogue. No formal HEDGE sandbox KPI validation is claimed.
