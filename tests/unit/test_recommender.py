@@ -29,7 +29,7 @@ def test_high_retrieval_rank_is_not_suitability(setup):
     result = _mod.recommend_v2(query="earthquake warnings", locale="en", filters={}, limit=5)
     assert result["apps"] == [] and len(result["candidates"]) == 2
     assert result["decision"]["outcome"] == "abstained"
-    assert "confirmed matches" in result["message"]
+    assert "find an App in the catalogue" in result["message"]
     assert "Start with" not in result["message"]
 
 
@@ -39,31 +39,28 @@ def test_positive_recommendation_is_bound_to_source_and_original_order(setup):
     assert result["apps"][0]["suitability"]["evidence_fields"] == ["description"]
     assert result["apps"][0]["rank"] == 1
     assert [r["app"]["id"] for r in result["candidates"]] == ["water"]
-    assert 'description: "Energy monitoring."' in result["message"]
+    assert result["message"] == "**Energy Meter** fits what you need. Energy monitoring."
 
 
-def test_structured_abstention_veto_is_preserved(setup, monkeypatch):
-    monkeypatch.setattr(_mod, "OllamaClient", lambda: SimpleNamespace(
-        chat_structured=lambda *args: '{"selected_ids":[]}',
-    ))
-    result = _mod._recommendation_decision("energy monitoring", SAMPLE_RESULTS, "en", allow_model=True)
-    assert not result["apps"]
-    assert result["decision"]["reason"] == "model_abstention"
-    assert "cannot recommend" in result["message"]
-    assert "Start with" not in result["message"]
+def test_partial_fits_are_explained_but_never_recommended(setup, monkeypatch):
+    monkeypatch.setattr(_mod, "OllamaClient", lambda: (_ for _ in ()).throw(AssertionError("no model")))
+    results = [{"app": {"id": "hub", "title": "MeaningHub", "description":
+                        "MeaningHub publishes shared vocabularies. Payload transformation is not performed."},
+                "rank": 1}, *SAMPLE_RESULTS]
+    result = _mod._recommendation_decision("publish shared vocabularies and transform payloads", results, "en")
+    assert result["apps"] == [] and result["decision"] == {"outcome": "abstained", "reason": "partial_matches_only"}
+    assert result["candidates"][0]["suitability"]["status"] == "partial"
+    assert result["message"].startswith("No single App documents everything you asked for.")
+    assert "**MeaningHub** covers “publish shared vocabularies”: MeaningHub publishes shared vocabularies." in result["message"]
+    assert "doesn’t cover “transform payloads”; its description says: Payload transformation is not performed." in result["message"]
 
 
-@pytest.mark.parametrize("generated", [
-    'Energy Meter guarantees 90% savings and is medically certified.',
-    '{"selected_ids":["water"]}', '{"selected_ids":["energy","energy"]}',
-    '{"selected_ids":["energy"],"claim":"free forever"}',
-])
-def test_fabrication_and_unbacked_selection_never_become_prose(setup, monkeypatch, generated):
-    monkeypatch.setattr(_mod, "OllamaClient", lambda: SimpleNamespace(chat_structured=lambda *args: generated))
-    result = _mod._recommendation_decision("energy monitoring", SAMPLE_RESULTS, "en", allow_model=True)
-    assert [r["app"]["id"] for r in result["apps"]] == ["energy"]
-    assert not any(word in result["message"] for word in ("90%", "certified", "forever", "Start with"))
-    assert result["decision"]["reason"] == "source_evidence_fallback"
+def test_assessed_pool_is_wider_than_the_displayed_limit(setup, monkeypatch):
+    requested = []
+    monkeypatch.setattr(_mod, "_search_apps_v2", lambda *a, limit, **k: requested.append(limit) or SAMPLE_RESULTS)
+    result = _mod.recommend_v2(query="energy monitoring", locale="en", filters={}, limit=1)
+    assert requested == [_mod.ASSESSED_CANDIDATES]
+    assert len(result["apps"]) == 1 and len(result["candidates"]) == 1
 
 
 def test_normal_and_streamed_paths_decide_before_emitting_cards(setup):

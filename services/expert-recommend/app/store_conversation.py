@@ -18,6 +18,7 @@ from hedge_shared.config import Settings
 from hedge_shared.store_explanations import _PURPOSE, plain_english, readable_passage
 from hedge_shared.store_knowledge import explanation
 from hedge_shared.store_language import (
+    cost_question,
     dialogue_language,
     factual_question,
     inspection_target,
@@ -25,9 +26,18 @@ from hedge_shared.store_language import (
 )
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
 
+from .evidence import _LIMITED as _QUALIFIED
+from .evidence import _NEGATIVE as _NEGATION
+from .evidence import terms as _terms
 from .llm_client import OllamaClient
-from .recommender import _quoted_store_text, _recommendation_decision, _store_evidence
-from .suitability import _NEGATION, _QUALIFIED, MAX_SEMANTIC_SUPPORT_FIELDS, _terms, source_text
+from .recommender import (
+    _partial_line,
+    _quoted_store_text,
+    _recommendation_decision,
+    _store_evidence,
+    decision_message,
+)
+from .suitability import MAX_SEMANTIC_SUPPORT_FIELDS, source_text
 
 _DEADLINE: ContextVar[float | None] = ContextVar("store_reasoning_deadline", default=None)
 
@@ -132,42 +142,6 @@ def _excerpt(row: dict, locale: str) -> str:
         "Açıklamayı uygulama kartında inceleyebilirsiniz." if locale == "tr" else "You can inspect the description in its App card.")
 
 
-def _related_passage(question: str, candidates: list[dict], locale: str):
-    """Find a useful passage for clarification, never promote a recommendation.
-
-    All request terms must occur in adjacent complete source sentences. Strict,
-    negative, numeric or deployment requirements need an actual suitability
-    decision; lexical overlap cannot establish those. Unknown terms survive.
-    """
-    query = search_language(question, locale)
-    if _NEGATION.search(query.casefold()) or _QUALIFIED.search(query.casefold()) or re.search(
-        r"\d|\b(?:production|offline|real.time|best|better|cheapest)\b", query, re.I
-    ):
-        return None
-    terms = _terms(query)
-    if len(terms) < 2:
-        return None
-    for row in candidates:
-        if row.get('suitability', {}).get('reason') != 'no_coherent_source_support':
-            continue
-        for text in source_text(row['app'], locale).values():
-            sentences = re.split(r'(?<=[.!?])\s+|\n', text)
-            for index in range(len(sentences)):
-                passage = ' '.join(sentences[index:index + 2]).strip()
-                following = sentences[index + 2] if index + 2 < len(sentences) else ''
-                qualification = following if (
-                    _NEGATION.search(following.casefold())
-                    or _QUALIFIED.search(following.casefold())
-                ) else ''
-                complete = passage + (' ' + qualification if qualification else '')
-                if (len(complete) <= 900 and terms <= _terms(passage)
-                        and not _NEGATION.search(passage.casefold())
-                        and not _QUALIFIED.search(passage.casefold())
-                        and not re.search(r'ignore.*instructions|https?://', complete, re.I)):
-                    return row, complete
-    return None
-
-
 def _prepared_answer(question: str, response: dict, locale: str) -> str:
     """Present current evidence without changing recommendation eligibility.
 
@@ -179,7 +153,7 @@ def _prepared_answer(question: str, response: dict, locale: str) -> str:
     intent = response["intent"]
     normalized = dialogue_language(question, locale)
     price_read = response.get("source_field") in {"price", "billing fields"} or (
-        intent != "compare" and bool(re.search(r"\b(?:costs?|prices?|pricing|billing)\b", normalized, re.I)))
+        intent != "compare" and cost_question(normalized) and not re.search(r"\b(?:free|paid|cheap\w*|budget)\b", normalized, re.I))
     if locale == "en" and response.get("unverified_filters"):
         labels = {"pricing": "free use or other pricing conditions", "license_spdx": "licensing",
                   "capabilities": "capabilities", "protocols": "protocol support",
@@ -238,21 +212,13 @@ def _prepared_answer(question: str, response: dict, locale: str) -> str:
         if factual:
             return "Which App do you mean? You can name it or ask me to list the Apps."
         candidates = response.get("candidates", [])
-        related = _related_passage(question, candidates, locale)
-        if related:
-            row, passage = related
-            name = _quoted_store_text(row['app'].get('name') or row['app']['app_id'])
-            quote = _quoted_store_text(passage)
-            response['context']['focused_ids'] = [row['app']['id']]
-            response['context']['explanation_topic'] = search_language(question, locale)
-            if _explanation(row, locale).get("version") == 2:
-                return f'**{name}** — {quote}'
-            if _explanation(row, locale):
-                return f'**{name}** — {_fact_text(row, question, locale)}'
-            return ((f'**{name}** açıklamasında ilgili bir bölüm var:\n\n“{quote}”\n\n'
-                     'Kastettiğiniz iş akışı bu mu?') if locale == 'tr' else
-                    (f'Here’s a relevant passage from **{name}**:\n\n“{quote}”\n\n'
-                     'Is that the workflow you have in mind?'))
+        if locale == "en" and intent in {"search", "refine"}:
+            partial = [r for r in candidates if r.get("suitability", {}).get("status") == "partial"]
+            if partial:
+                # Partial fits are explained and can be followed up, never recommended.
+                response["context"]["focused_ids"] = [partial[0]["app"]["id"]] if len(partial) == 1 else []
+                response["context"]["explanation_topic"] = search_language(question, locale)
+            return decision_message([], candidates)
         if intent == "detail" and len(candidates) == 1:
             name = _quoted_store_text(candidates[0]["app"].get("name") or candidates[0]["app"]["app_id"])
             row = candidates[0]
@@ -260,6 +226,13 @@ def _prepared_answer(question: str, response: dict, locale: str) -> str:
             # feature. State the uncertainty without inventing an absence claim.
             answer = (f'**{name}** için bu özellik açıklanmamış.' if locale == 'tr' else
                       f'I couldn’t confirm that feature for **{name}**.')
+            if locale == 'en':
+                findings = row.get('suitability', {}).get('requirements', [])
+                stated = next((f for f in findings if f['status'] == 'excluded'), None)
+                if stated:
+                    return f'No. **{name}**’s description says: {_quoted_store_text(stated["quote"])}'
+                if row.get('suitability', {}).get('status') == 'partial':
+                    return 'Partly. ' + _partial_line(row)
             evidence = row['app'].get('source_evidence', {}).get('readme', '')
             if re.search(r"offline|self.host|container|install", normalized, re.I) and re.search(
                 r"External service, accessible via its public URL", evidence, re.I,
@@ -341,9 +314,9 @@ def _prepared_answer(question: str, response: dict, locale: str) -> str:
                     complete = [f for f in facts if fact['quote'] in f['quote'] and f['quote'] != fact['quote']]
                     if re.match(r"^(?:This|That|These|Those|Such)\b", fact['en']) and complete:
                         fact = min(complete, key=lambda f: len(f['quote']))
-                    text = fact.get('short_en' if repeated else 'simple_en', readable_passage(fact['en'], brief=repeated))
+                    text = fact.get('short_en' if repeated else 'simple_en', plain_english(readable_passage(fact['en'], brief=repeated)))
                     if text == bound.get('rendered'):
-                        text = fact.get('short_en', readable_passage(fact['en'], brief=True))
+                        text = fact.get('short_en', plain_english(readable_passage(fact['en'], brief=True)))
                 if repeated and not fact.get('short_en') and not matched_topic:
                     # A shorter restatement of the explicit purpose, without
                     # adding an analogy or an unsupported capability.
@@ -390,7 +363,15 @@ def _prepared_answer(question: str, response: dict, locale: str) -> str:
                     lines.append("For the task you described, the documented " +
                                  ("match is " if len(matched) == 1 else "matches are ") +
                                  ", ".join(f'**{name}**' for name in matched) + ".")
-                if unknown:
+                needs = [item["requirement"] for item in (decision["apps"] + decision["candidates"])[0]
+                         ["suitability"].get("requirements", [])] if rows else []
+                partial = [r for r in decision["candidates"] if r["suitability"].get("status") == "partial"]
+                lines.extend(_partial_line(row) for row in partial)
+                unknown = [name for name in unknown if name not in {title(row) for row in partial}]
+                if unknown and needs:
+                    lines.append("The descriptions don’t document “" + " and ".join(map(_quoted_store_text, needs))
+                                 + "” for " + ", ".join(f'**{name}**' for name in unknown) + ".")
+                elif unknown:
                     lines.append("The descriptions don’t confirm that same requirement for " +
                                  ", ".join(f'**{name}**' for name in unknown) + ".")
             else:
@@ -417,6 +398,8 @@ def _prepared_answer(question: str, response: dict, locale: str) -> str:
     lines = [f'**{title(row)}** — {_fact_text(row, question if intent == "detail" else "", locale, topic=topic, expand=expand, context=context)}' for row in rows]
     if response.get('decision', {}).get('outcome') == 'recommended':
         direct = intent == "detail" and bool(re.match(r"(?:can|does|could)\b", normalized, re.I))
+        if locale == 'en' and all(row.get('suitability', {}).get('requirements') for row in rows):
+            return decision_message(rows, [], direct=direct)
         intro = ('Evet.' if locale == 'tr' else 'Yes.') if direct else (
             'Bu iş için önerim:' if locale == 'tr' else 'For that, I recommend:')
         return intro + "\n\n" + "\n\n".join(lines)

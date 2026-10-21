@@ -264,7 +264,7 @@ def test_concise_presentation_keeps_unverified_apps_out_of_recommendations(routi
     answers = load_service('ux_answers', 'expert-recommend')('store_conversation')
     policy.present = answers.prepared_answer
     first = ask(policy, 'Find apps for shared data models')
-    assert first['apps'] and 'recommend' in first['message']
+    assert first['apps'] and first['message'] == '**Model Studio** fits what you need. Provides shared data models.'
     assert 'Deployment-specific' not in first['message'] and 'Unverified retrieval' not in first['message']
     follow = ask(policy, 'Tell me more about that one', context=first['context'])
     assert 'Model Studio' in follow['message'] and 'Provider B' in follow['message']
@@ -274,20 +274,17 @@ def test_concise_presentation_keeps_unverified_apps_out_of_recommendations(routi
     model.assert_not_called()
 
 
-def test_exploratory_passage_does_not_change_decision_or_invent_a_card():
+def test_referring_sentence_is_assessed_and_quoted_with_its_antecedent():
     answers = load_service('ux_passage', 'expert-recommend')('store_conversation')
     app = StoreAppMetadata(store_id='Store', app_id='Bids', name='Bid Workshop',
         description='Handles regional bids from multiple aggregators. Those bids are combined under a common bid.',
         active=True, visible=True).recommendation_projection()
-    response = {'intent':'search', 'message':'old', 'apps':[], 'context':{},
-        'decision':{'outcome':'abstained','reason':'insufficient_evidence'},
-        'candidates':[{'app':app,'suitability':{'reason':'no_coherent_source_support'}}]}
-    text = answers.prepared_answer('combining bids from several aggregators', response, 'en')
-    assert 'Bid Workshop' in text and 'Is that the workflow' in text
-    assert response['apps'] == [] and response['decision']['outcome'] == 'abstained'
-    assert response['context']['focused_ids'] == [app['id']]
-    for query in ['production bids', 'bids without MQTT', '100 aggregators', 'quantumtelepathy bids']:
-        assert answers._related_passage(query, response['candidates'], 'en') is None
+    decision = expert._recommendation_decision('combining bids from aggregators', [{'app': app, 'rank': 1}], 'en')
+    assert decision['decision']['outcome'] == 'recommended'
+    assert decision['apps'][0]['suitability']['evidence_spans'] == [app['description']]
+    text = answers.prepared_answer('combining bids from aggregators',
+                                   {**decision, 'intent': 'search', 'context': {}}, 'en')
+    assert text == '**Bid Workshop** fits what you need. ' + app['description']
 
 
 def test_summary_keeps_adjacent_source_qualifications():

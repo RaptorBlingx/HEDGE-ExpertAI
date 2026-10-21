@@ -57,4 +57,21 @@ def encode_single(text: str) -> list[float]:
     return vec[0].tolist()
 
 
+_passages: dict[str, np.ndarray] = {}
+_PASSAGE_CACHE = 4096
+
+
+def similarity(queries: list[str], passages: list[str]) -> list[list[float]]:
+    """Query/passage cosine similarities; source sentences repeat across turns."""
+    vectors = {p: _passages[p] for p in passages if p in _passages}
+    missing = [p for p in dict.fromkeys(passages) if p not in vectors]
+    if missing:
+        for text, vector in zip(missing, encode(missing), strict=True):
+            if len(_passages) >= _PASSAGE_CACHE:
+                _passages.pop(next(iter(_passages)))
+            _passages[text] = vectors[text] = vector
+    matrix = np.stack([vectors[p] for p in passages])
+    return (encode_queries(queries) @ matrix.T).tolist()
+
+
 VECTOR_DIM = 384

@@ -149,7 +149,7 @@ def test_failures_never_claim_no_match_and_retry_recovers(chain, mode, status, s
     chain.state["mode"] = mode
     path = "/api/v2/chat" + ("/stream" if stream else "")
     response = chain.cc.post(path, json={"message": "energy"})
-    assert "No supported catalogue match" not in response.text
+    assert "find an App in the catalogue" not in response.text
     if stream:
         payloads = events(response)
         assert payloads[-1]["type"] == "problem"
@@ -163,7 +163,7 @@ def test_failures_never_claim_no_match_and_retry_recovers(chain, mode, status, s
     chain.state["mode"] = "ok"
     recovered = chain.cc.post(path, json={"message": "energy"})
     assert recovered.status_code == 200
-    assert "No supported catalogue match" in recovered.text
+    assert "find an App in the catalogue" in recovered.text
     if stream:
         assert events(recovered)[-1]["type"] == "complete"
     chain.updates.assert_called_once()
@@ -183,7 +183,7 @@ def test_authoritative_retrieval_failure_is_unavailable(chain, monkeypatch, stre
         assert events(response)[-1]["type"] == "problem"
     else:
         assert response.status_code == 503
-    assert "No supported catalogue match" not in response.text
+    assert "find an App in the catalogue" not in response.text
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -253,7 +253,7 @@ def test_2000_character_search_and_vector_fallback_are_successful(chain, monkeyp
     )
     response = chain.cc.post("/api/v2/chat", json={"message": "x" * 2000})
     assert response.status_code == 200
-    assert "No supported catalogue match" in response.text
+    assert "find an App in the catalogue" in response.text
     assert chain.state["queries"] == ["x" * 2000]
 
 
@@ -268,7 +268,7 @@ def test_authoritative_service_recovers_on_next_request(chain, monkeypatch, stre
     monkeypatch.setattr(chain.searcher, "lexical_search", lambda *a, **k: [])
     recovered = chain.cc.post(path, json={"message": "energy"})
     assert recovered.status_code == 200
-    assert "No supported catalogue match" in recovered.text
+    assert "find an App in the catalogue" in recovered.text
     if stream:
         assert events(recovered)[-1]["type"] == "complete"
 
@@ -359,7 +359,7 @@ def test_public_gateway_preserves_chat_outcomes(chain, stream, mode, status):
         payloads = events(response)
         if status == 200:
             assert payloads[-1]["type"] == "complete"
-            assert "No supported catalogue match" in response.text
+            assert "find an App in the catalogue" in response.text
         else:
             assert payloads[-1]["type"] == "problem"
             assert payloads[-1]["status"] == status
@@ -369,7 +369,7 @@ def test_public_gateway_preserves_chat_outcomes(chain, stream, mode, status):
         if status != 200:
             assert response.headers["content-type"].startswith("application/problem+json")
     if status != 200:
-        assert "No supported catalogue match" not in response.text
+        assert "find an App in the catalogue" not in response.text
 
 
 @pytest.mark.parametrize("stream", [False, True])
@@ -378,7 +378,7 @@ def test_genuine_zero_results_are_successful_no_match(chain, stream):
         "/api/v2/chat" + ("/stream" if stream else ""), json={"message": "absent app"}
     )
     assert response.status_code == 200
-    assert "No supported catalogue match was found." in response.text
+    assert "find an App in the catalogue" in response.text
     if stream:
         payloads = events(response)
         assert next(e for e in payloads if e["type"] == "recommendations")["apps"] == []

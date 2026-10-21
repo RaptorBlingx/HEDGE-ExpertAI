@@ -428,7 +428,8 @@ def test_disposable_store_pipeline_separates_dense_neighbours_from_source_suppor
     assert by_id[water.id]["suitability"]["status"] == "uncertain"
     assert result["decision"]["outcome"] == ("recommended" if supported else "abstained")
     assert "highest-ranked" not in result["message"] and "Start with" not in result["message"]
-    assert water.description in result["message"]
+    # Unsupported neighbours stay inspectable as candidates, not narrated as options.
+    assert water.description not in result["message"]
     all_rows = [*result["apps"], *result["candidates"]]
     returned = next(r for r in all_rows if r["app"]["id"] == warning.id)
     assert returned["app"]["store_id"] == STORE and returned["app"]["app_id"] == warning.app_id
@@ -451,7 +452,7 @@ def test_disposable_store_pipeline_separates_dense_neighbours_from_source_suppor
     ('Provides earthquake warnings.', 'This feature is disabled. It cannot be used.', 'earthquake warnings', 'en', False),
     ('Provides earthquake warnings if sensors are installed.', None, 'earthquake warnings', 'en', False),
     ('Provides earthquake warnings. Sends them via SMS.', None, 'earthquake warnings SMS', 'en', True),
-    ('Provides earthquake warnings and water readings. Sends them via SMS.', None, 'earthquake warnings SMS', 'en', False),
+    ('Provides earthquake warnings and water readings. Sends them via SMS.', None, 'earthquake warnings SMS', 'en', True),
     ('Provides earthquake warnings. Another App sends them via SMS.', None, 'earthquake warnings SMS', 'en', False),
     ('Provides earthquake warnings.', 'Delivers earthquake warnings via SMS.', 'earthquake warnings SMS', 'en', True),
     ('Provides earthquake warnings.', 'MQTT is unavailable.', 'earthquake warnings', 'en', True),
@@ -477,7 +478,7 @@ def test_coherent_claims_survive_real_store_boundaries(offline, description, rea
     assert (row in result['apps']) is supported
     assert row['app']['store_id'] == STORE and row['app']['app_id'] == app.app_id
     assert row['app']['source_evidence']['description'] == description
-    assert row['suitability']['status'] == ('source_supported' if supported else 'uncertain')
+    assert (row['suitability']['status'] == 'source_supported') is supported
     events = list(recommender.recommend_v2_stream(query=query, locale=locale, filters={}, limit=10))
     assert events[0]['apps'] == result['apps'] and events[0]['candidates'] == result['candidates']
     assert events[0]['decision'] == result['decision']
@@ -513,7 +514,7 @@ def test_owned_evidence_survives_store_persistence_and_retrieval(offline, case):
     assert (row in result['apps']) is case['supported']
     assert row['app']['store_id'] == STORE and row['app']['app_id'] == 'Ownership-App'
     assert row['app']['source_evidence']['description'] == source['description']
-    assert row['suitability']['status'] == ('source_supported' if case['supported'] else 'uncertain')
+    assert (row['suitability']['status'] == 'source_supported') is case['supported']
     events = list(recommender.recommend_v2_stream(**args))
     assert events[0]['apps'] == result['apps'] and events[0]['candidates'] == result['candidates']
     assert events[0]['decision'] == result['decision']

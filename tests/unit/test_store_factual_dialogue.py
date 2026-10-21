@@ -212,7 +212,7 @@ def test_comparison_assesses_each_app_against_the_same_need(conversation):
                'focused_ids':[apps[0]['id']], 'explanation_topic':'publish device records'}
     result = ask(policy, 'Compare both.', context)
     assert 'documented match is **Device Register**' in result['message']
-    assert 'don’t confirm that same requirement for **Sample Monitor**' in result['message']
+    assert 'don’t document “publish device records” for **Sample Monitor**' in result['message']
     assert 'does not support' not in result['message']
     assert result['context']['focused_ids'] == [apps[0]['id']]
     # A new comparison criterion overrides the old need, without claiming that
@@ -221,7 +221,9 @@ def test_comparison_assesses_each_app_against_the_same_need(conversation):
     assert 'documented match is **Sample Monitor**' in result['message']
     result = ask(policy, 'Compare both for monitor laboratory samples and predict prices.', context)
     assert 'documented match is' not in result['message']
-    assert 'don’t confirm that same requirement' in result['message']
+    assert ('**Sample Monitor** covers “monitor laboratory samples”' in result['message']
+            and 'It doesn’t mention “predict prices”.' in result['message'])
+    assert 'don’t document “monitor laboratory samples and predict prices” for **Device Register**.' in result['message']
     result = ask(policy, 'Compare both without a paid account for publish device records.', context)
     assert 'documented match is' not in result['message']
     assert not result['apps']  # The commercial restriction still fails closed.
@@ -416,7 +418,7 @@ def test_comparison_does_not_replace_normalized_need_with_operation_text(convers
          'comparison_need':'monitor laboratory samples'})
     assert result['context']['comparison_need'] == 'publish device records'
     assert 'documented match is **Device Register**' in result['message']
-    assert 'same requirement for **Sample Monitor**' in result['message']
+    assert 'document “publish device records” for **Sample Monitor**' in result['message']
 
 
 def test_unextracted_comparison_command_cannot_replace_established_need(conversation):

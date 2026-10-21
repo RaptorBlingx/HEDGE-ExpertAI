@@ -26,6 +26,23 @@ _CATALOGUE = re.compile(
 )
 
 
+_COST = re.compile(
+    r"\b(?:price|prices|pricing|cost|costs|cheapest|cheaper|free|paid|budget|billing)\b", re.I)
+# Prices as the subject of an App's function: "price forecasting", "what
+# electricity will cost tomorrow". Not a question about what an App costs.
+_PRICE_FUNCTION = re.compile(
+    r"\b(?:forecast\w*|predict\w*|estimat\w*|analy[sz]\w*|market|electricity|energy|power|day.ahead|spot|"
+    r"tariffs?)\b[^.?!]{0,40}\b(?:prices?|costs?)\b|\b(?:prices?|costs?)\s+(?:forecast\w*|predict\w*|"
+    r"estimat\w*|data|signals?|curves?|series)\b", re.I)
+
+
+def cost_question(message: str) -> bool:
+    """Whether a message asks about App pricing/commercial terms."""
+    if re.search(r"\b(?:free|paid|cheapest|cheaper|budget|billing|pricing)\b", message, re.I):
+        return True
+    return bool(_COST.search(message)) and not _PRICE_FUNCTION.search(message)
+
+
 def catalogue_question(message: str) -> bool:
     """A catalogue operation, optionally composed with inspection of each entry.
 

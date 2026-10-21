@@ -49,11 +49,13 @@ class StoreConversation(StoreDialogue):
     @staticmethod
     def _implicit_subject_shift(message, response, context):
         focus = context.get("focused_ids", [])
-        return (len(focus) == 1 and response["intent"] in {"search", "refine"}
+        # "Which of those ..." selects from the displayed set; it is not a switch away from the focus.
+        selection = re.search(r"\b(?:of|from|among|between)\s+(?:those|these|them|the two|both)\b", message, re.I)
+        return (len(focus) == 1 and response["intent"] in {"search", "refine"} and not selection
                 and any(row["app"]["id"] not in focus for row in response["apps"])
                 and _search_query(message.strip()) == message.strip())
 
-    def route_intent(self, message: str, intent: str) -> str:
+    def route_intent(self, message: str, intent: str, context: dict | None = None) -> str:
         if self.routine:
             if _COMPLEX.match(message):
                 return "conversation"
@@ -70,7 +72,7 @@ class StoreConversation(StoreDialogue):
                 return intent
             normalized = dialogue_language(message, "tr")
             fallback = "refine" if re.match(r"^(?:only|without|instead|sadece|yalnızca)\b", normalized, re.I) else "search"
-            return super().route_intent(normalized, fallback)
+            return super().route_intent(normalized, fallback, context)
         return "reset" if intent == "reset" else "conversation"
 
     async def respond(self, req: ChatRequestV2, intent: str, context: dict) -> dict:
@@ -107,7 +109,7 @@ class StoreConversation(StoreDialogue):
                 "Compare both" if len(context.get("last_results", [])) > 1
                 else "Tell me about it" if context.get("focused_ids")
                 else "Show me all available apps")})
-        routed = self.route_intent(request.message, intent)
+        routed = self.route_intent(request.message, intent, context)
         fallback = await super().respond(request, routed, context)
         if "pending_filters" in context:
             # Session updates merge keys. Persist explicit empties after a
@@ -221,7 +223,8 @@ class StoreConversation(StoreDialogue):
             shifted = self._implicit_subject_shift(req.message, fallback, context)
             fast = not _COMPLEX.match(req.message) and (fallback.get("decision", {}).get("outcome") == "recommended" and not shifted
                     or fallback["intent"] == "browse"
-                    or self.route_intent(req.message, intent) in {"greeting", "help", "reset", "out_of_scope"}
+                    or fallback.get("decision", {}).get("reason") == "partial_matches_only"
+                    or self.route_intent(req.message, intent, context) in {"greeting", "help", "reset", "out_of_scope"}
                     or fallback["intent"] == "compare" and bool(fallback["apps"])
                     or dialogue_language(req.message, req.locale) in {"Explain it simply", "How does it work?"} and bool(fallback["apps"]))
             # A parsed field read already owns the operation and complete target.
@@ -476,7 +479,8 @@ class StoreConversation(StoreDialogue):
                 response["interpreted_query"] = query
                 presentation = {"workflow": "How does it work?", "simple": "Explain it simply", "pricing": "What does it cost?", "access": "How do I get started?", "provider": "Who provides it?"}.get(view, req.message)
                 response["message"] = self.present(presentation, response, req.locale) if self.present else response["message"]
-                if not shown and not response.get("unverified_filters"):
+                partial = any(r.get("suitability", {}).get("status") == "partial" for r in response.get("candidates", []))
+                if not shown and not response.get("unverified_filters") and not partial:
                     if action != "answer" or not response.get("candidates"):
                         response["message"] = ("I haven’t found a confirmed match for that need. Which part matters most? "
                             "I can help you explore a partial fit or check a specific App’s capabilities.")

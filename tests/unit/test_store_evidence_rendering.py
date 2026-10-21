@@ -131,8 +131,10 @@ def test_normal_and_streamed_recommendations_use_the_same_omission_and_statuses(
     assert normal["candidates"] == events[0]["candidates"]
     assert normal["message"] == "".join(e["content"] for e in events if e["type"] == "explanation_delta")
     assert normal["explanations"] == events[-1]["explanations"]
-    assert "complete quotation omitted" in normal["message"] and "too large" in normal["message"]
-    assert "supplied no descriptive metadata" not in normal["message"]
+    # Unverified candidates are not narrated in the decision; source inspection still is.
+    described = recommend._recommendation_narrative("MQTT", normal["candidates"], "en")
+    assert "complete quotation omitted" in described and "too large" in described
+    assert "supplied no descriptive metadata" not in described
 
 
 @pytest.mark.parametrize("length", [1200, 1201])

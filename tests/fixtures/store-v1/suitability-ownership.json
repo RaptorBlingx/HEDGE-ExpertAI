@@ -193,7 +193,7 @@
     "source": {
       "description": "Earthquake warnings and water readings are available. Sends them via SMS."
     },
-    "supported": false
+    "supported": true
   },
   {
     "case": "right-feature-copula",
@@ -396,7 +396,7 @@
       "description": "Provides earthquake warnings. Sends them via SMS.",
       "readme": "Earthquake warnings are available via MQTT if sensors are installed."
     },
-    "supported": false
+    "supported": true
   },
   {
     "case": "feature-future-with-channel",
@@ -654,7 +654,7 @@
       "description": "Provides earthquake warnings. Sends them via SMS.",
       "readme": "Earthquake warnings do not require an unspecified integration."
     },
-    "supported": false
+    "supported": true
   },
   {
     "case": "negated-dependency-contraction",
@@ -693,7 +693,7 @@
       "description": "Provides earthquake warnings. Sends them via SMS.",
       "readme": "Earthquake warnings via SMS are delivered via email."
     },
-    "supported": false
+    "supported": true
   },
   {
     "case": "nested-transport-is-not-a-channel-set",

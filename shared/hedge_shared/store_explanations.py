@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-VERSION = 3
+VERSION = 4
 # Exclude operational headings, navigation, obvious instructions and links, not
 # negative capability statements: limitations must remain attached to facts.
 _NOISE = re.compile(r"https?://|release (?:version|type|notes)|^product:|"
@@ -24,6 +24,8 @@ _QUALIFIER = re.compile(r"\b(?:not|no|only|unless|except|although|however|requir
                         r"will|would|possible|disabled|unsupported|unavailable|simulation|prototype|"
                         r"licensed|subscription|paid)\b", re.I)
 
+_LIMITATION = re.compile(r"\b(?:not|no|never|cannot|only|planned|future|requires?|unsupported|"
+                         r"unavailable|simulation|prototype)\b|n't\b", re.I)
 
 _PASSIVES = {"combined": "combines", "merged": "merges", "aggregated": "aggregates",
              "collected": "collects", "stored": "stores", "exported": "exports",
@@ -49,11 +51,11 @@ def plain_english(text: str) -> str:
 def readable_passage(text: str, *, brief: bool = False) -> str:
     """Unpack recorded-measure clauses without changing their source meaning.
 
-    This is presentation grammar, never recommendation evidence. Unknown prose
+    This is presentation grammar, never recommendation evidence. Source
+    vocabulary is kept (simplified wording is plain_english's job). Unknown prose
     keeps its full wording. Conditions, modal verbs and qualifications survive;
     a short restatement needs an explicit record, measure, process and purpose.
     """
-    text = plain_english(text)
     joined = re.match(r"Upon joining the ([\w-]+s) in a common one, (.+)", text)
     if joined:
         # Bind 'one' to the explicitly combined object, not an invented output.
@@ -71,7 +73,7 @@ def readable_passage(text: str, *, brief: bool = False) -> str:
         text = re.sub(r"\bThis information\b", "That record", text)
     for pattern, replacement in (
         (r"\bproportional weight\b", "share"),
-        (r"\bsub-offer\b", "individual offer"),
+        (r"\bsub-(bid|offer)\b", r"individual \1"),
         (r"\bbecomes critical to\b", "is needed for"),
         (r"\bsubsequent\b", "later"),
         (r"\brequires information about\b", "needs"),
@@ -196,9 +198,11 @@ def extract(evidence: dict[str, str], name: str = "") -> dict[str, Any]:
             named_purpose = bool(name and re.match(
                 re.escape(name) + r"(?: now)? (?:facilitates|provides|supports|enables|deploys)\b",
                 sentence, re.I))
+            # Lead with what the App does, in source order. A limitation such as
+            # "It does not forecast prices." is kept as a fact, never the summary.
             priority = (3 if named_purpose else 2 if sentence.lower().startswith("used to ")
                         else 1 if _PURPOSE.search(sentence) else 0,
-                        path == "readme", -len(sentence))
+                        not _LIMITATION.search(sentence), path == "readme", -i)
             candidates.append((priority, path, passage, {}))
             linked = linked_passage(sentences[i - 1][0], sentence, name) if i else {}
             if linked:

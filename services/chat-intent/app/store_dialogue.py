@@ -11,6 +11,7 @@ from hedge_shared.store_language import (
     catalogue_question,
     catalogue_reference,
     control_words,
+    cost_question,
     dialogue_language,
     factual_question,
     inspection_target,
@@ -105,7 +106,7 @@ class StoreDialogue:
         self.assess_requirements = assess_requirements
         self.decide = decide
 
-    def route_intent(self, message: str, intent: str) -> str:
+    def route_intent(self, message: str, intent: str, context: dict | None = None) -> str:
         """Explicit Store entities/references outrank statistical small-talk labels."""
         message = dialogue_language(message, "tr")
         if not self.catalogue_references or intent == "reset":
@@ -123,8 +124,9 @@ class StoreDialogue:
         if re.search(r"\buygulama(?:ları)? (?:bul|öner)[?!.]*$", message, re.I):
             return "search"
         known = any(_mentions(app, message) for app in self.resolve(None))
+        discussed = context is None or bool(context.get("turn") or context.get("last_results"))
         reference = bool(re.search(r"\b(?:first|second|third|fourth|fifth) (?:app|one)\b", message, re.I) or
-                         _REFERENCE.search(message))
+                         _REFERENCE.search(message) and discussed)
         if known or reference or _SOURCE_READ.fullmatch(message.strip()):
             return "compare" if re.search(r"\bcompare\b", message, re.I) else "detail"
         return intent
@@ -137,7 +139,7 @@ class StoreDialogue:
         if re.fullmatch(r"how do (?:these|those|they|the apps) differ[?!.]*", normalized, re.I):
             normalized = "Compare both"
         # Route the normalized control grammar, retaining the actual request locale.
-        routed = self.route_intent(normalized, intent)
+        routed = self.route_intent(normalized, intent, context)
         response = await self._respond(req.model_copy(update={"message": normalized}), routed, context)
         response["message"] = localize_prose(response["message"], req.locale)
         if self.generate and response.get("intent") != "source_fields":
@@ -210,7 +212,10 @@ class StoreDialogue:
                     if (intent in {"detail", "compare"} or source_read)
                     and re.search((rf"\b{re.escape(token)}\b" if intent == "compare" or req.locale != "en" else
                                    rf"\b(?:the {re.escape(token)}|{re.escape(token)} (?:app|one))\b"), message, re.I)]
-        targeted = bool(source_read) or intent in {"detail", "compare"} or bool(ordinals) or bool(_REFERENCE.search(message))
+        # A pronoun in a first request ("submit them to a market") has no
+        # antecedent; seeded catalogue order is addressable only by ordinal/name.
+        targeted = (bool(source_read) or intent in {"detail", "compare"} or bool(ordinals)
+                    or bool(_REFERENCE.search(message)) and not seeded)
         if targeted and len(named_apps) > 1 and not any(
             app["app_id"] in message for app in named_apps
         ) and len({(app.get("name") or "").casefold() for app in named_apps}) < len(named_apps):
@@ -238,7 +243,7 @@ class StoreDialogue:
                 selected = comparison if intent == "compare" or re.search(r"\b(both|them|these apps|those apps)\b", message, re.I) else context.get("focused_ids", [])
         selected = list(dict.fromkeys(selected))
         criterion = _comparison_criterion(message, [a for a in current if a["id"] in selected]) if intent == "compare" else ""
-        price_question = _PRICE.search(message) if not criterion else None
+        price_question = cost_question(message) if not criterion else None
         unsupported = price_question or (
             _UNSUPPORTED_METADATA.search(message) if not self.assess_requirements else False)
         # Price *words* also occur in functional needs such as forecasting.
@@ -369,7 +374,7 @@ class StoreDialogue:
                         "unverified_filters": list(dict.fromkeys(fields)),
                         "decision": {"outcome": "abstained", "reason": "unverified_filters"}}
             limitation = ("This snapshot has no verified price information. I cannot confirm what it costs. "
-                          if _PRICE.search(message) else
+                          if price_question else
                           "The supplied Store fields do not verify that capability, metadata or filter. "
                           "I cannot confirm support or suitability. ")
             return self._response(limitation + "I can describe an App's supplied fields or compare the source descriptions.",
@@ -406,7 +411,10 @@ class StoreDialogue:
             results = [{"app": app, "rank": i + 1, "evidence_fields": ["reference"]}
                        for i, app in enumerate(apps)]
             functional_question = search_language(message, req.locale)
-            if (self.decide and re.search(r"^(?:does|can|could)\b|\b(?:supports?|sends?|delivers?|compatible)\b", functional_question, re.I)
+            # "Does it ...?" and "Which of them can ...?" ask for a decision over these Apps.
+            if (self.decide and re.search(r"^(?:does|can|could)\b|^(?:which|what)\b(?: (?:one|ones|apps?))?"
+                                          r"(?: of (?:them|these|those|the two|both))?\s+(?:can|could|does|do|will)\b|"
+                                          r"\b(?:supports?|sends?|delivers?|compatible)\b", functional_question, re.I)
                     and not re.match(r"^can you (?:show|list|describe|explain|tell|find|search)\b", functional_question, re.I)):
                 # Reuse Expert's exact decision/abstention boundary, with only
                 # identity scaffolding removed. No second suitability checker.

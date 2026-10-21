@@ -73,7 +73,7 @@ fixed to `en`, `de`, `fr`, `es`, `it`, `nl`, `pt`, and `tr`.
 | `INGEST_INTERVAL_SECONDS` | `7200` | Scheduler interval |
 | `CHAT_INTENT_URL` | `http://chat-intent:8001` | Gateway chat target |
 | `EXPERT_RECOMMEND_URL` | `http://expert-recommend:8002` | Recommendation target |
-| `DISCOVERY_RANKING_URL` | `http://discovery-ranking:8003` | Retrieval/index target |
+| `DISCOVERY_RANKING_URL` | `http://discovery-ranking:8003` | Retrieval/index target; Expert also uses it for evidence similarity (unset: lexical-only evidence) |
 | `METADATA_INGEST_URL` | `http://metadata-ingest:8004` | Administrative ingestion target |
 
 The explicit client factory now uses the documented Store v1 routes and an

@@ -133,7 +133,7 @@ def test_native_source_fact_enters_the_same_assessed_function_menu(monkeypatch):
         name='Sample Utility', readme='Used to collect device measurements.', active=True, visible=True,
         dataspace_app_description=json.dumps({'properties': {'featureList': ['Sensor handover services']}})))
     app = {**knowledge['projection'], 'prepared_explanation': knowledge['explanation']}
-    label = 'sensor handover services (1.2)'
+    label = 'sensor handover (1.2)'
     call = Mock(return_value=model_frame(label, operation='capability', reference='focus'))
     monkeypatch.setattr(expert, 'OllamaClient', lambda: SimpleNamespace(chat_structured=call))
     result = expert.understand('Would it handle the handover?', [{'key': '1', 'app': app}],

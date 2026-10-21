@@ -150,7 +150,7 @@ class TestRecommendPipeline:
         result = recommend(query="energy monitoring", top_k=2)
 
         # Invalid generation falls back to source evidence without promoting the first result.
-        assert result["message"].startswith("These Apps have direct source evidence")
+        assert "fits what you need" in result["message"]
         assert "Start with" not in result["message"]
 
     @patch.object(_rec_mod, "httpx")

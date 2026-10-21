@@ -1,5 +1,9 @@
 # SCRUM-39: recommendation evidence and abstention
 
+> Dated report. The clause grammar described here was replaced on 21 October 2026
+> by requirement-level evidence matching; see
+> [T2 recommendation evidence](t2-recommendation-evidence.md).
+
 Implemented on `feat/SCRUM-39-recommendation-suitability`, based on integrated
 SCRUM-38 commit `eddb1794d9ddc74db01c05928d69b20eb6690d99`. This is offline
 engineering verification, not live Store, model-quality or pilot acceptance.
