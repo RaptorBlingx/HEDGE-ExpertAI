@@ -389,17 +389,19 @@ _RISKY = re.compile(r"\b(?:guarantee\w*|certif\w*|complian\w*|free of charge|int
                     r"real[- ]time|machine learning|artificial intelligence|ai-powered|encrypt\w*|secure\w*)\b", re.I)
 _CITATION = re.compile(r"\s*\[(S\d+(?:\s*,\s*S\d+)*)\]")
 _SENTENCE_END = re.compile(r"(?<=[.!?])(?:\s*\[S\d+(?:\s*,\s*S\d+)*\])?\s+")
-_BUDGET = {"statements": 5, "background": 3, "previous": 240}
+# Whole statements only, never cut: a budget chooses fewer and shorter ones instead.
+_BUDGET = {"statements": 4, "long_statement": 260, "background": 2, "previous": 200}
 
 
 def _relevant(guide: app_guide.Guide, question: str, limit: int) -> list[app_guide.Statement]:
-    """The lead, then the statements sharing most with the question; one limitation at most."""
+    """The lead, then short statements sharing most with the question; one limitation at most."""
     asked = evidence_terms(question)
-    scored = sorted((s for s in guide.statements if s.role not in {"access", "attribution"}),
-                    key=lambda s: -len(asked & evidence_terms(s.text)))
+    candidates = [s for s in guide.statements if s.role not in {"access", "attribution"}
+                  and len(s.text) <= _BUDGET["long_statement"]]
+    scored = sorted(candidates, key=lambda s: (-len(asked & evidence_terms(s.text)), len(s.text)))
     chosen = [s for s in guide.main[:1]]
     chosen += [s for s in scored if s not in chosen and asked & evidence_terms(s.text)]
-    limitations = [s for s in guide.by_role("limitation") if s not in chosen][:1]
+    limitations = [s for s in guide.by_role("limitation") if s not in chosen and s in candidates][:1]
     return list(dict.fromkeys(chosen[:limit - len(limitations)] + limitations))[:limit]
 
 
@@ -408,16 +410,18 @@ def _prompt(question: str, guides: list[app_guide.Guide], history: list[dict]):
     sources, payload = {}, []
     for guide in guides:
         statements = {}
-        for statement in _relevant(guide, question, _BUDGET["statements"] if len(guides) == 1 else 3):
+        for statement in _relevant(guide, question, _BUDGET["statements"] if len(guides) == 1 else 2):
             key = f"S{len(sources) + 1}"
             sources[key] = (guide, statement)
             statements[key] = statement.text
         payload.append({"app": guide.name, "statements": statements})
     terms = list(dict.fromkeys(glossary.mentioned(question) + [t for g in guides for t in _central_terms(g, 2)]))
     background = {glossary.BY_ID[t].term: glossary.BY_ID[t].plain for t in terms[:_BUDGET["background"]]}
-    # The previous answer gives "that"/"it" a referent; it is not evidence.
+    # The previous answer gives "that" a referent; it is not evidence. Every
+    # prompt character costs reading time, so include it only when referred to.
+    refers = re.search(r"\b(?:that|this|those|these|differently|again|still)\b", question, re.I)
     previous = next((" ".join(str(m.get("content", "")).split()) for m in reversed(history)
-                     if m.get("role") == "assistant"), "")[:_BUDGET["previous"]]
+                     if m.get("role") == "assistant"), "")[:_BUDGET["previous"]] if refers else ""
     data = {"apps": payload, "background": background, "previous_answer": previous, "question": question}
     messages = [{"role": "system", "content": SYSTEM},
                 {"role": "user", "content": json.dumps(data, ensure_ascii=False, separators=(",", ":"))}]
