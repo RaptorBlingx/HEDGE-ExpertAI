@@ -53,10 +53,14 @@ def policy():
             "action": action, "history": history, "references": kwargs.get("references", {}),
             "nlu": kwargs.get("nlu_hint", {})})
 
+    def elaborate(question, rows, locale, history):
+        return call("EXPERT_RECOMMEND_URL", "/internal/store/elaborate", {
+            "question": question, "rows": rows, "locale": locale, "action": "answer", "history": history[-4:]})
+
     return StoreConversation(
         _recommend_v2, resolve,
         lambda q, rows, locale: compose("describe", q, rows, locale)["message"],
         interpret, explain,
         decide=lambda q, rows, locale: compose("decide", q, rows, locale),
-        present=present,
+        present=present, elaborate=elaborate,
     )

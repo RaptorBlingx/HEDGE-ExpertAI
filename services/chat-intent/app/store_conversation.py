@@ -13,7 +13,12 @@ from copy import deepcopy
 
 from hedge_shared.config import Settings
 from hedge_shared.models_v2 import ChatRequestV2
-from hedge_shared.store_language import catalogue_question, control_words, dialogue_language
+from hedge_shared.store_language import (
+    catalogue_question,
+    control_words,
+    cost_question,
+    dialogue_language,
+)
 
 from .store_dialogue import (
     _REFERENCE,
@@ -36,7 +41,7 @@ _NEXT_STEPS = ("Tell me which requirement you can change, and I can look for a p
 
 
 class StoreConversation(StoreDialogue):
-    def __init__(self, recommend, resolve, describe, interpret, explain, observation=None, *, routine=True, decide=None, present=None):
+    def __init__(self, recommend, resolve, describe, interpret, explain, observation=None, *, routine=True, decide=None, present=None, elaborate=None):
         super().__init__(recommend, resolve, describe, catalogue_references=True, assess_requirements=routine, decide=decide if routine else None)
         self.routine = routine
         self.settings = Settings()
@@ -44,6 +49,7 @@ class StoreConversation(StoreDialogue):
         self.explain = explain
         self.observation = observation
         self.present = present
+        self.elaborate = elaborate
         self.progress = lambda stage: None
 
     @staticmethod
@@ -182,6 +188,73 @@ class StoreConversation(StoreDialogue):
         fallback["context"]["last_outcome"] = fallback.get("decision", {}).get("outcome", "not_applicable")
         return fallback
 
+    async def _elaborated_response(self, req, context, history, fallback):
+        """A resolved explanation may use prose; no model can change eligibility.
+
+        Unknown contextual follow-ups are classified inside the same explanation
+        call. Metadata reads and capability decisions keep their existing owner.
+        """
+        if (not self.elaborate or not self.settings.STORE_EXPLANATIONS_ENABLED
+                or not self.settings.STORE_SEMANTIC_ENABLED or req.locale != "en"
+                or req.app_action or _NEW_SEARCH.match(req.message.strip())
+                or fallback["intent"] in {"browse", "compare", "greeting", "help", "reset", "out_of_scope"}
+                or cost_question(req.message)
+                or context.get("pending_filters") or fallback.get("unverified_filters")
+                or fallback.get("decision", {}).get("reason") in {"invalid_native_reference", "ambiguous_native_reference", "unverified_filters"}
+                or fallback.get("source_field") not in {None, "purpose"}
+                or fallback.get("decision", {}).get("outcome") == "recommended"
+                or fallback["intent"] == "detail" and fallback.get("decision", {}).get("outcome") == "abstained"):
+            return None
+        current = self.resolve(None)
+        named = [app["id"] for app in current if _mentions(app, req.message)]
+        resolved = [r["app"]["id"] for r in fallback["apps"]] if fallback["intent"] in {"detail", "source_fields"} else []
+        targets = named or resolved or context.get("focused_ids", [])
+        if len(targets) != 1:
+            return None
+        apps = self.resolve(targets)
+        filters = {**context.get("filters", {}), **{k: v for k, v in req.filters.model_dump(mode="json").items()
+                    if v not in (None, "", [])}}
+        if (len(apps) != 1 or any(v not in (None, "", []) for k, v in filters.items() if k != "publisher")
+                or filters.get("publisher") and filters["publisher"].casefold() not in (apps[0].get("provider") or "").casefold()):
+            return None
+        rows = [{"app": apps[0], "rank": 1, "evidence_fields": ["reference"]}]
+        started = time.monotonic()
+        self.progress("explanation")
+        try:
+            prior = context.get("last_elaboration", {})
+            # Narrative history is bound to its native subject, independently
+            # from retrieval/comparison history. A topic switch must not prime
+            # the new explanation with the previous App's domain or workflow.
+            prior_text = prior.get("text", "") if prior.get("app_id") == targets[0] else ""
+            if not prior_text:
+                prior_text = context.get("explanation_focus", {}).get(targets[0], {}).get("rendered", "")
+            scoped_history = [{"role": "assistant", "content": prior_text}] if prior_text else []
+            answer = await asyncio.to_thread(self.elaborate, req.message, rows, req.locale, scoped_history)
+        except Exception:
+            answer = {"completed": False, "reason": "explanation_unavailable"}
+        if not answer.get("completed"):
+            if answer.get("reason") != "not_explanation":
+                fallback["generation"]["explanation_fallback"] = answer.get("reason")
+                return fallback
+            return None
+        # A slow explanation must not revive withdrawn or modified evidence.
+        if self.resolve(targets) != apps:
+            return {**self._response("The catalogue changed while preparing this reply. Please search again.",
+                    [], "clarify", {**context, "focused_ids": []}),
+                    "decision": {"outcome": "abstained", "reason": "catalogue_changed"},
+                    "generation": {"source": "prepared", "model_completed": False}}
+        next_context = {**context, "filters": filters, "focused_ids": targets,
+                        "last_outcome": "not_applicable",
+                        "last_elaboration": {"app_id": targets[0], "text": answer["message"]}}
+        if not context.get("last_results"):
+            next_context["last_results"] = rows
+        # Context and rows are application-bound. Generated text is not inserted
+        # into source preparation, interpretation tasks or suitability evidence.
+        return {**self._response(answer["message"], rows, "detail", next_context),
+                "decision": {"outcome": "not_applicable", "reason": "source_explanation"},
+                "generation": answer["generation"], "timings": {"complete_seconds":
+                    time.monotonic() - started + fallback.get("timings", {}).get("complete_seconds", 0)}}
+
     async def respond_with_history(self, req, intent, context, history, *, nlu=None):
         if req.locale == "en" and context.get("pending_filters"):
             # A closed state command, independent of capability interpretation.
@@ -217,6 +290,9 @@ class StoreConversation(StoreDialogue):
             fallback = await self._prepared_response(req, intent, context, history, nlu=nlu)
             if req.app_action:
                 return fallback
+            elaborated = await self._elaborated_response(req, context, history, fallback)
+            if elaborated is not None:
+                return elaborated
             # A supported function does not prove that a conversational subject
             # was understood. An implicit switch away from a single focused App
             # needs interpretation; explicit new searches retain the fast path.

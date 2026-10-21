@@ -208,6 +208,7 @@ services:
     <<: *app
     image: sha256:621886c6c365bc5c766c5a00f858637a5ce6ccba5c8f0a41bddf5fa886f1bfeb
     environment:
+      STORE_EXPLANATIONS_ENABLED: ${STORE_EXPLANATIONS_ENABLED:-false}
       STORE_SEMANTIC_ENABLED: ${STORE_SEMANTIC_ENABLED:-false}
       STORE_MODEL_CONTEXT_TOKENS: ${STORE_MODEL_CONTEXT_TOKENS:-16384}
       STORE_MODEL_OUTPUT_TOKENS: ${STORE_MODEL_OUTPUT_TOKENS:-2048}
@@ -244,6 +245,7 @@ services:
     <<: *app
     image: sha256:48ff51481447f2d22aaf0fe5796e59264ef964c99fbadf51d3cce6011b13c7f7
     environment:
+      STORE_EXPLANATIONS_ENABLED: ${STORE_EXPLANATIONS_ENABLED:-false}
       STORE_SEMANTIC_ENABLED: ${STORE_SEMANTIC_ENABLED:-false}
       STORE_MODEL_TIMEOUT_SECONDS: ${STORE_MODEL_TIMEOUT_SECONDS:-120}
       PYTHONPATH: /source/shared:/source/services/chat-intent
@@ -351,6 +353,7 @@ services:
     - ingress
     image: sha256:71b3d0ed4da05e8e55c5f261a73d800e7ecf834ed3a9994a82de0552fdcfc0cb
     environment:
+      STORE_EXPLANATIONS_ENABLED: ${STORE_EXPLANATIONS_ENABLED:-false}
       STORE_SEMANTIC_ENABLED: ${STORE_SEMANTIC_ENABLED:-false}
       STORE_MODEL_TIMEOUT_SECONDS: ${STORE_MODEL_TIMEOUT_SECONDS:-120}
       PYTHONPATH: /source/shared:/source/services/gateway

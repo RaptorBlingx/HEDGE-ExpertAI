@@ -89,3 +89,11 @@ def reason(req: Reason):
         answer["recommendation_decision"] = {"outcome": "abstained", "reason": "semantic_evidence_insufficient"}
     answer["generation"]["reviewed_support"] = answer.get("support", {})
     return answer
+
+
+@router.post("/elaborate", dependencies=[Depends(require_semantic)])
+def elaborate(req: Reason):
+    if not Settings().STORE_EXPLANATIONS_ENABLED or req.locale != "en" or len(req.rows) != 1:
+        return {"completed": False, "reason": "explanation_disabled_or_ambiguous"}
+    from .store_elaboration import elaborate as explain_source
+    return explain_source(req.question, req.rows[0], req.history)

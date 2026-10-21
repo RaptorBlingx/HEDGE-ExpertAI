@@ -207,3 +207,27 @@ See [T2 evaluation protocol](../evaluation/t2/README.md) for separate model, ret
 evidence, dialogue and latency measurements before activation on suitable hardware.
 The [one-pass engineering follow-up](t2-efficient-interpretation.md) records the
 CPU evaluation and its limits.
+
+### Source-cited English explanations
+
+`STORE_EXPLANATIONS_ENABLED=false` is the default. When enabled together with
+`STORE_SEMANTIC_ENABLED`, an explicitly resolved App can receive one bounded
+Qwen explanation call before uncertain semantic recovery. The same call can
+defer a non-explanatory request. Provider/price metadata, comparisons, new
+search commands, capability verdicts, unresolved identities and retained filters
+keep their existing paths. Simple factual browsing/recommendations remain prepared.
+
+The internal `/internal/store/elaborate` endpoint uses the existing backend key.
+Only complete, owned source passages enter its bounded prompt; quoted limitations
+are retained verbatim, examples are explicitly illustrative, and cited paths are
+validated. Generated language is an explanation, not a verified capability proof.
+It never changes suitability, creates a support receipt, or enters the Store index.
+These structural guards are not a formal entailment guarantee for paraphrases;
+real source-to-answer review remains necessary. The call uses the configured
+model/context/deadline, at most 240 output tokens, and no draft/review/repair loop.
+A failed explanation returns the prepared answer with failure metadata.
+
+The consolidated private VM deployment uses the accepted Qwen3 4B Q4_K_M model,
+2048 context tokens, two model threads, q8_0 KV cache, one inference at a time and
+a bounded queue. Resource/latency evidence belongs to its deployment record;
+enabling flags alone does not verify model-assisted behavior.

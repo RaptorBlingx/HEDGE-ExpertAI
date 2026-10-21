@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     HEDGE_STORE_MAX_RETRIES: int = Field(default=2, ge=0, le=3)
     PRIVATE_STORE_ENABLED: bool = False
     # Optional semantic recovery; the prepared path remains available.
+    STORE_EXPLANATIONS_ENABLED: bool = False
     STORE_SEMANTIC_ENABLED: bool = False
     STORE_MODEL_CONTEXT_TOKENS: int = Field(default=16384, ge=2048, le=65536)
     STORE_MODEL_OUTPUT_TOKENS: int = Field(default=2048, ge=256, le=16384)
