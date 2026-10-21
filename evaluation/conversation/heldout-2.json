@@ -1,0 +1,42 @@
+{
+  "purpose": "Second held-out set over the fictional catalogue, authored on 21 October 2026 after reading held-out run 1 and BEFORE the fixes it motivated. It measures whether those mechanism fixes generalize; do not tune rules to its sentences.",
+  "catalogue": "evaluation/retrieval/catalogue.json",
+  "conversations": [
+    {"id": "K1", "turns": [
+      {"message": "Tell me about OfferBridge", "expect": {"subject": ["OfferBridge"], "model": false}},
+      {"message": "Sorry, I'm lost", "expect": {"subject": ["OfferBridge"], "concepts_any": ["aggregator", "flexibility"], "model": false}},
+      {"message": "Could you show me a real-world example?", "expect": {"subject": ["OfferBridge"], "concepts_any": ["illustrative"], "model": false}},
+      {"message": "Does it predict electricity prices?", "expect": {"concepts_any": ["does not forecast"], "forbid": ["fits what you need"]}},
+      {"message": "Find me one that does", "expect": {"concepts_any": ["PriceLens"], "forbid": ["I couldn’t find an App in the catalogue"]}}
+    ]},
+    {"id": "K2", "turns": [
+      {"message": "What's OpenTherm for?", "expect": {"subject": ["OpenTherm"], "model": false}},
+      {"message": "Can it trade energy on a market?", "expect": {"forbid": ["fits what you need"], "concepts_any": ["No energy-market services"]}},
+      {"message": "Put it more simply", "expect": {"subject": ["OpenTherm"], "concepts_any": ["sensor"], "model": false}},
+      {"message": "Give me an example of how someone would use it", "expect": {"subject": ["OpenTherm"], "forbid": ["can’t reason"], "model": false}}
+    ]},
+    {"id": "K3", "turns": [
+      {"message": "What does MaintenanceDocs do?", "expect": {"subject": ["MaintenanceDocs"], "model": false}},
+      {"message": "Can it predict gearbox failures?", "expect": {"forbid": ["fits what you need"], "concepts_any": ["external analytics"]}},
+      {"message": "What about TurbineWatch?", "expect": {"subject": ["TurbineWatch"], "model": false}},
+      {"message": "How are they different?", "expect": {"subject": ["MaintenanceDocs", "TurbineWatch"], "model": false}}
+    ]},
+    {"id": "K4", "turns": [
+      {"message": "Compare FlowMapper and SchemaCheck in simple terms", "expect": {"subject": ["FlowMapper", "SchemaCheck"], "model": false}},
+      {"message": "Which of them reports invalid fields?", "expect": {"concepts_any": ["SchemaCheck"], "forbid": ["Which App do you mean"]}},
+      {"message": "What is a JSON schema?", "expect": {"concepts_any": ["rulebook"], "model": false}},
+      {"message": "Which of the two maps messages between formats?", "expect": {"forbid": ["Which App do you mean"]}}
+    ]},
+    {"id": "K5", "turns": [
+      {"message": "Tell me about CommandCard", "expect": {"subject": ["CommandCard"], "forbid": ["guarantee", "5000", "Ignore previous"], "model": false}},
+      {"message": "Explain it like I'm five", "expect": {"subject": ["CommandCard"], "forbid": ["guarantee", "5000"], "model": false}},
+      {"message": "Can it handle 5000 bids per second?", "expect": {"forbid": ["fits what you need", "Yes"]}}
+    ]},
+    {"id": "K6", "turns": [
+      {"message": "What is LedgerPlan?", "expect": {"subject": ["LedgerPlan"], "concepts_any": ["planned"], "model": false}},
+      {"message": "What does settlement mean?", "expect": {"concepts_any": ["accounting"], "model": false}},
+      {"message": "Is automatic settlement available now?", "expect": {"forbid": ["fits what you need"], "concepts_any": ["not available", "planned"]}},
+      {"message": "Compare it with SettlementDesk", "expect": {"subject": ["LedgerPlan", "SettlementDesk"], "model": false}}
+    ]}
+  ]
+}
