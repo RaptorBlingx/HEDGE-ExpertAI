@@ -1,0 +1,48 @@
+{
+  "purpose": "Held-out multi-turn conversations over the fictional evaluation catalogue (evaluation/retrieval/catalogue.json). Authored on 21 October 2026 before the conversation-act implementation and NOT used to tune rules. Run once per milestone; read the replies, do not adjust rules to individual sentences here.",
+  "catalogue": "evaluation/retrieval/catalogue.json",
+  "conversations": [
+    {"id": "H1", "turns": [
+      {"message": "What is TurbineWatch?", "expect": {"subject": ["TurbineWatch"], "model": false}},
+      {"message": "What does that mean?", "expect": {"subject": ["TurbineWatch"], "concepts_any": ["vibration", "bearing", "gearbox"], "model": false}},
+      {"message": "Give me a practical example", "expect": {"subject": ["TurbineWatch"], "concepts_any": ["illustrative", "example"], "forbid": ["schedules maintenance automatically"]}},
+      {"message": "Can it schedule maintenance automatically?", "expect": {"outcome": "abstained", "forbid": ["fits what you need"], "concepts_any": ["Engineers review"]}},
+      {"message": "Who provides it?", "expect": {"subject": ["TurbineWatch"], "concepts_any": ["Authored evaluation fixture"], "model": false}}
+    ]},
+    {"id": "H2", "turns": [
+      {"message": "Tell me about MeterScope", "expect": {"subject": ["MeterScope"], "model": false}},
+      {"message": "Explain it in simple terms", "expect": {"subject": ["MeterScope"], "concepts_any": ["meter"], "model": false}},
+      {"message": "And LoadAhead?", "expect": {"subject": ["LoadAhead"]}},
+      {"message": "Compare the two in plain English", "expect": {"subject": ["MeterScope", "LoadAhead"], "concepts_any": ["forecast", "predict"], "model": false}},
+      {"message": "Why would I pick one over the other?", "expect": {"subject": ["MeterScope", "LoadAhead"], "forbid": ["better than"]}}
+    ]},
+    {"id": "H3", "turns": [
+      {"message": "Which App can forward sensor data from MQTT devices to HTTP endpoints?", "expect": {"outcome": "recommended", "subject": ["TelemetryLink"]}},
+      {"message": "What is MQTT?", "expect": {"concepts_any": ["messaging", "protocol"], "model": false}},
+      {"message": "Does it also transform the payloads?", "expect": {"subject": ["TelemetryLink"], "concepts_any": ["does not transform"], "forbid": ["fits what you need"]}},
+      {"message": "Explain it differently", "expect": {"subject": ["TelemetryLink"]}}
+    ]},
+    {"id": "H4", "turns": [
+      {"message": "I want to check that JSON messages have the right fields", "expect": {"forbid": ["Which App do you mean"]}},
+      {"message": "What's a schema?", "expect": {"concepts_any": ["rulebook", "rules", "valid"], "model": false}},
+      {"message": "Compare SchemaCheck and PayloadPipe", "expect": {"subject": ["SchemaCheck", "PayloadPipe"], "model": false}},
+      {"message": "Which one converts messages?", "expect": {"concepts_any": ["PayloadPipe"], "forbid": ["SchemaCheck fits"]}}
+    ]},
+    {"id": "H5", "turns": [
+      {"message": "What does SettlementDesk do?", "expect": {"subject": ["SettlementDesk"], "model": false}},
+      {"message": "I don't get it", "expect": {"subject": ["SettlementDesk"], "concepts_any": ["settlement"], "model": false}},
+      {"message": "What is a baseline?", "expect": {"concepts_any": ["would have used", "estimate"], "model": false}},
+      {"message": "Does it combine offers?", "expect": {"subject": ["SettlementDesk"], "concepts_any": ["does not combine"], "forbid": ["fits what you need"]}}
+    ]},
+    {"id": "H6", "turns": [
+      {"message": "Tell me about LoopLab", "expect": {"subject": ["LoopLab"], "concepts_any": ["simulation"], "model": false}},
+      {"message": "Can it submit bids to a live market?", "expect": {"forbid": ["fits what you need"], "concepts_any": ["not supported", "simulation"]}},
+      {"message": "Show me something that can", "expect": {"forbid": ["LoopLab fits"]}}
+    ]},
+    {"id": "H7", "turns": [
+      {"message": "What is ModelCommons?", "expect": {"subject": ["ModelCommons"], "model": false}},
+      {"message": "How would a utility use it in practice?", "expect": {"subject": ["ModelCommons"], "forbid": ["guarantee"]}},
+      {"message": "Is it the same as MeaningHub?", "expect": {"subject": ["ModelCommons", "MeaningHub"]}}
+    ]}
+  ]
+}
