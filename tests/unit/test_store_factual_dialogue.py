@@ -85,7 +85,7 @@ def test_implicit_subject_cannot_be_replaced_by_a_better_functional_match(conver
     assert not result['apps']
     assert result['context']['focused_ids'] == [apps[1]['id']]
     assert result['intent'] == 'detail'
-    assert result['message'] == 'I couldn’t confirm that feature for **Sample Monitor**.'
+    assert result['message'].startswith('I couldn’t confirm that from **Sample Monitor**’s description.')
     interpreter.assert_called_once()
     # An explicit new discovery request still uses the proven prepared path.
     result = ask(policy, 'Find an app to publish device records.', context)
@@ -104,7 +104,7 @@ def test_resolved_singular_subject_stays_singular_after_negative_capability_chec
                'last_results':[{'app':a, 'rank':i+1} for i,a in enumerate(apps)]}
     result = ask(policy, 'Does the other one do that too?', context)
     assert not result['apps'] and result['intent'] == 'detail'
-    assert 'couldn’t confirm that feature for **Sample Monitor**' in result['message']
+    assert 'couldn’t confirm that from **Sample Monitor**’s description' in result['message']
     assert 'main difference' not in result['message']
     result = ask(policy, 'Who provides it?', result['context'])
     assert result['message'] == '**Sample Monitor** is provided by **Other Labs**.'

@@ -16,10 +16,10 @@ from hedge_shared.models_v2 import ChatRequestV2
 from hedge_shared.store_language import (
     catalogue_question,
     control_words,
-    cost_question,
     dialogue_language,
 )
 
+from . import conversation_acts
 from .store_dialogue import (
     _REFERENCE,
     _SOURCE_READ,
@@ -41,7 +41,7 @@ _NEXT_STEPS = ("Tell me which requirement you can change, and I can look for a p
 
 
 class StoreConversation(StoreDialogue):
-    def __init__(self, recommend, resolve, describe, interpret, explain, observation=None, *, routine=True, decide=None, present=None, elaborate=None):
+    def __init__(self, recommend, resolve, describe, interpret, explain, observation=None, *, routine=True, decide=None, present=None, explainer=None):
         super().__init__(recommend, resolve, describe, catalogue_references=True, assess_requirements=routine, decide=decide if routine else None)
         self.routine = routine
         self.settings = Settings()
@@ -49,7 +49,7 @@ class StoreConversation(StoreDialogue):
         self.explain = explain
         self.observation = observation
         self.present = present
-        self.elaborate = elaborate
+        self.explainer = explainer
         self.progress = lambda stage: None
 
     @staticmethod
@@ -188,74 +188,107 @@ class StoreConversation(StoreDialogue):
         fallback["context"]["last_outcome"] = fallback.get("decision", {}).get("outcome", "not_applicable")
         return fallback
 
-    async def _elaborated_response(self, req, context, history, fallback):
-        """A resolved explanation may use prose; no model can change eligibility.
+    def _act_subjects(self, act, message, context):
+        """Native identities an explanation act is about; never a model guess.
 
-        Unknown contextual follow-ups are classified inside the same explanation
-        call. Metadata reads and capability decisions keep their existing owner.
+        Named Apps first; otherwise the conversational referent: the focused App
+        for single-App acts, the displayed or most recently discussed pair for
+        comparisons. Nothing resolvable means the act is not handled here.
         """
-        if (not self.elaborate or not self.settings.STORE_EXPLANATIONS_ENABLED
-                or not self.settings.STORE_SEMANTIC_ENABLED or req.locale != "en"
-                or req.app_action or _NEW_SEARCH.match(req.message.strip())
-                or fallback["intent"] in {"browse", "compare", "greeting", "help", "reset", "out_of_scope"}
-                or cost_question(req.message)
-                or context.get("pending_filters") or fallback.get("unverified_filters")
-                or fallback.get("decision", {}).get("reason") in {"invalid_native_reference", "ambiguous_native_reference", "unverified_filters"}
-                or fallback.get("source_field") not in {None, "purpose"}
-                or fallback.get("decision", {}).get("outcome") == "recommended"
-                or fallback["intent"] == "detail" and fallback.get("decision", {}).get("outcome") == "abstained"):
+        current = self.resolve(None)
+        named = [a["id"] for a in current if _mentions(a, message)]
+        focus = context.get("focused_ids", [])
+        displayed = context.get("displayed_ids") or [r["app"]["id"] for r in context.get("last_results", [])]
+        discussed = context.get("discussed_ids", [])
+        if act.kind in {"compare", "choose"}:
+            if len(named) > 1:
+                return named[:5]
+            if len(named) == 1:
+                peer = focus if len(focus) == 1 else discussed[-1:] if discussed else []
+                return list(dict.fromkeys(peer + named)) if peer and peer != named else []
+            if len(displayed) > 1:
+                return displayed[:5]
+            if len(discussed) > 1:
+                return discussed[-2:]
+            if len(context.get("comparison_ids", [])) > 1:
+                return context["comparison_ids"][:5]
+            # "Compare both Apps" in a two-App catalogue needs no earlier listing.
+            return [a["id"] for a in current] if len(current) == 2 else []
+        if named:
+            return named if len(named) == 1 else []
+        if len(focus) == 1:
+            return focus
+        if len(displayed) == 1:
+            return displayed
+        return discussed[-1:] if act.kind != "overview" else []
+
+    async def _act_response(self, req, context, history):
+        """Explanation acts: prepared from source guides first, one bounded model call if needed.
+
+        The recommendation decision is not involved: rows are context cards with
+        outcome not_applicable. Capability questions never reach this path.
+        """
+        if (not self.explainer or not self.routine or req.locale != "en"
+                or context.get("pending_filters") or _COMPLEX.match(req.message)):
             return None
         current = self.resolve(None)
-        named = [app["id"] for app in current if _mentions(app, req.message)]
-        resolved = [r["app"]["id"] for r in fallback["apps"]] if fallback["intent"] in {"detail", "source_fields"} else []
-        targets = named or resolved or context.get("focused_ids", [])
-        if len(targets) != 1:
+        act = conversation_acts.parse(req.message, [a.get("name") or a["app_id"] for a in current])
+        if req.app_action:
+            act = conversation_acts.Act("overview")
+        if act is None:
             return None
-        apps = self.resolve(targets)
+        subjects = ([context["focused_ids"][0]] if req.app_action and context.get("focused_ids")
+                    else self._act_subjects(act, req.message, context))
+        if act.kind in {"compare", "choose"} and len(subjects) < 2 or act.kind != "term" and not subjects:
+            return None
+        apps = self.resolve(subjects)
         filters = {**context.get("filters", {}), **{k: v for k, v in req.filters.model_dump(mode="json").items()
                     if v not in (None, "", [])}}
-        if (len(apps) != 1 or any(v not in (None, "", []) for k, v in filters.items() if k != "publisher")
-                or filters.get("publisher") and filters["publisher"].casefold() not in (apps[0].get("provider") or "").casefold()):
+        if (len(apps) != len(subjects) or any(v not in (None, "", []) for k, v in filters.items() if k != "publisher")
+                or filters.get("publisher") and any(filters["publisher"].casefold() not in (a.get("provider") or "").casefold()
+                                                    for a in apps)):
             return None
-        rows = [{"app": apps[0], "rank": 1, "evidence_fields": ["reference"]}]
         started = time.monotonic()
         self.progress("explanation")
         try:
-            prior = context.get("last_elaboration", {})
-            # Narrative history is bound to its native subject, independently
-            # from retrieval/comparison history. A topic switch must not prime
-            # the new explanation with the previous App's domain or workflow.
-            prior_text = prior.get("text", "") if prior.get("app_id") == targets[0] else ""
-            if not prior_text:
-                prior_text = context.get("explanation_focus", {}).get(targets[0], {}).get("rendered", "")
-            scoped_history = [{"role": "assistant", "content": prior_text}] if prior_text else []
-            answer = await asyncio.to_thread(self.elaborate, req.message, rows, req.locale, scoped_history)
+            answer = await asyncio.to_thread(self.explainer, act.kind, req.message, apps,
+                                             deepcopy(context.get("explanations", {})), history[-6:], act.phrase)
         except Exception:
-            answer = {"completed": False, "reason": "explanation_unavailable"}
-        if not answer.get("completed"):
-            if answer.get("reason") != "not_explanation":
-                fallback["generation"]["explanation_fallback"] = answer.get("reason")
-                return fallback
+            return None
+        if not answer.get("message"):
             return None
         # A slow explanation must not revive withdrawn or modified evidence.
-        if self.resolve(targets) != apps:
+        if self.resolve(subjects) != apps:
             return {**self._response("The catalogue changed while preparing this reply. Please search again.",
                     [], "clarify", {**context, "focused_ids": []}),
                     "decision": {"outcome": "abstained", "reason": "catalogue_changed"},
                     "generation": {"source": "prepared", "model_completed": False}}
-        next_context = {**context, "filters": filters, "focused_ids": targets,
+        rows = [{"app": a, "rank": i + 1, "evidence_fields": ["reference"]} for i, a in enumerate(apps)]
+        comparison = act.kind in {"compare", "choose"}
+        next_context = {**context, "filters": filters, "explanations": answer.get("state", {}),
+                        "focused_ids": subjects if len(subjects) == 1 else context.get("focused_ids", []) if comparison else [],
                         "last_outcome": "not_applicable",
-                        "last_elaboration": {"app_id": targets[0], "text": answer["message"]}}
-        if not context.get("last_results"):
+                        "discussed_ids": list(dict.fromkeys([*context.get("discussed_ids", []), *subjects]))[-5:]}
+        if comparison:
+            next_context.update(comparison_ids=subjects, last_results=rows)
+        elif not context.get("last_results"):
             next_context["last_results"] = rows
-        # Context and rows are application-bound. Generated text is not inserted
-        # into source preparation, interpretation tasks or suitability evidence.
-        return {**self._response(answer["message"], rows, "detail", next_context),
+        return {**self._response(answer["message"], rows, "compare" if comparison else "detail", next_context),
                 "decision": {"outcome": "not_applicable", "reason": "source_explanation"},
-                "generation": answer["generation"], "timings": {"complete_seconds":
-                    time.monotonic() - started + fallback.get("timings", {}).get("complete_seconds", 0)}}
+                "generation": answer.get("generation", {"source": "prepared", "model_completed": False}),
+                "timings": {"complete_seconds": time.monotonic() - started}}
 
     async def respond_with_history(self, req, intent, context, history, *, nlu=None):
+        response = await self._respond_routed(req, intent, context, history, nlu=nlu)
+        # Remember the Apps this conversation has been about, so "compare the
+        # two" or "explain it differently" can follow a subject across turns.
+        focus = response.get("context", {}).get("focused_ids", [])
+        response.setdefault("context", {})["discussed_ids"] = list(dict.fromkeys(
+            [i for i in response["context"].get("discussed_ids", context.get("discussed_ids", [])) if i not in focus]
+            + focus))[-5:]
+        return response
+
+    async def _respond_routed(self, req, intent, context, history, *, nlu=None):
         if req.locale == "en" and context.get("pending_filters"):
             # A closed state command, independent of capability interpretation.
             # Consume the entire clause; negation, unknown operands or compound
@@ -283,6 +316,9 @@ class StoreConversation(StoreDialogue):
                         return {**self._response("I’ve removed that catalogue condition. What would you like to explore next?", [], "conversation", context),
                                 "decision": {"outcome": "not_applicable", "reason": "constraint_update"},
                                 "generation": {"source": "prepared", "reason": "constraint_update", "model_completed": False}}
+        explained = await self._act_response(req, context, history)
+        if explained is not None:
+            return explained
         if self.routine or req.app_action:
             # Run the proven low-latency route first. A synopsis is not proof that
             # an arbitrary question was understood. Uncertain substantive turns
@@ -290,14 +326,28 @@ class StoreConversation(StoreDialogue):
             fallback = await self._prepared_response(req, intent, context, history, nlu=nlu)
             if req.app_action:
                 return fallback
-            elaborated = await self._elaborated_response(req, context, history, fallback)
-            if elaborated is not None:
-                return elaborated
             # A supported function does not prove that a conversational subject
             # was understood. An implicit switch away from a single focused App
             # needs interpretation; explicit new searches retain the fast path.
             shifted = self._implicit_subject_shift(req.message, fallback, context)
+            # A capability check over the App(s) the conversation is about has
+            # already been decided by the verifier. Reinterpreting it costs a
+            # model call and can only lose the subject ("Does it also ...?").
+            subjects = {r["app"]["id"] for r in [*fallback.get("apps", []), *fallback.get("candidates", [])]}
+            referenced = set(context.get("focused_ids", [])) | set(context.get("comparison_ids", [])) | {
+                a["id"] for a in self.resolve(None) if _mentions(a, req.message)}
+            findings = [(r.get("suitability", {}), f) for r in fallback.get("candidates", [])
+                        for f in r.get("suitability", {}).get("requirements", [])]
+            # Interpretation can still recover a paraphrase of a documented
+            # function, so only skip it when it cannot help: an explicit "no" in
+            # the description, or nothing in the App even related to the request.
+            unrelated = bool(findings) and all(s.get("screened") and f["status"] == "not_documented"
+                                               for s, f in findings)
+            decided = (fallback["intent"] == "detail" and bool(subjects) and subjects <= referenced
+                       and (fallback.get("decision", {}).get("outcome") == "recommended"
+                            or any(f["status"] == "excluded" for _, f in findings) or unrelated))
             fast = not _COMPLEX.match(req.message) and (fallback.get("decision", {}).get("outcome") == "recommended" and not shifted
+                    or decided
                     or fallback["intent"] == "browse"
                     # A partial-fit explanation answers a new search; a focused App may
                     # still be the intended subject and needs interpretation.
@@ -389,8 +439,8 @@ class StoreConversation(StoreDialogue):
             action, chosen = "search", []
         if (action == "search" and fallback["intent"] == "detail"
                 and (len(named) == 1 or plan.get("reference") == "focus" and (resolved_targets or focus)
-                     or len(resolved_targets) == 1 and (nlu or {}).get("intent") == "detail"
-                     and _REFERENCE.search(req.message))
+                     or len(resolved_targets) == 1 and _REFERENCE.search(req.message)
+                     and ((nlu or {}).get("intent") == "detail" or resolved_targets == focus))
                 and _search_query(req.message.strip()) == req.message.strip()
                 and not _NEW_SEARCH.match(req.message.strip())):
             action = "answer"

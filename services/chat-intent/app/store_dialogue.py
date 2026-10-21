@@ -41,7 +41,8 @@ _SOURCE_READ = re.compile(
     r"(?:(?:show|quote|list)(?: me)?|(?:can|could|may) (?:i|we) (?:see|read)) (?:the |its )?(" + "|".join(_SOURCE_FIELDS) +
     r")(?: (?:for|of) (.+?))?[?!.]*", re.I,
 )
-_REFERENCE = re.compile(r"\b(it|that app|this app|that one|this one|both|them|these apps|those apps|the other (?:app|one)|bu uygulama|bunu)\b", re.I)
+_REFERENCE = re.compile(r"\b(it|that app|this app|that one|this one|both|them|these apps|those apps|the other (?:app|one)|"
+                        r"which one|bu uygulama|bunu)\b", re.I)
 
 
 def _mentions(app: dict, message: str) -> bool:
@@ -240,7 +241,7 @@ class StoreDialogue:
                 if selected and intent == "compare":
                     selected = context["focused_ids"] + selected
             elif _REFERENCE.search(message):
-                selected = comparison if intent == "compare" or re.search(r"\b(both|them|these apps|those apps)\b", message, re.I) else context.get("focused_ids", [])
+                selected = comparison if intent == "compare" or re.search(r"\b(both|them|these apps|those apps|which one)\b", message, re.I) else context.get("focused_ids", [])
         selected = list(dict.fromkeys(selected))
         criterion = _comparison_criterion(message, [a for a in current if a["id"] in selected]) if intent == "compare" else ""
         price_question = cost_question(message) if not criterion else None
@@ -412,8 +413,10 @@ class StoreDialogue:
                        for i, app in enumerate(apps)]
             functional_question = search_language(message, req.locale)
             # "Does it ...?" and "Which of them can ...?" ask for a decision over these Apps.
+            # "Which one validates ...?" decides over the displayed Apps too.
             if (self.decide and re.search(r"^(?:does|can|could)\b|^(?:which|what)\b(?: (?:one|ones|apps?))?"
                                           r"(?: of (?:them|these|those|the two|both))?\s+(?:can|could|does|do|will)\b|"
+                                          r"^which (?:(?:one|of (?:them|these|those|the two))\s+)?[a-z]+s\b|"
                                           r"\b(?:supports?|sends?|delivers?|compatible)\b", functional_question, re.I)
                     and not re.match(r"^can you (?:show|list|describe|explain|tell|find|search)\b", functional_question, re.I)):
                 # Reuse Expert's exact decision/abstention boundary, with only

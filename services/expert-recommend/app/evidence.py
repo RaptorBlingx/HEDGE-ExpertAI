@@ -388,6 +388,7 @@ class Finding:
     status: Status
     clause: Clause | None = None
     supporting: tuple[Clause, ...] = ()  # every verified sentence, for evidence fields
+    screened: bool = False  # similarity scores were available to nominate a sentence
 
 
 def _scores(payload: object, queries: int, passages: int) -> list[list[float]]:
@@ -592,7 +593,7 @@ def assess_pool(query: str, evidences: list[dict[str, str]],
                 dense = None if scores is None else float(scores[index][column[clause.topic]])
                 z = (dense - stats[index][0]) / stats[index][1] if dense is not None and stats[index] else None
                 candidates.append((clause, dense, z))
-            result.append(_assess(requirement, query, candidates))
+            result.append(replace(_assess(requirement, query, candidates), screened=scores is not None))
         findings.append(result)
     return findings
 

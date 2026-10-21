@@ -91,9 +91,17 @@ def reason(req: Reason):
     return answer
 
 
-@router.post("/elaborate", dependencies=[Depends(require_semantic)])
-def elaborate(req: Reason):
-    if not Settings().STORE_EXPLANATIONS_ENABLED or req.locale != "en" or len(req.rows) != 1:
-        return {"completed": False, "reason": "explanation_disabled_or_ambiguous"}
-    from .store_elaboration import elaborate as explain_source
-    return explain_source(req.question, req.rows[0], req.history)
+class Explain(BaseModel):
+    act: str = Field(pattern=r"^(?:overview|simple|example|analogy|how|term|meaning|differently|compare|choose|facts|open)$")
+    question: str = Field(max_length=2000)
+    apps: list[dict] = Field(default_factory=list, max_length=5)
+    state: dict = Field(default_factory=dict)
+    history: list[dict] = Field(default_factory=list, max_length=20)
+    phrase: str = Field(default="", max_length=120)
+
+
+@router.post("/explain")
+def explain(req: Explain):
+    """Conversational explanation; never a recommendation decision or new evidence."""
+    from .explainer import respond as explain_apps
+    return explain_apps(req.act, req.question, req.apps, req.state, req.history, req.phrase)

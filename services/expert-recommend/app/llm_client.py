@@ -271,6 +271,51 @@ class OllamaClient:
             raise ValueError("Incomplete grounded generation")
         return _clean_content(data.get("message", {}).get("content", "")).strip()
 
+    def chat_text(self, messages: list[dict[str, str]], *, max_tokens: int, context_tokens: int,
+                  timeout: float, deadline: float, on_delta=None) -> str:
+        """One bounded streamed Store answer with the same model options as structured calls.
+
+        Identical num_ctx/threads/batch/keep-alive avoid reloading the shared
+        model. No retries or continuation; a cut-off answer is an error.
+        """
+        payload = self._build_payload(messages, 0.2, max_tokens, stream=True)
+        settings = Settings()
+        payload.update(think=settings.OLLAMA_THINK, truncate=False, shift=False,
+                       keep_alive=settings.STORE_MODEL_KEEP_ALIVE)
+        payload["options"].update(num_ctx=context_tokens, num_thread=settings.STORE_MODEL_THREADS,
+                                  num_batch=settings.STORE_MODEL_BATCH_SIZE)
+        parts: list[str] = []
+        final: dict = {}
+        think = _ThinkStreamFilter()
+
+        async def request():
+            nonlocal final
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Explanation budget exhausted")
+            async with asyncio.timeout(remaining), httpx.AsyncClient(
+                timeout=httpx.Timeout(timeout, connect=min(3, timeout)), trust_env=False,
+            ) as client, client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    data = json.loads(line)
+                    visible = think.feed(data.get("message", {}).get("content", ""))
+                    if visible:
+                        parts.append(visible)
+                        if on_delta:
+                            on_delta(visible)
+                    if data.get("done"):
+                        final = data
+        asyncio.run(request())
+        logger.info("Explanation inference prompt_tokens=%s output_tokens=%s total_ms=%s",
+                    final.get("prompt_eval_count"), final.get("eval_count"),
+                    round(final.get("total_duration", 0) / 1_000_000))
+        if not final.get("done") or _hit_output_limit(final, max_tokens):
+            raise ValueError("Incomplete explanation")
+        return ("".join(parts) + think.finish()).strip()
+
     def chat_stream(
         self,
         messages: list[dict[str, str]],

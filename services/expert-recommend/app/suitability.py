@@ -117,6 +117,8 @@ def _decision(findings: list[evidence.Finding]) -> dict[str, Any]:
         status = "uncertain"
         reason = "documented_limitation" if any(f.status == "excluded" for f in findings) else "no_documented_match"
     return {"status": status, "reason": reason,
+            # Presentation/routing metadata only: whether similarity screened every requirement.
+            "screened": bool(findings) and all(f.screened for f in findings),
             "evidence_fields": list(dict.fromkeys(c.path for f in documented for c in f.supporting)),
             "evidence_spans": list(dict.fromkeys(f.clause.quote for f in documented)),
             "requirements": [{"requirement": f.requirement, "status": f.status,

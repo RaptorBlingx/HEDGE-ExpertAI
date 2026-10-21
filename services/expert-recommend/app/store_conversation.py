@@ -26,6 +26,7 @@ from hedge_shared.store_language import (
 )
 from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
 
+from . import app_guide, explainer
 from .evidence import _LIMITED as _QUALIFIED
 from .evidence import _NEGATIVE as _NEGATION
 from .evidence import terms as _terms
@@ -243,6 +244,12 @@ def _prepared_answer(question: str, response: dict, locale: str) -> str:
             ):
                 answer += (' Açıklanan erişim yöntemi web adresi üzerinden kullanımdır.' if locale == 'tr' else
                            ' The documented access method is through its hosted web address.')
+            elif locale == 'en':
+                # Keep the conversation useful: say what the description does cover.
+                guide = app_guide.build(row['app'])
+                if guide.lead:
+                    answer = (f'I couldn’t confirm that from **{name}**’s description. What it does document: '
+                              + explainer._claim(guide, guide.lead))
             return answer
         if locale == "en" and intent == "detail" and any(
                 r.get("suitability", {}).get("status") == "partial" for r in candidates):
