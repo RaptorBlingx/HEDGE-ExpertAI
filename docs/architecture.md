@@ -54,7 +54,19 @@ expert with a shared deadline and useful source fallback. See
 
 Rasa is NLU-only. Application code owns deterministic policy and authoritative state: locale, intent, concepts, filters, recent impression/results and turn number. Refinements merge filters; new searches and resets clear prior topic context intentionally.
 
-SSE v2 events are `stage`, `recommendations`, `explanation_delta`, `complete` and `problem`. Recommendation events are emitted after the evidence decision, with admitted `apps`, unverified `candidates` and the `decision`. Explanation deltas contain the completed source-rendered response; no unvalidated model prose or chain of thought is emitted. Retrieval failures remain terminal problem events, distinct from abstention.
+In private Store conversations, explanation acts (overview, simplify, define a
+term, example, analogy, explain differently, plain comparison, choosing between
+Apps, provider and access) are recognized by one closed grammar
+(`chat-intent/app/conversation_acts.py`) and answered by Expert's explainer from a
+source-derived App guide (`app_guide.py`) and a general domain glossary
+(`hedge_shared/glossary.py`). They resolve their subject from named Apps, the
+focused App, the displayed Apps or recently discussed Apps, keep per-App
+explanation state so a repeated request uses a different representation, and
+never call the suitability decision. Capability questions, searches, filters and
+metadata reads keep their verified paths. Only open questions use one bounded,
+cited model answer. See [conversational experience](t2-conversational-experience.md).
+
+SSE v2 events are `stage`, `recommendations`, `explanation_delta`, `complete` and `problem`. Recommendation events are emitted after the evidence decision, with admitted `apps`, unverified `candidates` and the `decision`. Explanation deltas contain the source-rendered response; for a model-assisted explanation they carry checked sentences as they are generated, and the stored reply equals the streamed text. No unchecked model prose or chain of thought is emitted. Retrieval failures remain terminal problem events, distinct from abstention.
 
 ## Deployment profiles
 

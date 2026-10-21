@@ -1,0 +1,61 @@
+# Handoff: T2 conversational experience (21 October 2026)
+
+Branch `feat/t2-conversational-experience` (worktree
+`/home/ubuntu/hedge-t2-conversation-opus`), based on `a2a02ad`. Local commits
+only; not pushed, merged or deployed. The original checkout, its branch and the
+8156 deployment were not modified. Design, evaluation and limits:
+[conversational experience](t2-conversational-experience.md).
+
+## What changed
+
+| Area | Files |
+| --- | --- |
+| General domain background | `shared/hedge_shared/glossary.py` |
+| Source-derived App guide | `services/expert-recommend/app/app_guide.py` |
+| Layered explanations, bounded model answers | `services/expert-recommend/app/explainer.py`, `/internal/store/explain` in `private_store.py`, `OllamaClient.chat_text` |
+| Explanation acts and subjects | `services/chat-intent/app/conversation_acts.py`, `store_conversation.py` (`_act_response`, `discussed_ids`, planner skip/hand-off) |
+| Dialogue fixes | `store_dialogue.py` ("which one"), Expert presenter (unconfirmed answers) |
+| Widget streaming of checked sentences | `services/chat-intent/app/routes.py`, `private_store.py` (`STREAM`) |
+| Routing metadata only | `evidence.Finding.screened`, `suitability` `screened` |
+| Removed | `store_elaboration.py`, `/internal/store/elaborate`, its tests (properties re-covered) |
+| Evaluation | `evaluation/conversation/` |
+
+New setting `STORE_EXPLANATION_TOKENS` (default 220) in shared settings,
+`.env.example`, the private-test Compose profile and the configuration reference.
+Prepared explanations need no flag and no model.
+
+## Verification performed
+
+- Ruff clean; 1,513 unit tests pass (baseline 1,483; 24 elaboration tests
+  replaced by 54 explanation, act, streaming and safety tests).
+- OpenAPI export regenerated: no diff (internal routes are not public).
+- Integration suite against disposable PostgreSQL/Qdrant/Valkey on an internal
+  network: 206 pass, 27 fail, the same 27 on `a2a02ad` (stale expectations).
+- Recommendation decisions identical to `a2a02ad` on both unseen sets.
+- Conversation evaluation (offline, no model): see the design document; private
+  transcripts are in `/home/ubuntu/.local/share/hedge-t2-conversation-20261021/`.
+
+Not performed: live Qwen calls (no verified isolation from the 8156 deployment and
+no memory for a second model), an isolated HTTP/browser stack run of this branch,
+Rasa NLU in the loop, and real-user review.
+
+## Rollout notes
+
+- No preparation-version bump, migration or reindex: guides derive from current
+  source fields.
+- Deploy Chat and Expert together. Mixed versions degrade safely: a new Chat
+  falls back to the existing paths if `/internal/store/explain` is missing; an old
+  Chat's `/internal/store/elaborate` call fails into its prepared fallback.
+- The model is used less often than at `a2a02ad`; with `STORE_EXPLANATIONS_ENABLED`
+  off, open questions return an explicit prepared fallback.
+
+## Recommended next steps
+
+1. Independent review of this branch, especially the act grammar, the glossary
+   text (domain review) and the sentence checks.
+2. A bounded, authorized live-model run: either a release of this branch in a
+   separate isolated project with its own capacity plan, or a maintenance window
+   on 8156. Measure first-sentence and complete latency, citation compliance and
+   grounding of 15–20 open questions; read every answer.
+3. A short real-user session in the Angular widget with a new, independent
+   conversation set.

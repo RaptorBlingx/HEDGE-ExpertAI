@@ -208,24 +208,35 @@ evidence, dialogue and latency measurements before activation on suitable hardwa
 The [one-pass engineering follow-up](t2-efficient-interpretation.md) records the
 CPU evaluation and its limits.
 
-### Source-cited English explanations
+### Conversational explanations
+
+Explanation turns ("explain it simply", "what does that mean?", "give me an
+example", "what is an aggregator?", "compare them in plain English", "why choose
+one over the other?", "who provides it and how do I access it?") are answered by
+Expert's explainer from each App's current source guide and the general domain
+glossary, with **no model call** and independent of these flags. See
+[conversational experience](t2-conversational-experience.md).
 
 `STORE_EXPLANATIONS_ENABLED=false` is the default. When enabled together with
-`STORE_SEMANTIC_ENABLED`, an explicitly resolved App can receive one bounded
-Qwen explanation call before uncertain semantic recovery. The same call can
-defer a non-explanatory request. Provider/price metadata, comparisons, new
-search commands, capability verdicts, unresolved identities and retained filters
-keep their existing paths. Simple factual browsing/recommendations remain prepared.
+`STORE_SEMANTIC_ENABLED`, questions the prepared layers cannot answer (open
+questions such as "would it help a small energy cooperative?", undefined terms,
+a further "explain it differently") receive one bounded Qwen answer through the
+internal `/internal/store/explain` endpoint, which uses the existing backend key.
+`STORE_EXPLANATION_TOKENS` (default 220) bounds its output. The prompt carries a
+few whole source statements, at most two glossary notes and, only when the
+question refers back, the start of the previous answer. Answers must cite
+statement keys; each sentence is checked (citations, markup, quantities,
+unsupported guarantees or integrations) before release, and the streaming widget
+receives checked sentences as they are generated. Generated language is an
+explanation, not a verified capability proof: it never changes suitability,
+creates a support receipt, or enters the Store index. These structural checks are
+not a formal entailment guarantee; real source-to-answer review remains
+necessary. Without a model, or if the model fails, the reply is an explicit
+prepared fallback. Provider/price metadata, capability verdicts, new searches,
+unresolved identities and retained filters keep their existing paths.
 
-The internal `/internal/store/elaborate` endpoint uses the existing backend key.
-Only complete, owned source passages enter its bounded prompt; quoted limitations
-are retained verbatim, examples are explicitly illustrative, and cited paths are
-validated. Generated language is an explanation, not a verified capability proof.
-It never changes suitability, creates a support receipt, or enters the Store index.
-These structural guards are not a formal entailment guarantee for paraphrases;
-real source-to-answer review remains necessary. The call uses the configured
-model/context/deadline, at most 240 output tokens, and no draft/review/repair loop.
-A failed explanation returns the prepared answer with failure metadata.
+The call uses the same context size, threads, batch size and keep-alive as the
+other Store model calls, so it never makes Ollama reload the model.
 
 The consolidated private VM deployment uses the accepted Qwen3 4B Q4_K_M model,
 2048 context tokens, two model threads, q8_0 KV cache, one inference at a time and
