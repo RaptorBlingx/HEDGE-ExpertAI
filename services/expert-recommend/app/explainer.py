@@ -384,12 +384,15 @@ SYSTEM = (
     "- App facts come only from the numbered statements; cite them like [S2]. Never add features, users, "
     "integrations, guarantees, prices or access conditions they don't state.\n"
     "- You may explain general ideas in your own words, as general background, not as App features.\n"
+    "- Don't add benefits, outcomes, customers or industries the statements don't mention; mark any example "
+    "as hypothetical. Avoid words like ensures or guarantees.\n"
     "- Keep stated limitations. If the statements don't answer the question, say so and say what they cover.\n"
     "- Don't decide whether an App meets a requirement and don't start with Yes or No. No headings or links."
 )
 _RISKY = re.compile(r"\b(?:guarantee\w*|certif\w*|complian\w*|free of charge|integrat\w*|automatic\w*|"
                     r"real[- ]time|machine learning|artificial intelligence|ai-powered|encrypt\w*|secure\w*)\b", re.I)
 _CITATION = re.compile(r"\s*\[(S\d+(?:\s*,\s*S\d+)*)\]")
+_MARKER = re.compile(r"\s*\[(?:background|general|bg|b\d+)[^\]]{0,20}\]", re.I)  # not statement keys
 _SENTENCE_END = re.compile(r"(?<=[.!?])(?:\s*\[S\d+(?:\s*,\s*S\d+)*\])?\s+")
 # Whole statements only, never cut: a budget chooses fewer and shorter ones instead.
 _BUDGET = {"statements": 4, "long_statement": 260, "short_description": 420, "background": 2, "previous": 200}
@@ -451,9 +454,14 @@ _NEGATED = re.compile(r"\b(?:does not|doesn't|do not|don't|cannot|can't|is not|i
                       r"no longer|lacks?)\b", re.I)
 
 
+# "The statements do not say how accurate it is" is about the description, not the App.
+_META = re.compile(r"\b(?:statements?|description|information|details?|sources?)\b.{0,30}(?:\bnot\b|n't)|"
+                   r"(?:\bnot\b|n't)\s+(?:say|mention|state|specify|document|describe|include|indicate|cover)", re.I)
+
+
 def _negative_claim(text: str, limits: dict) -> bool:
     """An App-subject negation ("X itself does not handle payments") no stated limitation supports."""
-    if not limits or not _NEGATED.search(text):
+    if not limits or not _NEGATED.search(text) or _META.search(text):
         return False
     names = [n for n in limits["names"] if n]
     subject = any(n.casefold() in text.casefold() for n in names) or re.search(
@@ -510,7 +518,7 @@ class _Gate:
             self.problems = problems
             raise _Ungrounded()
         self.cited += [k for group in _CITATION.findall(sentence) for k in re.split(r"\s*,\s*", group)]
-        text = _CITATION.sub("", sentence).strip()
+        text = _MARKER.sub("", _CITATION.sub("", sentence)).strip()
         if not self.released:
             # Suitability verdicts belong to the verifier, not to an explanation.
             text = re.sub(r"^(?:yes|no)\s*[,.!]\s*", "", text, flags=re.I)
@@ -561,8 +569,9 @@ def open_answer(question: str, apps: list[dict], history: list[dict], *, on_delt
         gate.problems = gate.problems or ["incomplete"]
     elapsed = time.monotonic() - started
     stats = {"seconds": elapsed, "prompt_chars": sum(len(m["content"]) for m in messages)}
-    if not gate.released or not on_delta and (gate.problems or not gate.cited):
-        return {"completed": False, "reason": "ungrounded_answer", "checks": gate.problems or ["citations"], **stats}
+    # Streamed or not, the reply is the checked sentences before the first failure.
+    if not gate.released:
+        return {"completed": False, "reason": "ungrounded_answer", "checks": gate.problems or ["empty"], **stats}
     message = gate.text
     if gate.problems:
         message += " …\n\n*(I stopped there: I couldn’t ground the rest in the description.)*"
@@ -612,14 +621,13 @@ def respond(act: str, question: str, apps: list[dict], state: dict, history: lis
     if message:
         return {"message": message, "act": used, "state": _bounded(state), "generation": {
             "source": "prepared", "reason": f"explanation_{used}", "model_completed": False}}
-    model = settings.STORE_SEMANTIC_ENABLED and settings.STORE_EXPLANATIONS_ENABLED
+    # After every prepared representation, a targeted question helps more than a
+    # slow generated paraphrase (observed live: a muddled analogy after 39 s).
+    model = settings.STORE_SEMANTIC_ENABLED and settings.STORE_EXPLANATIONS_ENABLED and act not in {
+        "differently", "meaning"}
     if model and apps:
         asked = question
-        if act in {"differently", "meaning"}:
-            asked = (f"{question} — The user is still confused after the earlier explanations in the conversation. "
-                     "Explain the App's main idea once more from a new angle, with one everyday comparison, "
-                     "in simpler words than before.")
-        elif act == "example":
+        if act == "example":
             asked = (f"{question} — Give one short, clearly hypothetical everyday example of using this App, "
                      "built only from what its statements document.")
         elif act == "term":
@@ -635,7 +643,7 @@ def respond(act: str, question: str, apps: list[dict], state: dict, history: lis
         checks = answer.get("checks", [])
     else:
         checks = []
-        fallback_reason = "model_disabled"
+        fallback_reason = "model_disabled" if act not in {"differently", "meaning"} else "clarification"
     return {"message": _without_model(act, question, apps, state, phrase), "act": act, "state": _bounded(state),
             "generation": {"source": "prepared", "reason": f"explanation_{act}_fallback",
                            "model_completed": False, "model_fallback": fallback_reason,

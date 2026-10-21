@@ -341,14 +341,14 @@ class StoreConversation(StoreDialogue):
                 a["id"] for a in self.resolve(None) if _mentions(a, req.message)}
             findings = [(r.get("suitability", {}), f) for r in fallback.get("candidates", [])
                         for f in r.get("suitability", {}).get("requirements", [])]
-            # Interpretation can still recover a paraphrase of a documented
-            # function, so only skip it when it cannot help: an explicit "no" in
-            # the description, or nothing in the App even related to the request.
-            unrelated = bool(findings) and all(s.get("screened") and f["status"] == "not_documented"
-                                               for s, f in findings)
+            # Interpretation can only add a paraphrase the verifier missed. Once
+            # the verifier found something (a match, limitation, explicit "no" or
+            # closest statement) or similarity screened the whole App, the answer
+            # stands; reinterpreting costs ~50-70 s on CPU and can lose the subject.
+            searched = bool(findings) and (any(f["status"] != "not_documented" for _, f in findings)
+                                           or all(s.get("screened") for s, _ in findings))
             decided = (fallback["intent"] == "detail" and bool(subjects) and subjects <= referenced
-                       and (fallback.get("decision", {}).get("outcome") == "recommended"
-                            or any(f["status"] == "excluded" for _, f in findings) or unrelated))
+                       and (fallback.get("decision", {}).get("outcome") == "recommended" or searched))
             fast = not _COMPLEX.match(req.message) and (fallback.get("decision", {}).get("outcome") == "recommended" and not shifted
                     or decided
                     or fallback["intent"] == "browse"

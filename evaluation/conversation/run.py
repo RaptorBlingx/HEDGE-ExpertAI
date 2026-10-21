@@ -68,6 +68,18 @@ def check(expect: dict, reply: dict, names: list[str], seconds: float, rep: floa
     return problems
 
 
+class Lexical:
+    """Candidate pools by word overlap, for runs that cannot afford the E5 model."""
+
+    def __init__(self, apps, terms):
+        self.apps, self.texts, self.terms = [a for a, _ in apps], [terms(t) for _, t in apps], terms
+
+    def pool(self, query, size):
+        words = self.terms(query)
+        order = sorted(range(len(self.apps)), key=lambda i: -len(words & self.texts[i]))[:size]
+        return [{"app": self.apps[i], "rank": r + 1, "evidence_fields": ["lexical"]} for r, i in enumerate(order)]
+
+
 async def main(args) -> None:
     configure(args.model_url)
     from evaluate import Dense, catalogue  # noqa: E402  (same pinned E5 pools)
@@ -82,8 +94,12 @@ async def main(args) -> None:
 
     data = json.loads(args.scenarios.read_text())
     apps = catalogue(args.catalogue)
-    dense = Dense(apps)
-    evidence.set_similarity(dense.similarity)
+    if args.lexical:
+        # ~1 GB less memory: word-overlap pools, no similarity nominations.
+        dense = Lexical(apps, evidence.terms)
+    else:
+        dense = Dense(apps)
+        evidence.set_similarity(dense.similarity)
     by_id = {app["id"]: app for app in dense.apps}
 
     async def recommend(*, query, locale, filters):
@@ -172,5 +188,6 @@ if __name__ == "__main__":
     parser.add_argument("--catalogue", type=pathlib.Path, default=ROOT / "evaluation/retrieval/catalogue.json")
     parser.add_argument("--only", nargs="*")
     parser.add_argument("--model-url")
+    parser.add_argument("--lexical", action="store_true", help="word-overlap pools instead of E5 (less memory)")
     parser.add_argument("--output", type=pathlib.Path, required=True)
     asyncio.run(main(parser.parse_args()))

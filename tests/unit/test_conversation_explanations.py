@@ -152,7 +152,6 @@ def test_open_question_uses_one_cited_model_answer_with_labelled_evidence(model)
 
 
 @pytest.mark.parametrize("reply", [
-    "It suits energy communities.",                              # no citation
     "It suits energy communities [S9].",                         # unknown citation
     "It guarantees delivery to energy communities [S1].",        # unsupported claim
     "It serves 400 energy communities [S1].",                    # unsupported quantity
@@ -445,3 +444,39 @@ def test_answers_never_open_with_a_verdict_and_questions_find_statements_by_mean
     assert explainer._negative_claim("BidRelay itself does not handle payments.", {
         "names": ["BidRelay"], "terms": explainer.evidence_terms("It does not forecast prices.")})
     assert not explainer._negative_claim("You can't use it for trading on its own.", {"names": ["BidRelay"], "terms": set()})
+
+
+def test_checked_sentences_before_a_failure_are_kept_in_every_mode(model):
+    model.return_value = ("It combines bids from several providers [S1]. BidRelay itself does not handle "
+                          "payments [S2]. More text.")
+    answer = explainer.respond("open", "Who gets paid?", [RELAY], {}, [])
+    assert answer["message"].startswith("It combines bids from several providers. …")
+    assert "does not handle payments" not in answer["message"]
+    assert answer["generation"]["stopped"] == ["unsupported_negation"]
+    model.return_value = "The statements do not say how accurate BidRelay is [S1]. It uses [background] ideas."
+    answer = explainer.respond("open", "How accurate is it?", [RELAY], {}, [])
+    assert answer["message"].startswith("The statements do not say how accurate BidRelay is. It uses ideas.")
+    model.return_value = "In general, communities share energy locally."
+    answer = explainer.respond("open", "Would it help?", [RELAY], {}, [])
+    assert answer["generation"]["cited"] is False and "*For reference, from BidRelay’s description:*" in answer["message"]
+
+
+@pytest.mark.parametrize("status,screened,planned", [
+    ("related", False, False), ("excluded", False, False), ("not_documented", True, False),
+    ("not_documented", False, True),  # only then can interpretation recover a missed paraphrase
+])
+def test_capability_follow_ups_reinterpret_only_when_the_verifier_found_nothing(monkeypatch, status, screened, planned):
+    monkeypatch.setenv("STORE_SEMANTIC_ENABLED", "true")
+    interpret = Mock(return_value={"action": "answer", "view": "capability", "apps": ["1"], "query": "x",
+                                   "reference": "focus"})
+    row = {"app": RELAY, "rank": 1, "suitability": {"status": "uncertain", "screened": screened, "requirements": [
+        {"requirement": "settlement", "status": status, "quote": "It tracks provider contributions."}]}}
+    decide = Mock(return_value={"apps": [], "candidates": [row], "message": "",
+                                "decision": {"outcome": "abstained", "reason": "insufficient_evidence"}})
+    policy = dialogue.StoreConversation(
+        None, lambda ids: [deepcopy(a) for a in [RELAY] if ids is None or a["id"] in ids],
+        lambda *args: "fields", interpret, None, decide=decide,
+        present=lambda q, r, locale: "presented", explainer=lambda *args: explainer.respond(*args))
+    ask(policy, "Does it support settlement?", {"turn": 2, "focused_ids": [RELAY["id"]],
+                                                "last_results": [{"app": RELAY, "rank": 1}]})
+    assert interpret.called is planned
