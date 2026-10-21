@@ -105,18 +105,19 @@ def _reviewed(query: str, app: dict, locale: str, receipt: ReviewedSupport | Non
 
 
 def _decision(findings: list[evidence.Finding]) -> dict[str, Any]:
+    """Only verified findings support a recommendation; related ones are shown as closest statements."""
     documented = [f for f in findings if f.status == "documented"]
     if not findings:
         status, reason = "uncertain", "request_needs_clarification"
     elif len(documented) == len(findings):
         status, reason = "source_supported", "documented_requirements"
-    elif documented or any(f.status == "limited" for f in findings):
+    elif documented or any(f.status in {"limited", "related"} for f in findings):
         status, reason = "partial", "partial_source_support"
     else:
         status = "uncertain"
         reason = "documented_limitation" if any(f.status == "excluded" for f in findings) else "no_documented_match"
     return {"status": status, "reason": reason,
-            "evidence_fields": list(dict.fromkeys(f.clause.path for f in documented)),
+            "evidence_fields": list(dict.fromkeys(c.path for f in documented for c in f.supporting)),
             "evidence_spans": list(dict.fromkeys(f.clause.quote for f in documented)),
             "requirements": [{"requirement": f.requirement, "status": f.status,
                               **({"field": f.clause.path, "quote": f.clause.quote} if f.clause else {})}

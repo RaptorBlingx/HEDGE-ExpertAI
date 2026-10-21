@@ -1,7 +1,9 @@
-"""Source decisions: each requested function needs its own affirmative source evidence.
+"""Source decisions: each requested function needs its own verified source sentence.
 
-Lexical cases run without a similarity backend, the conservative fallback. Semantic
-cases use a deterministic fake for the Discovery E5 similarity service.
+Similarity may only nominate a related sentence; verification (ownership, no
+condition, every requested term) authorizes a recommendation. Lexical cases run
+without a similarity backend; semantic cases use a deterministic fake for the
+Discovery E5 similarity service. The original suite is test_suitability_original.py.
 """
 import json
 from copy import deepcopy
@@ -132,8 +134,8 @@ def test_unrelated_limitation_does_not_veto_and_related_one_is_reported():
 def test_readme_and_embedded_features_keep_original_field_paths():
     app = StoreAppMetadata(store_id="S", app_id="A", readme="<p>Detects earthquake warnings.</p>",
         dataspace_app_description='{"properties":{"featureList":["Earthquake warnings"]}}').recommendation_projection()
-    assert policy.assess("earthquake warnings", app, "en")["evidence_fields"] in (
-        ["readme"], ["dataspaceAppDescription.properties.featureList[0]"])
+    assert policy.assess("earthquake warnings", app, "en")["evidence_fields"] == [
+        "readme", "dataspaceAppDescription.properties.featureList[0]"]
     before = deepcopy(app)
     policy.assess("water monitoring", app, "en")
     assert app == before
@@ -210,7 +212,8 @@ def test_synthetic_catalogue_capabilities_are_evidence():
 def test_partial_match_reports_each_requirement_with_its_source_sentence():
     description = ("MeaningHub publishes shared vocabularies and mappings between data models. "
                    "Payload transformation is not performed by this application.")
-    result = policy.assess("publish shared vocabularies and transform JSON payloads", {"description": description}, "en")
+    result = policy.assess("publish shared vocabularies and transform JSON payloads",
+                           {"title": "MeaningHub", "description": description}, "en")
     assert result["status"] == "partial" and result["reason"] == "partial_source_support"
     assert [r["status"] for r in result["requirements"]] == ["documented", "excluded"]
     assert result["requirements"][1]["quote"] == "Payload transformation is not performed by this application."
@@ -271,15 +274,16 @@ def pool(query, apps, scores):
     return {row["id"]: result for row, result in zip(rows, policy.assess_many(query, rows, "en"), strict=True)}
 
 
-def test_semantic_paraphrase_is_supported_when_it_stands_out():
-    apps = {"hub": {"description": "Teams can agree the meaning of fields across their organisations."}}
+def test_a_semantic_paraphrase_is_related_evidence_not_a_recommendation():
+    apps = {"hub": {"title": "MeaningHub", "description": "Teams can agree the meaning of fields across their organisations."}}
     result = pool("one place to agree what our field names mean", apps,
                   {("agree what our field", "teams can agree"): 0.86})
-    assert result["hub"]["status"] == "source_supported"
-    assert result["hub"]["evidence_spans"] == ["Teams can agree the meaning of fields across their organisations."]
+    assert result["hub"]["status"] == "partial"
+    assert result["hub"]["requirements"][0]["status"] == "related"
+    assert result["hub"]["requirements"][0]["quote"] == "Teams can agree the meaning of fields across their organisations."
 
 
-def test_least_unrelated_sentence_is_not_a_match_without_shared_vocabulary():
+def test_least_unrelated_sentence_is_not_nominated_without_shared_vocabulary():
     apps = {"registry": {"description": "Collaborative data model registry for partners."}}
     result = pool("a CRM for sales leads", apps, {("crm", "registry"): 0.84})
     assert result["registry"]["status"] == "uncertain"
@@ -298,8 +302,8 @@ def test_numeric_claims_need_the_same_number_in_the_source():
 
 
 def test_a_limitation_covering_the_unaffirmed_part_excludes_the_match():
-    apps = {"load": {"description": "LoadAhead predicts next-day electricity consumption from meter readings. "
-                                    "It does not forecast market prices or submit market bids."}}
+    apps = {"load": {"title": "LoadAhead", "description": "LoadAhead predicts next-day electricity consumption "
+                     "from meter readings. It does not forecast market prices or submit market bids."}}
     result = pool("day ahead electricity price forecasting", apps,
                   {("price forecasting", "predicts next-day"): 0.89, ("price forecasting", "forecast market prices"): 0.85})
     assert result["load"]["status"] == "uncertain"
@@ -307,19 +311,55 @@ def test_a_limitation_covering_the_unaffirmed_part_excludes_the_match():
 
 
 def test_an_unrelated_limitation_does_not_exclude_documented_evidence():
-    apps = {"relay": {"description": "BidRelay aggregates flexibility bids from several providers. "
-                                     "It does not forecast prices."}}
+    apps = {"relay": {"title": "BidRelay", "description": "BidRelay aggregates flexibility bids from several "
+                      "providers. It does not forecast prices."}}
     result = pool("flexibility bid aggregation", apps,
                   {("bid aggregation", "aggregates flexibility"): 0.9, ("bid aggregation", "forecast prices"): 0.8})
     assert result["relay"]["status"] == "source_supported"
 
 
 def test_a_requested_environment_is_not_a_limitation():
-    apps = {"lab": {"description": "LoopLab combines flexibility offers only in simulation."}}
+    apps = {"lab": {"title": "LoopLab", "description": "LoopLab combines flexibility offers only in simulation."}}
     result = pool("combine flexibility offers in a simulation", apps, {("combine flexibility", "combines"): 0.9})
     assert result["lab"]["status"] == "source_supported"
     result = pool("combine flexibility offers", apps, {("combine flexibility", "combines"): 0.9})
     assert result["lab"]["status"] == "partial"
+
+
+@pytest.mark.parametrize(("query", "app"), [
+    # Independent review of 6ef81e3: none of these may be recommended.
+    ("forecast market prices and demand", {"description": "Forecasts market prices."}),
+    ("real-time earthquake warnings with encryption", {"description": "Provides real-time earthquake warnings."}),
+    ("must not collect personal data", {"description": "Does not encrypt personal data."}),
+    ("earthquake warnings", {"source_profile": "hedge-store-v1", "name": "SensorView",
+                             "source_evidence": {"readme": "PartnerPlatform provides earthquake warnings."}}),
+    ("guarantees 900 messages per minute", {"description": "Configure the application so it guarantees 900 messages per minute."}),
+    ("earthquake warnings", {"description": "Provides earthquake warnings if the customer buys sensors."}),
+    ("earthquake warnings", {"description": "Provides earthquake warnings except in production."}),
+    ("earthquake warnings", {"description": "Provides water readings for earthquake warnings."}),
+    ("earthquake warnings SMS", {"source_profile": "hedge-store-v1", "source_evidence": {
+        "description": "Provides earthquake warnings. Sends them via SMS.",
+        "readme": "Earthquake warnings via SMS are delivered via email."}}),
+    ("automatically schedule maintenance", {"description": "Engineers review the alerts before scheduling maintenance."}),
+    ("send SMS alerts to engineers", {"description": "Engineers review the alerts before scheduling maintenance."}),
+])
+@pytest.mark.parametrize("similar", [False, True])
+def test_review_probes_are_not_recommended(query, app, similar):
+    # Even maximal similarity cannot authorize support.
+    evidence.set_similarity((lambda q, p: [[0.99] * len(p) for _ in q]) if similar else (lambda q, p: None))
+    assert policy.assess(query, app, "en")["status"] != "source_supported"
+
+
+def test_negative_requirement_needs_an_explicit_absence_of_the_same_action():
+    assert status("must not collect personal data", "Does not collect personal data.") == "source_supported"
+    assert status("must not collect personal data", "Does not encrypt personal data.") != "source_supported"
+
+
+def test_a_clear_paraphrase_with_every_requested_term_is_recommended_with_any_similarity():
+    app = {"title": "BidRelay", "description": "BidRelay aggregates flexibility bids from several providers."}
+    for similar in (lambda q, p: None, lambda q, p: [[0.5] * len(p) for _ in q]):
+        evidence.set_similarity(similar)
+        assert policy.assess("flexibility bid aggregation", app, "en")["status"] == "source_supported"
 
 
 def test_one_similarity_call_covers_the_whole_candidate_pool():
@@ -330,7 +370,7 @@ def test_one_similarity_call_covers_the_whole_candidate_pool():
     assert len(fake.calls) == 1 and len(fake.calls[0][1]) == len(set(fake.calls[0][1])) == len(FILLER)
 
 
-def test_unavailable_similarity_falls_back_to_lexical_evidence():
+def test_unavailable_similarity_keeps_verification_and_drops_only_nominations():
     evidence.set_similarity(lambda queries, passages: None)
     assert status("aggregate flexibility bids", "Aggregates flexibility bids from several providers.") == "source_supported"
-    assert status("pool offers from providers", "Aggregates flexibility bids from several providers.") == "uncertain"
+    assert status("pool offers from providers", "Aggregates flexibility bids from several providers.") != "source_supported"

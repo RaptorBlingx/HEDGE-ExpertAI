@@ -10,7 +10,7 @@ labels, not HEDGE-approved relevance labels, live Store quality or proposal KPIs
 
 | File | Purpose |
 | --- | --- |
-| `unseen.json` | 24 cases authored before the evidence matcher was calibrated. Its failures informed later rule changes, so it is no longer a clean measure. |
+| `unseen.json` | 24 cases authored before the evidence matcher was calibrated. Its failures informed the first version's rules, so it is no longer a clean measure. |
 | `unseen-2.json` | 20 cases authored after the rules were frozen; the generalization measure. |
 | `conversations.json` | Five multi-turn scenarios; replies are judged by reading them. |
 | `evaluate.py` | Runner and grader. |
@@ -18,9 +18,11 @@ labels, not HEDGE-approved relevance labels, live Store quality or proposal KPIs
 Development data is `../retrieval/frozen.json` and `../retrieval/holdout.json`
 against `../retrieval/catalogue.json`. Grades: **Pass** recommends only Apps
 labelled complete or acceptable, including every complete App; **Partial** is
-correct but misses a complete App; **Fail(unsupported)** recommends a forbidden or
-unlabelled App; **Fail(abstained)** recommends nothing although a complete App
-exists. Partial fits may be explained, never recommended.
+correct but misses a complete App; **Suggested** recommends nothing unsupported
+and shows a complete App as its closest, explicitly unconfirmed statement;
+**Fail(unsupported)** recommends a forbidden or unlabelled App;
+**Fail(abstained)** shows no complete App. Partial fits may be explained, never
+recommended.
 
 Run with the pinned CPU E5 image described in [retrieval](../retrieval/README.md),
 without a network, writing to a private directory outside Git:

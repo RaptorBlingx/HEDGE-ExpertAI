@@ -310,7 +310,7 @@ def test_reviewed_compound_passage_requires_current_original_support():
     projection['prepared_explanation'] = artifact
     assert assessor.assess('combine readings from multiple meters', projection, 'en')['status'] == 'source_supported'
     assert assessor.assess('combine earthquake predictions', projection, 'en')['status'] == 'uncertain'
-    assert assessor.assess('combine readings without MQTT', projection, 'en')['status'] == 'uncertain'
+    assert assessor.assess('combine readings without MQTT', projection, 'en')['status'] != 'source_supported'
     assert assessor.assess('combine no readings from multiple meters', projection, 'en')['status'] == 'uncertain'
     answers = load_service('prepared_locale', 'expert-recommend')('store_conversation')
     response = {'intent':'detail', 'apps':[{'app':projection}], 'context':{}}

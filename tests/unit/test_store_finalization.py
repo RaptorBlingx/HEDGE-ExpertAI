@@ -42,6 +42,7 @@ def test_connected_passive_assertions_and_sample_capacity_do_not_need_manual_pro
     FIRST.replace('BatchBridge', 'Another app') + ' ' + SECOND,
     FIRST + ' Those records are then combined. This app requires another app.',
     FIRST + ' ' + SECOND + ' Only 2 sensors are supported.',
+    FIRST + ' ' + SECOND + ' ' + CAPACITY.replace('is prepared', 'is not prepared'),
 ])
 def test_unresolved_actors_dependencies_and_real_capacity_restrictions_are_not_recommended(text):
     assert suitability.assess('combine records from multiple sensors', app_for(text), 'en')['status'] != 'source_supported'

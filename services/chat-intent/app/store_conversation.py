@@ -223,7 +223,10 @@ class StoreConversation(StoreDialogue):
             shifted = self._implicit_subject_shift(req.message, fallback, context)
             fast = not _COMPLEX.match(req.message) and (fallback.get("decision", {}).get("outcome") == "recommended" and not shifted
                     or fallback["intent"] == "browse"
+                    # A partial-fit explanation answers a new search; a focused App may
+                    # still be the intended subject and needs interpretation.
                     or fallback.get("decision", {}).get("reason") == "partial_matches_only"
+                    and len(context.get("focused_ids", [])) != 1
                     or self.route_intent(req.message, intent, context) in {"greeting", "help", "reset", "out_of_scope"}
                     or fallback["intent"] == "compare" and bool(fallback["apps"])
                     or dialogue_language(req.message, req.locale) in {"Explain it simply", "How does it work?"} and bool(fallback["apps"]))

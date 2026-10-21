@@ -452,7 +452,7 @@ def test_disposable_store_pipeline_separates_dense_neighbours_from_source_suppor
     ('Provides earthquake warnings.', 'This feature is disabled. It cannot be used.', 'earthquake warnings', 'en', False),
     ('Provides earthquake warnings if sensors are installed.', None, 'earthquake warnings', 'en', False),
     ('Provides earthquake warnings. Sends them via SMS.', None, 'earthquake warnings SMS', 'en', True),
-    ('Provides earthquake warnings and water readings. Sends them via SMS.', None, 'earthquake warnings SMS', 'en', True),
+    ('Provides earthquake warnings and water readings. Sends them via SMS.', None, 'earthquake warnings SMS', 'en', False),
     ('Provides earthquake warnings. Another App sends them via SMS.', None, 'earthquake warnings SMS', 'en', False),
     ('Provides earthquake warnings.', 'Delivers earthquake warnings via SMS.', 'earthquake warnings SMS', 'en', True),
     ('Provides earthquake warnings.', 'MQTT is unavailable.', 'earthquake warnings', 'en', True),

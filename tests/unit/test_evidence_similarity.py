@@ -57,6 +57,9 @@ def test_remote_similarity_returns_validated_scores(monkeypatch):
 
 @pytest.mark.parametrize("response", [
     httpx.Response(503), httpx.Response(200, json={"scores": [[0.9]]}), httpx.Response(200, json={}),
+    httpx.Response(200, json={"scores": [[0.9, "not-a-number"]]}), httpx.Response(200, json={"scores": [[0.9, True]]}),
+    httpx.Response(200, content=b'{"scores": [[0.9, NaN]]}', headers={"content-type": "application/json"}),
+    httpx.Response(200, json=[[0.9, 0.1]]),
 ])
 def test_unavailable_or_malformed_similarity_falls_back_and_pauses_calls(monkeypatch, response):
     calls = []
@@ -71,3 +74,31 @@ def test_similarity_is_not_requested_without_a_configured_discovery_url(monkeypa
     monkeypatch.setattr(evidence, "_client", httpx.Client(transport=httpx.MockTransport(
         lambda request: pytest.fail("unexpected request"))))
     assert evidence._remote_similarity(["q"], ["a"]) is None
+
+
+def test_requests_beyond_discovery_bounds_are_batched_and_clipped(monkeypatch):
+    requests = []
+
+    def handler(request):
+        body = __import__("json").loads(request.content)
+        requests.append(body)
+        assert len(body["queries"]) <= evidence.MAX_QUERIES and len(body["passages"]) <= evidence.MAX_PASSAGES
+        assert all(len(text) <= evidence.MAX_TEXT for text in [*body["queries"], *body["passages"]])
+        return httpx.Response(200, json={"scores": [[0.5] * len(body["passages"]) for _ in body["queries"]]})
+
+    remote(monkeypatch, handler)
+    scores = evidence._remote_similarity([f"q{i}" for i in range(10)], ["p" * 3000] + [f"p{i}" for i in range(450)])
+    assert len(scores) == 10 and all(len(row) == 451 for row in scores)
+    assert len(requests) == 4
+
+
+def test_malformed_scores_never_reach_assessment(monkeypatch):
+    suitability = load_service("unit_similarity_expert", "expert-recommend")("suitability")
+    remote(monkeypatch, lambda request: httpx.Response(200, json={"scores": [["not-a-number"]]}))
+    evidence.set_similarity(evidence._remote_similarity)
+    try:
+        result = suitability.assess("flexibility bid aggregation",
+                                    {"description": "Aggregates flexibility bids from several providers."}, "en")
+    finally:
+        evidence.set_similarity(lambda queries, passages: None)
+    assert result["status"] == "source_supported"

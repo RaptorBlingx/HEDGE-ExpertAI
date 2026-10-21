@@ -75,16 +75,27 @@ def conversation(dense: Dense, trace: dict):
         decide=recommender._recommendation_decision, present=presenter.prepared_answer)
 
 
-def grade(case: dict, recommended: list[str]) -> str:
-    """Pass: only complete/acceptable Apps recommended, including every complete one."""
+def grade(case: dict, recommended: list[str], closest: list[str]) -> str:
+    """Pass: only complete/acceptable Apps recommended, including every complete one.
+
+    Suggested: nothing unsupported is recommended, and a complete App is offered as
+    the closest unconfirmed statement rather than recommended.
+    """
     complete = set(case.get("complete", case.get("relevant_native_ids", [])))
     acceptable = complete | set(case.get("acceptable", []))
     chosen = set(recommended)
     if chosen & set(case.get("forbidden", [])) or chosen - acceptable:
         return "Fail(unsupported)"
     if complete and not chosen:
-        return "Fail(abstained)"
+        return "Suggested" if complete & set(closest) else "Fail(abstained)"
     return "Partial(missed)" if not complete <= chosen else "Pass"
+
+
+def _closest(reply: dict) -> list[str]:
+    """Candidates presented as unconfirmed closest statements (every finding documented or related)."""
+    return [row["app"]["app_id"] for row in reply.get("candidates", [])[:3]
+            if row.get("suitability", {}).get("status") == "partial"
+            and {r["status"] for r in row["suitability"].get("requirements", [])} <= {"documented", "related"}]
 
 
 async def run(args) -> None:
@@ -100,7 +111,8 @@ async def run(args) -> None:
                            if reply.get("decision", {}).get("outcome") == "recommended" else [])
             result = {"id": case["id"], "query": case["query"], "pool": trace.get("pool"),
                       "recommended": recommended, "decision": reply.get("decision"),
-                      "message": reply["message"], "grade": grade(case, recommended)}
+                      "closest": _closest(reply), "message": reply["message"],
+                      "grade": grade(case, recommended, _closest(reply))}
             summary[result["grade"].split("(")[0]] = summary.get(result["grade"].split("(")[0], 0) + 1
             out.append(result)
             print(f"{case['id']:4} {result['grade']:18} recommended={recommended}")

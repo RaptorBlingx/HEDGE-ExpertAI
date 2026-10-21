@@ -211,21 +211,41 @@ def _sentence(text: str) -> str:
     return text if text.rstrip().endswith((".", "!", "?")) else text.rstrip() + "."
 
 
+def _label(text: str) -> str:
+    """The user's own wording, shown as typed (Markdown-escaped, apostrophes kept)."""
+    return re.sub(r"([\\`*_{}\[\]()])", r"\\\1", html.escape(" ".join(text.split()), quote=False))
+
+
+_PHRASES = {
+    "documented": "covers {needs}: {quote}",
+    "limited": "covers {needs} only with a limitation: {quote}",
+    "excluded": "doesn’t cover {needs}; its description says: {quote}",
+}
+
+
 def _partial_line(row: dict) -> str:
-    """Per requirement: what the source documents, limits or explicitly excludes."""
-    sentences = []
+    """Per requirement: what the source documents, comes closest to, limits or excludes.
+
+    Requirements with the same outcome and source sentence are stated once.
+    """
+    groups: list[tuple[str, str, list[str]]] = []
     for item in row["suitability"].get("requirements", []):
-        need = _quoted_store_text(item["requirement"]) or ""
         quote = _quoted_store_text(_sentence(item["quote"])) if item.get("quote") else ""
-        subject = f"**{_name(row['app'])}**" if not sentences else "It"
-        if item["status"] == "documented":
-            sentences.append(f"{subject} covers “{need}”: {quote}")
-        elif item["status"] == "limited":
-            sentences.append(f"{subject} covers “{need}” only with a limitation: {quote}")
-        elif item["status"] == "excluded":
-            sentences.append(f"{subject} doesn’t cover “{need}”; its description says: {quote}")
+        if groups and groups[-1][:2] == (item["status"], quote):
+            groups[-1][2].append(item["requirement"])
         else:
-            sentences.append(f"{subject} doesn’t mention “{need}”.")
+            groups.append((item["status"], quote, [item["requirement"]]))
+    sentences = []
+    for status, quote, needs in groups:
+        subject = f"**{_name(row['app'])}**" if not sentences else "It"
+        joiner = " and " if status in {"documented", "related", "limited"} else " or "
+        named = joiner.join(f"“{_label(need)}”" for need in needs)
+        if status == "related":
+            owner = f"**{_name(row['app'])}**’s" if not sentences else "its"
+            sentences.append(f"For {named}, {owner} closest statement is: {quote}")
+            continue
+        phrase = _PHRASES.get(status, "doesn’t mention {needs}.")
+        sentences.append(f"{subject} " + phrase.format(needs=named, quote=quote))
     return " ".join(s if s.endswith((".", "!", "?", "”")) else s + "." for s in sentences)
 
 
@@ -247,8 +267,17 @@ def decision_message(selected: list[dict], candidates: list[dict], *, direct: bo
                          + "".join(" " + (_quoted_store_text(q) or "") for q in quotes[1:3]))
         return ("Yes. These Apps do:" if direct else "These Apps fit what you need:") + "\n\n" + "\n".join(lines)
     if partial:
-        lines = [_partial_line(row) for row in partial[:3]]
-        single = len(partial[0]["suitability"].get("requirements", [])) == 1
+        shown = partial[:3]
+        lines = [_partial_line(row) for row in shown]
+        statuses = {item["status"] for row in shown for item in row["suitability"].get("requirements", [])}
+        single = len(shown[0]["suitability"].get("requirements", [])) == 1
+        if statuses <= {"documented", "related"}:
+            # Related wording is not confirmation; say so once, then show the sentences.
+            closest = [f"- **{_name(row['app'])}**: " + " ".join(
+                _quoted_store_text(_sentence(q)) for q in dict.fromkeys(
+                    r["quote"] for r in row["suitability"]["requirements"] if r.get("quote"))) for row in shown]
+            return ("I couldn’t confirm an exact match, but these App descriptions come closest:\n\n"
+                    + "\n".join(closest) + "\n\nShall I look at one of them in more detail?")
         lead = ("No App documents that without a limitation. The closest option:" if single and len(lines) == 1 else
                 "No App documents that without a limitation. The closest options:" if single else
                 "No single App documents everything you asked for. The closest options:")

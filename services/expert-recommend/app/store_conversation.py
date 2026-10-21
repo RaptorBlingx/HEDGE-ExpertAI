@@ -231,6 +231,10 @@ def _prepared_answer(question: str, response: dict, locale: str) -> str:
                 stated = next((f for f in findings if f['status'] == 'excluded'), None)
                 if stated:
                     return f'No. **{name}**’s description says: {_quoted_store_text(stated["quote"])}'
+                related = [f for f in findings if f['status'] == 'related']
+                if related and len(related) == len(findings):
+                    return (f'I can’t confirm that from **{name}**’s description. The closest statement is: '
+                            f'{_quoted_store_text(related[0]["quote"])}')
                 if row.get('suitability', {}).get('status') == 'partial':
                     return 'Partly. ' + _partial_line(row)
             evidence = row['app'].get('source_evidence', {}).get('readme', '')
@@ -240,6 +244,10 @@ def _prepared_answer(question: str, response: dict, locale: str) -> str:
                 answer += (' Açıklanan erişim yöntemi web adresi üzerinden kullanımdır.' if locale == 'tr' else
                            ' The documented access method is through its hosted web address.')
             return answer
+        if locale == "en" and intent == "detail" and any(
+                r.get("suitability", {}).get("status") == "partial" for r in candidates):
+            # A decision over the Apps already referenced ("Which of them can ...?").
+            return decision_message([], candidates)
         if intent in {"detail", "compare", "clarify"}:
             return ("Hangi uygulamayı kastediyorsunuz? Adını söyleyebilir veya uygulamaları listeleyebilirsiniz." if locale == "tr" else
                     "Which App do you mean? You can name it or ask me to list the Apps.")

@@ -1,8 +1,9 @@
-# T2 recommendation evidence: requirement-level matching
+# T2 recommendation evidence: verified requirement-level matching
 
 Engineering change of 21 October 2026 on `feat/t2-backend-completion`, based on
-`06f24f9`. Controlled offline evidence against agent-authored labels; not live
-Store, Angular/Rasa or proposal KPI acceptance.
+`06f24f9`, revised after an independent review of the first version (`6ef81e3`).
+Controlled offline evidence against agent-authored labels; not live Store,
+Angular/Rasa or proposal KPI acceptance.
 
 ## Diagnosis
 
@@ -11,123 +12,149 @@ Replaying the actual prepared dialogue path on the 32 development queries
 (`evaluation/retrieval`) recommended an App for **none of the 26 positive
 requests**. Three independent causes:
 
-1. **Suitability was a hand-written entailment grammar.** `assess()` required
-   the request's terms to be a literal subset of one parsed source clause, and
-   any unparsed or negative sentence anywhere in an App could block it. BidRelay's
-   README says "BidRelay aggregates flexibility bids from several providers", yet
-   "flexibility bid aggregation" abstained because of an unrelated "It does not
-   forecast prices." Paraphrases could never pass. Much of the grammar was
-   special-cased to the two real Store READMEs; other layers (semantic recovery,
-   function menus, `_related_passage`) had been added to work around it.
+1. **The suitability grammar failed on ordinary READMEs.** Request terms had to be
+   a literal subset of one parsed clause, and any unparsed or negative sentence
+   anywhere could block an App: "flexibility bid aggregation" abstained against
+   "BidRelay aggregates flexibility bids …" because of an unrelated "It does not
+   forecast prices." Workaround layers (semantic recovery, function menus,
+   `_related_passage`) had accumulated around it.
 2. **Dialogue routing errors.** In a first request, "submit *them* to a live
-   market" bound "them" to five seeded catalogue Apps and answered with their
-   descriptions. Any price word ("day ahead electricity price forecasting",
-   "Does it forecast prices?") was refused as a commercial-terms question.
-3. **Presentation errors.** The extractive preparer preferred the shortest
-   sentence, so BidRelay's summary was "It does not forecast prices.", and the
-   presenter rewrote quoted source vocabulary ("bids" became "offers").
+   market" bound "them" to five seeded catalogue Apps; any price word ("price
+   forecasting", "Does it forecast prices?") was refused as a commercial question.
+3. **Presentation errors.** Summaries preferred the shortest sentence ("It does not
+   forecast prices."), and quoted source vocabulary was rewritten ("bids" shown as
+   "offers").
+
+## Review of the first version
+
+`6ef81e3` fixed recall (development 23 Pass / 6 Partial / 3 Fail) but let cosine
+similarity, pool-relative scores or 75% word coverage *authorize* a
+recommendation. The review reproduced unsupported recommendations ("automatically
+schedule maintenance" from "Engineers review the alerts before scheduling
+maintenance"; "forecast market prices and demand" from "Forecasts market
+prices."), lost ownership, instruction and condition protections, an unvalidated
+similarity response, and weakened adverse tests. All findings were reproduced and
+are now regression tests (`test_review_probes_are_not_recommended`, run with no
+and with maximal similarity).
 
 ## Design
 
-`services/expert-recommend/app/evidence.py` replaces the grammar; `suitability.py`
-is now a thin boundary (identity lookups, reviewed-support receipts, source fields).
+`services/expert-recommend/app/evidence.py`; `suitability.py` is a thin boundary
+(identity lookups, reviewed-support receipts, source fields).
 
-- **Requirements.** The request is split into the functions asked for
-  ("combine bids, submit them to a live market and calculate settlement" → three).
-  Coordinated nouns and modifiers stay attached, scaffolding is removed, situation
-  sentences ("Our departments use conflicting field names.") are context, and
-  "rather than X" / "but I don't need X" are not requested.
-- **Source sentences.** Whole sentences per functional field, plus contrastive
-  parts and coordinated predicates. Referring sentences ("Sends them via SMS",
-  "Those bids are then combined …") are assessed and quoted with their antecedent
-  in the same field. Instructions, questions and other actors' statements are not
-  App claims.
-- **Matching.** Each requirement is scored against every candidate sentence with
-  the pinned E5 model (new Discovery route `POST /api/v2/evidence/similarity`)
-  plus normalized lexical coverage. E5-small cosine scores sit in a narrow band,
-  so a semantic match must be very close (≥ 0.87) or stand out from the pool's
-  sentences for that requirement (z ≥ 2.0, ≥ 0.83), and low-overlap matches must
-  share at least one term with the App's own wording; short titles need shared
-  vocabulary; numbers must appear in the source. Negated sentences are matched on
-  their topic ("forecast prices"), because E5 under-rates negations; polarity is
-  read separately.
-- **Limitations.** A requirement is *excluded* or *limited* when the matched or an
-  equally strong sentence negates or qualifies it; when a limitation concerns only
-  what was requested ("SMS delivery is disabled", "Earthquake warnings are only
-  available via MQTT"); when a limitation covers the part no affirmative sentence
-  covers ("does not forecast market prices" for a demand forecaster asked for
-  prices); or when it restricts the App as a whole ("It does not work in
-  production", "Another App is required"). "Does not require another App" and a
-  requested condition ("only in simulation" when simulation is asked for) are
-  not limitations. Unrelated limitations no longer veto.
-- **Decision.** Complete Apps (every requirement documented) are recommended with
-  their verbatim source sentences. Otherwise suitability `status` is `partial`
-  (with per-requirement `requirements` findings) or `uncertain`; the decision
-  outcome stays `abstained` with reason `partial_matches_only`, so the Angular
-  contract is unchanged (`source_supported` remains the only recommended status).
-  Expert assesses ten retrieved candidates and returns at most the requested limit.
-- **Unavailable similarity.** Without `DISCOVERY_RANKING_URL`, or after a failed
-  call (30 s back-off), matching is lexical-only and more conservative. Unit tests
-  run in this mode.
+- **Requirements.** The request is split into the functions asked for. Coordinated
+  nouns and modifiers ("with encryption") stay attached and must all be evidenced;
+  scaffolding and situation sentences are removed; "rather than X" and "but I
+  don't need X" are not requested.
+- **Nomination.** E5 similarity from Discovery (`POST /api/v2/evidence/similarity`,
+  bounded, batched and clipped by the caller, scores validated as finite numbers)
+  or ≥ 50% word overlap selects the sentence that best addresses a requirement.
+  Nomination never establishes support.
+- **Verification.** A requirement is `documented` only by a sentence that:
+  is owned by this App (not another named product, `Another App …`, or people such
+  as engineers, partners or users); is declarative, not an instruction or
+  question; states no condition, exception or limitation ("if the customer buys
+  sensors", "except in production", "pending certification", "it used to …");
+  names at most one delivery channel; contains every requested term and number
+  (light stemming only, no synonyms); and is not merely a purpose modifier
+  ("water readings *for* earthquake warnings"). A pronoun ("Sends them via SMS",
+  "Those bids are then combined …") counts only with a single, functional, owned
+  antecedent in the same field. A negative requirement ("must not collect personal
+  data") needs an owned statement that the App does not perform that same action.
+- **Limitations** exclude or limit a requirement when they negate or qualify it,
+  concern only what was requested ("SMS delivery is disabled", "Earthquake warnings
+  are only available via MQTT", a condition on the requested feature), restrict a
+  requested quantity, cover the part affirmative sentences leave uncovered, contradict
+  the requested channel, or restrict the App as a whole ("It does not work in
+  production", "Another App is required", "This feature is disabled" after a
+  non-functional sentence). A requested condition ("only in simulation" when
+  simulation is asked for, "only via SMS") is not a limitation; "does not require
+  another App" is not one either.
+- **Decision.** An App is recommended only when every requirement is documented,
+  with its verbatim source sentences. A nominated but unverified sentence is a
+  `related` finding: shown as the App's closest statement, never as a match ("I
+  couldn't confirm an exact match, but these App descriptions come closest: …").
+  Mixed results are explained per requirement. Suitability `status` is
+  `source_supported`, `partial` or `uncertain`; the decision outcome for partial
+  results is `abstained` with reason `partial_matches_only`, so the Angular contract
+  is unchanged. Expert assesses ten retrieved candidates and returns at most the
+  requested limit.
+- **Unavailable or malformed similarity** removes only nominations; verification
+  is identical. Unit tests run in this mode.
 
 The unused LLM veto branch (`allow_model`) and `_related_passage` were removed.
-Preparation now leads with an unqualified sentence in source order and quotes
-source vocabulary verbatim; `PREPARATION_VERSION` 5 re-prepares Store rows on the
-next synchronization or `/internal/store/repair`.
+Preparation leads with an unqualified sentence in source order and quotes source
+vocabulary verbatim; `PREPARATION_VERSION` 5 re-prepares Store rows (and their
+index payloads) through the existing synchronization/repair path, so a rollout
+needs matching service versions and time for re-preparation.
 
 Dialogue: pronouns route to references only once something has been discussed;
 functional price wording is not a pricing question (`cost_question()`); "Which of
-them can …" is decided over the displayed Apps; partial results skip semantic
-recovery and keep their explanation.
+them can …" is decided over the displayed Apps; partial results without a focused
+App skip model recovery and keep their explanation.
+
+## Tests
+
+- `test_suitability_original.py` is the original suitability suite, run against the
+  new boundary. Changes are mechanical ("uncertain" means "not recommended"; a
+  removed internal and reason name use the equivalent behaviour) except two
+  marked reversals of over-restriction: "Used to publish and manage shared data
+  models and mappings." (the real Store purpose sentence) and the French "Prend en
+  charge MQTT." are claims; "Ne prend pas en charge MQTT." is a tested negation.
+- The ownership fixture (`tests/fixtures/store-v1/suitability-ownership.json`) and
+  the Gateway, Store-integration and finalization adverse cases keep their original
+  labels.
 
 ## Before and after
 
-| Set | Cases | Before (`06f24f9`) | After |
-| --- | --- | --- | --- |
-| Development (frozen + holdout) | 32 | 6 Pass / 26 Fail; all 26 positives abstained | 23 Pass / 6 Partial / 3 Fail (1 unsupported, 2 abstained) |
-| Unseen-1 (informed rule changes) | 24 | 8 Pass / 16 Fail | 18 Pass / 2 Partial / 4 Fail (3 unsupported, 1 abstained) |
-| Unseen-2, rules frozen | 20 | 7 Pass / 13 Fail | 13 Pass / 2 Partial / 5 Fail (3 unsupported, 2 abstained) |
-| Unseen-2 after one post-hoc parsing fix | 20 | — | 13 Pass / 3 Partial / 4 Fail (3 unsupported, 1 abstained) |
-| Private real-Store observation (2 Apps) | 10 | 5/10 | 9/10 |
+Grades (`evaluation/recommendation`): **Pass** recommends exactly what is
+supported; **Partial** recommends correctly but misses an acceptable App;
+**Suggested** recommends nothing unsupported and shows a correct App as its
+closest, explicitly unconfirmed statement; **Fail** recommends something
+unsupported or shows no correct App.
 
-Before passed only cases where nothing should be recommended. "Partial" means a
-correct recommendation that missed an acceptable alternative.
+| Set | Cases | `06f24f9` | `6ef81e3` | Now |
+| --- | --- | --- | --- | --- |
+| Development | 32 | 6 Pass / 26 Fail | 23 Pass / 6 Partial / 3 Fail (1 unsupported) | 8 Pass / 3 Partial / 19 Suggested / 2 Fail (0 unsupported) |
+| Unseen-1 | 24 | 8 / 16 | 18 / 2 / 4 (3 unsupported) | 10 Pass / 13 Suggested / 1 Fail (0 unsupported) |
+| Unseen-2 | 20 | 7 / 13 | 13 / 2 / 5 (3 unsupported) | 10 Pass / 1 Partial / 8 Suggested / 1 Fail (0 unsupported) |
+| Private real-Store observation | 10 | 5 Pass / 5 Fail | 9 / 1 | 5 Pass / 4 Suggested / 1 Fail (0 unsupported) |
+
+Unseen-1 informed the first version's rules. This revision was driven by the
+review probes, the original adverse tests and the authored conversations, not by
+the unseen sets; their replies were read only to check wording. Before, every
+"Fail" on a positive case meant "I couldn't find a matching App for that request."
 
 Representative replies (prepared path, no model):
 
-- *flexibility bid aggregation* — before: "I couldn't find a matching App for that
-  request." After: "**BidRelay** fits what you need. BidRelay aggregates
-  flexibility bids from several providers and submits a combined bid to the energy
-  market operator."
-- *One App must publish shared vocabularies and transform incoming JSON payloads* —
-  before: no match. After: "No single App documents everything you asked for",
-  then per App what it covers and, e.g., "It doesn't cover 'transform incoming JSON
-  payloads'; its description says: Payload transformation is not performed by this
-  application."
-- *Does it forecast prices?* (about BidRelay) — before: "No price is listed for
-  BidRelay." After: "No. BidRelay's description says: It does not forecast prices."
-- *Show me all available apps* — summaries now lead with what each App does
-  instead of its limitations.
+- *flexibility bid aggregation* — "**BidRelay** fits what you need. BidRelay
+  aggregates flexibility bids from several providers and submits a combined bid to
+  the energy market operator."
+- *Our departments use conflicting field names. We need one place to agree what
+  those fields mean.* — "I couldn't confirm an exact match, but these App
+  descriptions come closest: **MeaningHub**: Teams can agree the meaning of fields
+  across their organisations. **ModelCommons**: Partner organisations discuss field
+  definitions and version approved models."
+- *Detect bearing failures from vibration data and automatically schedule
+  maintenance* — no recommendation; TurbineWatch's closest statements are shown,
+  including "Engineers review the alerts before scheduling maintenance."
+- *Does it forecast prices?* (about BidRelay) — "No. BidRelay's description says:
+  It does not forecast prices."
 
-## Remaining failures and limits
+## Remaining limits
 
-- **Domain-adjacent false recommendations** (the main residual risk; 7 of 76
-  authored cases): the domain matches but the requested function differs, which
-  E5-small cannot separate — demand vs price forecasting (U5), "manual library"
-  vs vibration analysis (U19), "stop command" vs alerts (U12), "automatically
-  schedule maintenance" vs "engineers review the alerts before scheduling
-  maintenance" (V9), "SMS alerts" (V17), "maintenance manuals" vs "maintenance
-  notes" (V16), rainfall vs weather inputs (N4). Lexical rules that caught these
-  also rejected genuine paraphrases. The quoted sentence makes the mismatch
-  visible, but these are still wrong recommendations. A stronger embedding or
-  cross-encoder, or verification of low-overlap matches, is the next step.
-- **Missed matches:** hard paraphrases ("common dictionary for exchanged
-  information"), a homonym in the gap rule ("*field* devices" vs "*field*
-  meanings", V3), and noun coordination read as two requirements ("common
-  definitions and mappings", real R4, still answered as an honest partial).
-- Thresholds were chosen on 32 development queries over a 20-App fictional
-  catalogue; two real Apps are far too few to validate them.
-- Candidate pools in the evaluation are dense-only, and the model-assisted
-  semantic recovery path (`STORE_SEMANTIC_ENABLED`) was not exercised: it still
-  runs, with its latency, when nothing matches.
-- Non-English requests keep only the previous lexical behaviour.
+- **Paraphrases are suggested, not recommended.** Verification needs the request's
+  terms in the source sentence, so "Store past flexibility bids for an audit"
+  against "stores historical flexibility offers for audit" is a closest statement.
+  Recommending such paraphrases needs reviewed term alignment (for example a vetted
+  domain glossary or a verified entailment step), not a similarity threshold.
+- **Missed entirely:** four authored cases (hard paraphrases, a homonym in the gap
+  rule, a simulation-before-live request) and one real case where "common
+  definitions and mappings" is read as two requirements.
+- Ownership uses product-like subjects (CamelCase, multi-word capitalized names,
+  acronyms) and a closed list of human roles; an unknown single-word product name
+  as a subject is treated as this App.
+- Thresholds and rules come from a 20-App fictional catalogue and two real Apps.
+  Evaluations use dense-only candidate pools and bypass Rasa and the model-assisted
+  recovery path (`STORE_SEMANTIC_ENABLED`), which still runs when nothing is nominated.
+- Non-English requests keep only basic lexical behaviour.
