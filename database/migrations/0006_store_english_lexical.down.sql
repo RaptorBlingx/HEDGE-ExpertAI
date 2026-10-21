@@ -1,0 +1,1 @@
+DROP INDEX catalog_apps_store_english_search_idx;

@@ -1,0 +1,76 @@
+{
+  "source": "authored_engineering_judgments_not_HEDGE_KPI_labels",
+  "queries": [
+    {
+      "id": "H1",
+      "kind": "paraphrase",
+      "query": "We need an early warning system for worn bearings in a wind generator.",
+      "relevant_native_ids": [
+        "fixture-3"
+      ],
+      "judgment": "Predictive bearing warning."
+    },
+    {
+      "id": "H2",
+      "kind": "alternatives",
+      "query": "Which tools could help different organisations maintain a common dictionary for exchanged information?",
+      "relevant_native_ids": [
+        "fixture-2",
+        "fixture-14"
+      ],
+      "judgment": "Shared definitions."
+    },
+    {
+      "id": "H3",
+      "kind": "multiple",
+      "query": "Pool bids from different flexibility providers and work out the financial allocation after delivery.",
+      "relevant_native_ids": [
+        "fixture-13"
+      ],
+      "judgment": "Combination plus calculated settlement."
+    },
+    {
+      "id": "H4",
+      "kind": "paraphrase",
+      "query": "Estimate the following day's power prices rather than its consumption.",
+      "relevant_native_ids": [
+        "fixture-5"
+      ],
+      "judgment": "Price not load."
+    },
+    {
+      "id": "H5",
+      "kind": "alternatives",
+      "query": "What can reject JSON records that violate an agreed schema?",
+      "relevant_native_ids": [
+        "fixture-4",
+        "fixture-15",
+        "fixture-20"
+      ],
+      "judgment": "All validate schema."
+    },
+    {
+      "id": "H6",
+      "kind": "direct",
+      "query": "Store past flexibility bids for an audit.",
+      "relevant_native_ids": [
+        "fixture-7"
+      ],
+      "judgment": "Archive explicitly supports historical audit; generic coordination does not document archive."
+    },
+    {
+      "id": "H7",
+      "kind": "unsupported",
+      "query": "Manage hospital appointments and patient records.",
+      "relevant_native_ids": [],
+      "judgment": "No medical applications."
+    },
+    {
+      "id": "H8",
+      "kind": "unsupported",
+      "query": "Publish a data vocabulary and autonomously operate wind turbines in the same application.",
+      "relevant_native_ids": [],
+      "judgment": "No single complete fit."
+    }
+  ]
+}

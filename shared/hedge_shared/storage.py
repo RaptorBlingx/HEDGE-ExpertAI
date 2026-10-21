@@ -563,8 +563,10 @@ def lexical_search(
     store_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return an independent PostgreSQL full-text candidate ranking."""
-    # The simple dictionary is deliberate: it is deterministic across all
-    # eight locales and the catalogue also stores curated localized keywords.
+    # Keep the synthetic contract and other locales on their existing dictionary.
+    # English Store prose needs stemming and stop words: an OR pool over raw
+    # conversational words otherwise rewards "for" and misses mapping/mappings.
+    dictionary = "english" if store_id is not None and locale == "en" else "simple"
     where = ["active = true", "schema_version = '2.0'"]
     filter_params: list[Any] = []
 
@@ -637,18 +639,17 @@ def lexical_search(
         # Ingestion derives this document with the shared Store evidence extractor.
         # Reingesting also refreshes legacy documents when source values are unchanged.
 
-    del locale  # Reserved for future language-specific PostgreSQL dictionaries.
     sql = f"""
         SELECT id, revision, payload,
                ts_rank_cd(
-                   to_tsvector('simple', {document}),
-                   websearch_to_tsquery('simple', %s),
+                   to_tsvector('{dictionary}', {document}),
+                   websearch_to_tsquery('{dictionary}', %s),
                    32
                ) AS lexical_score
         FROM catalog_apps
         WHERE {" AND ".join(where)}
-          AND to_tsvector('simple', {document})
-              @@ websearch_to_tsquery('simple', %s)
+          AND to_tsvector('{dictionary}', {document})
+              @@ websearch_to_tsquery('{dictionary}', %s)
         ORDER BY lexical_score DESC, id
         LIMIT %s
     """

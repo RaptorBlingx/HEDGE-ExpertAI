@@ -300,6 +300,31 @@ def test_lexical_search_builds_all_typed_filters(monkeypatch: pytest.MonkeyPatch
     assert params[-1] == 40
 
 
+@pytest.mark.parametrize(("store_id", "locale", "dictionary"), [
+    ("Example-Store", "en", "english"),
+    ("Example-Store", "tr", "simple"),
+    (None, "en", "simple"),
+])
+def test_store_lexical_dictionary_preserves_scope_and_query_parameters(
+    monkeypatch, store_id, locale, dictionary,
+):
+    cursor = FakeCursor(many=[[]])
+    install_connection(monkeypatch, cursor)
+    storage.lexical_search("mapping for data", locale=locale,
+                           filters=SearchFilters(), limit=40, store_id=store_id)
+    sql, params = cursor.executed[0]
+    assert sql.count(f"to_tsvector('{dictionary}', search_document)") == 2
+    assert sql.count(f"websearch_to_tsquery('{dictionary}', %s)") == 2
+    if store_id:
+        assert "source_store_id = %s" in sql
+        assert "payload->'visible' = 'true'::jsonb" in sql
+        assert "store_sync_members" in sql
+        assert params == ['"mapping" OR "for" OR "data"', store_id,
+                          '"mapping" OR "for" OR "data"', 40]
+    else:
+        assert params == ["mapping for data", "mapping for data", 40]
+
+
 def test_catalogue_reads_and_revision(monkeypatch: pytest.MonkeyPatch) -> None:
     cursor = FakeCursor(
         one=[
