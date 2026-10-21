@@ -131,7 +131,10 @@ def test_offline_pipeline_keeps_native_identity_sparse_facts_and_grounded_explan
     assert 'description: "Shows supplied meter readings."' in explanation["text"]
     sparse_evidence = next(e for e in result["explanations"] if e["source_app_id"] == "Sparse-App")
     assert sparse_evidence["evidence_fields"] == ["description"]
-    assert "fabricatedmagic" not in result["message"] and "assetonlysignal" in result["message"]
+    assert "fabricatedmagic" not in result["message"] and "assetonlysignal" not in result["message"]
+    # Unverified neighbours remain inspectable, but their metadata is not
+    # narrated as part of the confirmed Sparse-App recommendation.
+    assert "assetonlysignal" in json.dumps(by_native["Shared-App"]["app"]["source_evidence"])
     assert payload(offline, app)["store_id"] == STORE
     assert not any(r["app_id"].startswith("store-v1-") for r in rows("indexing_outbox"))
     llm.assert_not_called()

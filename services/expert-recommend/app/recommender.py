@@ -181,7 +181,8 @@ def _recommendation_narrative(query: str, results: list[dict[str, Any]], locale:
 
 
 def _name(app: dict[str, Any]) -> str:
-    return _quoted_store_text(app.get("name") or (app.get("title") if isinstance(app.get("title"), str) else None)
+    return _quoted_store_text(_store_evidence(app).get("name") or app.get("name")
+                              or (app.get("title") if isinstance(app.get("title"), str) else None)
                               or app.get("app_id") or "App") or "App"
 
 

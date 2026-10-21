@@ -45,6 +45,9 @@ def test_rank_only_cannot_create_an_earthquake_recommendation(chain, monkeypatch
 
 @pytest.mark.parametrize('stream', [False, True])
 @pytest.mark.parametrize(('query', 'description', 'readme', 'locale', 'supported'), [
+    ('Find an app that does not collect personal data.',
+     'Does not collect personal data unless consent is granted.', None, 'en', False),
+    ('Find an app that does not collect personal data.', 'Does not collect personal data.', None, 'en', True),
     ('earthquake warnings', 'Earthquake warnings are planned for a future release.', None, 'en', False),
     ('earthquake warnings', 'Earthquake warnings. They are not supported by this App.', None, 'en', False),
     ('earthquake warnings', 'Provides earthquake warnings.', 'This feature is disabled. It cannot be used.', 'en', False),

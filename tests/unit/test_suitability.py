@@ -355,6 +355,32 @@ def test_negative_requirement_needs_an_explicit_absence_of_the_same_action():
     assert status("must not collect personal data", "Does not encrypt personal data.") != "source_supported"
 
 
+@pytest.mark.parametrize("similar", [False, True])
+@pytest.mark.parametrize(("query", "description", "supported"), [
+    ("must not collect personal data", "Does not collect personal data.", True),
+    ("must not collect personal data", "Does not collect personal data unless consent is granted.", False),
+    ("must not collect personal data", "Does not collect personal data if privacy mode is enabled.", False),
+    ("must not collect personal data", "Does not collect personal data only in simulation.", False),
+    ("must not collect personal data in simulation", "Does not collect personal data only in simulation.", True),
+    ("must not collect personal data", "Does not collect personal data. This policy applies only in simulation.", False),
+    ("must not collect personal data", "PartnerPlatform does not collect personal data.", False),
+    ("must not collect personal data", "Configure the application so it does not collect personal data.", False),
+    ("must not collect personal data", "Does not collect personal data. Collects personal data for billing.", False),
+    ("must not collect personal data", "Does not collect personal data. SMS delivery is only available in simulation.", True),
+    ("must not collect more than 100 records", "Does not collect more than 10 records.", False),
+    ("collect personal data", "Collects personal data if consent is granted.", False),
+    ("collect personal data", "Collects personal data.", True),
+    ("must not collect personal data and encrypt stored records",
+     "Does not collect personal data. Encrypts stored records.", True),
+    ("must not collect personal data and encrypt stored records",
+     "Does not collect personal data unless consent is granted. Encrypts stored records.", False),
+])
+def test_claim_verification_retains_qualifications_ownership_and_requirement_scope(query, description, supported, similar):
+    evidence.set_similarity((lambda q, p: [[0.99] * len(p) for _ in q]) if similar else (lambda q, p: None))
+    app = {"source_profile": "hedge-store-v1", "name": "Privacy Example", "source_evidence": {"description": description}}
+    assert (policy.assess(query, app, "en")["status"] == "source_supported") is supported
+
+
 def test_a_clear_paraphrase_with_every_requested_term_is_recommended_with_any_similarity():
     app = {"title": "BidRelay", "description": "BidRelay aggregates flexibility bids from several providers."}
     for similar in (lambda q, p: None, lambda q, p: [[0.5] * len(p) for _ in q]):

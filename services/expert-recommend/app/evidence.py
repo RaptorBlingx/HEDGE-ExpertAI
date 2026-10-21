@@ -30,7 +30,7 @@ import re
 import time
 import unicodedata
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cached_property
 from typing import Literal
 
@@ -472,8 +472,15 @@ def _nominate(wanted: set[str], numbers: set[str], clause: Clause, dense: float 
     return None
 
 
-def _verified(wanted: set[str], numbers: set[str], clause: Clause, query: str) -> bool:
+def _verified(wanted: set[str], numbers: set[str], clause: Clause, query: str, *, negative: bool = False) -> bool:
     """A self-contained claim by this App stating every requested term, unconditionally."""
+    if negative:
+        if clause.polarity != "negative":
+            return False
+        # Check the same claim with its absence operator removed. Ownership,
+        # quantities, scope and qualifications still need ordinary verification.
+        # The whole quote retains an adjacent qualification on the absence.
+        clause = replace(clause, text=clause.topic, polarity=_polarity(_topic(clause.quote)))
     if not clause.verifiable or not wanted or not wanted <= clause.terms:
         return False
     if clause.polarity != "affirmed" and not _requested_limitation(query, clause):
@@ -501,8 +508,13 @@ def _assess(requirement: str, query: str, candidates: list[tuple[Clause, float |
     if negative_request:
         # "Must not collect personal data" is met only by an owned statement that
         # the App does not collect personal data — the same action, not another.
-        absent = [c for c, _, _ in candidates
-                  if c.polarity == "negative" and c.verifiable and wanted and wanted <= terms(c.topic)]
+        absent = [c for c, _, _ in candidates if _verified(wanted, numbers, c, query, negative=True)]
+        # A separately stated condition, App-wide restriction or affirmative
+        # counterclaim cannot be bypassed by the negative-requirement path.
+        if any(c.app_wide or _verified(wanted, numbers, c, query)
+               or c.polarity == "limited" and _applies(c, wanted) and not _requested_limitation(query, c)
+               for c, _, _ in candidates):
+            absent = []
         return Finding(requirement, "documented", absent[0], tuple(absent)) if absent else Finding(
             requirement, "not_documented")
     scored = sorted(((strength, clause) for clause, dense, z in candidates

@@ -158,3 +158,37 @@ Representative replies (prepared path, no model):
   Evaluations use dense-only candidate pools and bypass Rasa and the model-assisted
   recovery path (`STORE_SEMANTIC_ENABLED`), which still runs when nothing is nominated.
 - Non-English requests keep only basic lexical behaviour.
+
+## Bounded acceptance follow-up (21 October 2026)
+
+An independent check of `9a8d0ba` found that an unconditional negative request
+could be recommended from a conditional absence. Negative requirements now reuse
+the ordinary claim verifier, retaining ownership, quantities, adjacent
+qualifications and scope; separate restrictions and affirmative counterclaims
+also prevent authorization. Semantic scores still only nominate evidence.
+Permanent cases cover the reported exception, related qualifications, ownership,
+compound requests and unconditional positive controls, with similarity present
+and unavailable. The conditional absence abstains through Expert/Discovery HTTP;
+the unconditional absence still receives a recommendation.
+
+Verification: 527 focused unit/HTTP-adapter/mocked-pipeline checks passed, followed
+by 114 Store recommendation and seven persistence integration cases against
+disposable PostgreSQL/Qdrant. Integration also exposed a presentation regression:
+recommendation labels now use the existing sanitized source name. An outdated
+assertion was corrected to retain unverified metadata in candidates, not prose;
+the migration test verifies the exact current migration set rather than an old
+count. Original adverse fixture labels and the markup-safety assertion remain.
+
+Nine turns used the approved Angular build with current Gateway, Chat, Expert,
+Discovery/E5 and isolated stores, real Rasa parsing, and a read-only copy of the
+two synchronized authorized Apps. Review: **6 Pass / 2 Partial / 1 Fail**, zero
+unsupported recommendations or browser errors. Closest statements had no
+documented-match badge; the supported data-model request did. Measured response
+times were 0.28–2.36 seconds (median 0.54 seconds). Settlement remained an
+unconfirmed closest statement, a natural data-definition paraphrase abstained,
+and an access follow-up answered with privacy information. These limitations
+remain open; this is an engineering checkpoint, not T2 quality/KPI acceptance.
+LLM recovery was disabled in this smoke profile to avoid shared CPU/model
+contention; no Qwen quality or latency result is claimed. No broad 76-case replay
+was performed. Private transcripts, screenshots and logs remain outside Git at
+`/home/ubuntu/.local/share/hedge-t2-acceptance-20261021/`.
