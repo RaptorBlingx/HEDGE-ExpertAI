@@ -321,8 +321,9 @@ class Interpreter:
         if act in NEED_ACTS and not content:
             need = last.get("need", "") or state.get("need", "")
         subjects = self._subjects(act, mentions, refs, state, catalogue)
-        # Asking whether *an* App can do something names no subject; "does it" does.
-        if act == "check" and (not subjects or not named and not refs):
+        # Asking whether *an* App can do something names no subject: without a name
+        # or reference, a check that the other classifier read as a search is one.
+        if act == "check" and (not subjects or not named and not refs and "find" in readings):
             act, subjects = "find", []
         if act == "choose" and len(subjects) < 2:
             act, subjects = ("find", []) if need else ("clarify", subjects)

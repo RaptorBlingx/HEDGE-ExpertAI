@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Response, status
 from hedge_shared.private_store import scope
@@ -19,9 +20,19 @@ except ImportError:
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    if scope():
+        # Have Discovery embed the act examples before the first Store turn needs them.
+        from .private_store import warm
+        warm()
+    yield
+
+
 app = FastAPI(
     title="HEDGE-ExpertAI Chat & Intent",
     version="2.0.0",
+    lifespan=lifespan,
 )
 
 if _HAS_METRICS:
@@ -32,9 +43,7 @@ app.include_router(v2_router)
 
 if scope():
     from .private_routes import router as private_router
-    from .private_store import warm
     app.include_router(private_router)
-    app.add_event_handler("startup", warm)
 
 
 @app.get("/health")

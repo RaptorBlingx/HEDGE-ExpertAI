@@ -392,7 +392,8 @@ def prepared(act: str, question: str, apps: list[dict], state: dict, *, phrase: 
 SYSTEM = (
     "You are ExpertAI, a friendly guide to the HEDGE-IoT App Store. Answer the latest question in plain "
     "English for someone without technical background, in at most 80 words.\n"
-    "- App facts come only from the numbered statements; cite them like [S2]. Never add features, users, "
+    "- App facts come only from the numbered statements and the listed provider; cite statements like [S2]. "
+    "Never add features, users, "
     "integrations, guarantees, prices or access conditions they don't state.\n"
     "- You may explain general ideas in your own words, as general background, not as App features.\n"
     "- Don't add benefits, outcomes, customers or industries the statements don't mention; mark any example "
@@ -444,7 +445,9 @@ def _prompt(question: str, guides: list[app_guide.Guide], history: list[dict]):
             key = f"S{len(sources) + 1}"
             sources[key] = (guide, statement)
             statements[key] = statement.text
-        payload.append({"app": guide.name, "statements": statements})
+        # The Store record's provider is a fact too ("who runs it?").
+        payload.append({"app": guide.name, **({"provider": guide.provider} if guide.provider else {}),
+                        "statements": statements})
     terms = list(dict.fromkeys(glossary.mentioned(question) + [t for g in guides for t in _central_terms(g, 2)]))
     background = {glossary.BY_ID[t].term: glossary.BY_ID[t].plain for t in terms[:_BUDGET["background"]]}
     # The previous answer gives "that" a referent; it is not evidence. Every
@@ -457,7 +460,8 @@ def _prompt(question: str, guides: list[app_guide.Guide], history: list[dict]):
                 {"role": "user", "content": json.dumps(data, ensure_ascii=False, separators=(",", ":"))}]
     # Only source statements and the curated glossary notes can ground a claim:
     # the user's wording and earlier (generated) answers never do.
-    grounds = " ".join([*background.values(), *(s.text for _, s in sources.values())])
+    grounds = " ".join([*background.values(), *(s.text for _, s in sources.values()),
+                        *(g.provider for g in guides if g.provider)])
     # A negative claim about an App needs a stated limitation of that App.
     limits = {"names": [g.name for g in guides],
               "terms": set().union(*[evidence_terms(s.text) for g in guides for s in g.by_role("limitation")])}

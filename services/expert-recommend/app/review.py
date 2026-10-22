@@ -83,9 +83,19 @@ def _strict(need: str) -> bool:
 
 
 def _statements(app: dict, need: str):
-    """The App's own capability statements most related to the need (never limitations or access notes)."""
-    from .answers import _ranked
-    return [s for s in _ranked(app_guide.build(app), need) if s.owned and s.role in {"purpose", "capability", "scheme"}]
+    """The App's own capability statements at least as relevant to the need as the verifier requires.
+
+    Two signals must agree before a paraphrase is confirmed: E5 relevance here
+    (the verifier's GAP_MATCH floor) and the model's review. Without similarity,
+    nothing beyond the verifier's own nominations is reviewed.
+    """
+    statements = [s for s in app_guide.build(app).statements
+                  if s.owned and s.role in {"purpose", "capability", "scheme"}]
+    scores = evidence._similarity([need], [evidence._topic(s.text) for s in statements]) if statements else None
+    if not scores:
+        return []
+    ranked = sorted(zip(scores[0], statements, strict=True), key=lambda pair: -pair[0])
+    return [s for score, s in ranked if score >= evidence.GAP_MATCH][:2]
 
 
 def _ask(need: str, pending: list[tuple[dict, list[tuple[str, str]]]]) -> list[bool]:

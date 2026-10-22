@@ -60,3 +60,17 @@ def test_http_bridge_batches_example_similarity_and_degrades_without_it(monkeypa
     monkeypatch.setenv('STORE_SEMANTIC_ENABLED', 'false')
     monkeypatch.setattr(bridge, 'call', lambda *a: (_ for _ in ()).throw(AssertionError('no model call')))
     assert bridge.arbitrate('x', [{'gloss': 'a'}, {'gloss': 'b'}], {}) is None
+
+
+def test_chat_service_starts_and_warms_act_examples_in_private_scope(monkeypatch):
+    from fastapi.testclient import TestClient
+    monkeypatch.setenv('PRIVATE_STORE_ENABLED', 'true')
+    monkeypatch.setenv('APP_ENV', 'private-testing')
+    monkeypatch.setenv('HEDGE_STORE_ID', 'Some-native-Store')
+    monkeypatch.setenv('GATEWAY_API_KEY', 'test-only')
+    chat = load_service('private_chat_startup', 'chat-intent')
+    warmed = []
+    monkeypatch.setattr(chat('private_store'), 'warm', lambda: warmed.append(True))
+    with TestClient(chat('main').app) as client:
+        assert client.get('/live').status_code == 200
+    assert warmed == [True]

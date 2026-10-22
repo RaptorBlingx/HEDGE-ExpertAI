@@ -150,3 +150,9 @@ def test_dialogue_acts_are_one_labelled_dataset_with_masked_apps():
 ])
 def test_the_need_keeps_every_requested_word_and_drops_only_asking(text, need):
     assert understanding.need_text(text, [], understanding.references(text)) == need
+
+
+def test_an_agreed_check_without_a_pronoun_is_about_the_app_in_focus():
+    state = {"focus": [EDGE["id"]], "shown": [EDGE["id"]]}
+    frame = interpret("and how is settlement handled then?", "check", state)
+    assert (frame.act, frame.subjects) == ("check", [EDGE["id"]])

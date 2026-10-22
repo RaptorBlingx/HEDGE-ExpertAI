@@ -102,3 +102,12 @@ def test_link_lines_without_full_stops_are_separate_sentences():
     assert "External service, accessible via its public URL." in quotes
     assert not any("Vocabulary Hub" in q and "External service" in q for q in quotes)
     assert all(q in text for q in quotes)
+
+
+def test_a_statement_too_distant_from_the_need_is_never_reviewed(model):
+    evidence.set_similarity(lambda queries, passages: [[0.80] * len(passages) for _ in queries])
+    decision = review.reviewed_decision("map data between two systems", [{"app": MAPPER, "rank": 1}], "en")
+    assert decision["decision"]["outcome"] == "abstained" and not model
+    evidence.set_similarity(lambda queries, passages: None)
+    assert review.reviewed_decision("map data between two systems", [{"app": MAPPER, "rank": 1}], "en")[
+        "decision"]["outcome"] == "abstained" and not model
