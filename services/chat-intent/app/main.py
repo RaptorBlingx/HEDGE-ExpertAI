@@ -32,7 +32,9 @@ app.include_router(v2_router)
 
 if scope():
     from .private_routes import router as private_router
+    from .private_store import warm
     app.include_router(private_router)
+    app.add_event_handler("startup", warm)
 
 
 @app.get("/health")

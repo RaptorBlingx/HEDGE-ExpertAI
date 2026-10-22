@@ -83,7 +83,7 @@ class Playground:
         self.source = os.getenv("STORE_PLAYGROUND_SOURCE", "authored-fixtures")
 
     async def converse(self, request):
-        return await self.chat.run_chat_v2(request, store_dialogue=self.policy)
+        return await self.chat.run_chat_v2(request, assistant=self.policy)
 
     def recommend(self, query, *, locale, filters):
         result = self.recommender.recommend_v2(
@@ -193,11 +193,16 @@ def offline_playground():
         async def policy_search(**kwargs):
             return playground.recommend(**kwargs)
 
-        policy_type = importlib.import_module(chat.__package__ + ".store_conversation").StoreConversation
-        answers = importlib.import_module(recommend.__package__ + ".store_conversation")
-        policy = policy_type(policy_search, resolve, recommend._recommendation_narrative,
-                             answers.plan, answers.respond, decide=recommend._recommendation_decision,
-                             present=answers.prepared_answer)
+        from scripts.store_assistant_local import local_assistant
+
+        def semantic(text, examples):
+            # Act classification needs E5 (or Rasa via RASA_URL); without it, the
+            # assistant asks the user to rephrase rather than guessing.
+            return discovery("embeddings").similarity([text], examples, symmetric=True)[0] if real_embeddings else None
+
+        policy = local_assistant(lambda m: importlib.import_module(f"{chat.__package__}.{m}"),
+                                 lambda m: importlib.import_module(f"{recommend.__package__}.{m}"),
+                                 recommend=policy_search, resolve=resolve, semantic=semantic)
         playground = Playground(chat, recommend, models_v2, records, policy)
 
         # Retain counts/revisions from actual persistence and index operations,

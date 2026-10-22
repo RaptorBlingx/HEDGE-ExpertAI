@@ -7,7 +7,6 @@ from unittest.mock import Mock
 import httpx
 import pytest
 from hedge_shared import glossary
-from hedge_shared.models_v2 import ChatRequestV2
 from hedge_shared.store_knowledge import prepare
 from hedge_shared.store_v1 import StoreAppMetadata
 
@@ -16,7 +15,6 @@ from scripts.store_v1_playground import load_service
 expert = load_service("explanations_expert", "expert-recommend")
 guide_module, explainer, llm = expert("app_guide"), expert("explainer"), expert("llm_client")
 chat = load_service("explanations_chat", "chat-intent")
-acts, dialogue = chat("conversation_acts"), chat("store_conversation")
 
 
 def app(name, readme, *, description="", features=(), provider="Example Labs"):
@@ -163,7 +161,8 @@ def test_ungrounded_model_answers_fall_back_without_retry(model, reply):
     answer = explainer.respond("open", "Would it help an energy community?", [RELAY], {}, [])
     assert answer["generation"]["model_completed"] is False
     assert answer["generation"]["model_fallback"] == "ungrounded_answer"
-    assert "I don’t have a reliable answer to that from the description of **BidRelay**" in answer["message"]
+    # The fallback quotes the description rather than refusing.
+    assert answer["message"].startswith(("From **BidRelay**’s description:", "The description doesn’t say"))
     model.assert_called_once()
 
 
@@ -197,94 +196,6 @@ def test_streamed_text_call_reuses_the_loaded_model_configuration(monkeypatch):
 
 # --- Conversation acts --------------------------------------------------------
 
-@pytest.mark.parametrize("message,kind", [
-    ("Explain EdgeConnect in simple language.", "simple"),
-    ("Explain it to someone unfamiliar with data models", "simple"),
-    ("What does that mean?", "meaning"), ("I don't get it", "meaning"),
-    ("I still don't understand. Explain it differently.", "differently"),
-    ("Can you give a practical example?", "example"),
-    ("What does \"flexibility bid\" mean?", "term"), ("What is an aggregator?", "term"),
-    ("What is EdgeConnect?", "overview"), ("What is it useful for?", "overview"), ("And LoadAhead?", "overview"),
-    ("Compare both Apps in plain English.", "compare"), ("Is it the same as MeaningHub?", "compare"),
-    ("Why would I choose one over the other?", "choose"),
-    ("Who provides it, and how can I access it?", "facts"),
-    ("How would a utility use it in practice?", "open"), ("Would it help a small energy cooperative?", "open"),
-    ("What is a container image?", "term"),
-    ("Could you break that down for me?", "meaning"), ("Can I rely on its forecasts for trading?", "open"),
-    ("What has the weather got to do with it?", "open"), ("So who gets paid in the end?", "open"),
-    ("Is automatic settlement available now?", "open"),
-    ("Who is it for?", "audience"), ("Who would typically use it?", "audience"),
-])
-def test_explanation_acts(message, kind):
-    assert acts.parse(message, ["EdgeConnect", "LoadAhead", "MeaningHub"]).kind == kind
-
-
-@pytest.mark.parametrize("message", [
-    "Does it also generate earthquake warnings?", "Can it submit bids to a live market?", "Does it forecast prices?",
-    "Find an app to publish shared data models", "Which App can forward sensor data?", "Who provides it?",
-    "Compare them for bid aggregation", "List the available Apps.", "What is the price?", "Show me something that can",
-    "How much does it cost?", "How do I get started with it?", "How can I access it?", "Is it free?",
-    "Is it open source?", "Which version is current?", "How do I install it?", "Compare their prices",
-    "Explain the licence in simple terms", "What Apps are available?", "Which one converts messages?",
-    "Is it able to forecast prices?", "Can we use it without installing a container?",
-])
-def test_capability_checks_searches_and_metadata_keep_their_verified_paths(message):
-    assert acts.parse(message, ["EdgeConnect"]) is None
-
-
-def conversation(monkeypatch, apps=(RELAY, HUB)):
-    monkeypatch.setenv("STORE_SEMANTIC_ENABLED", "false")
-    available = [deepcopy(a) for a in apps]
-    calls = Mock(side_effect=lambda *args: explainer.respond(*args))
-    decide = Mock(side_effect=AssertionError("explanations never decide suitability"))
-    policy = dialogue.StoreConversation(
-        None, lambda ids: [deepcopy(a) for a in available if ids is None or a["id"] in ids], None, None, None,
-        decide=decide, present=lambda q, r, locale: r["message"], explainer=calls)
-    return policy, calls, available
-
-
-def ask(policy, message, context):
-    return asyncio.run(policy.respond_with_history(ChatRequestV2(message=message, locale="en"), "detail", context, []))
-
-
-def test_a_conversation_follows_its_subject_without_repeating_itself(monkeypatch):
-    policy, calls, _ = conversation(monkeypatch)
-    replies, context = [], {"turn": 1}
-    for message in ["Tell me about BidRelay", "Explain it simply", "What does that mean?", "Give me an example"]:
-        result = ask(policy, message, context)
-        assert [r["app"]["name"] for r in result["apps"]] == ["BidRelay"]
-        assert result["decision"] == {"outcome": "not_applicable", "reason": "source_explanation"}
-        replies.append(result["message"])
-        context = {**context, **result["context"]}
-    assert len(set(replies)) == 4 and calls.call_count == 4
-    result = ask(policy, "Compare it with MeaningHub", context)
-    assert [r["app"]["name"] for r in result["apps"]] == ["BidRelay", "MeaningHub"]
-    assert result["context"]["comparison_ids"] == [RELAY["id"], HUB["id"]]
-
-
-def test_unresolved_subjects_filters_and_capability_questions_are_not_explanations(monkeypatch):
-    policy, calls, _ = conversation(monkeypatch)
-    assert policy._act_subjects(acts.Act("simple"), "Explain it simply", {}) == []
-    assert asyncio.run(policy._act_response(ChatRequestV2(message="Explain it simply", locale="en"), {}, [])) is None
-    context = {"focused_ids": [RELAY["id"]], "pending_filters": ["pricing"]}
-    assert asyncio.run(policy._act_response(ChatRequestV2(message="Explain it simply", locale="en"), context, [])) is None
-    context = {"focused_ids": [RELAY["id"]]}
-    assert asyncio.run(policy._act_response(
-        ChatRequestV2(message="Does it forecast prices?", locale="en"), context, [])) is None
-    calls.assert_not_called()
-
-
-def test_a_catalogue_change_during_an_explanation_withdraws_it(monkeypatch):
-    policy, calls, available = conversation(monkeypatch)
-
-    def change(*args):
-        available[0]["source_evidence"]["readme"] = "Changed."
-        return explainer.respond(*args)
-
-    calls.side_effect = change
-    result = ask(policy, "Explain BidRelay simply", {})
-    assert result["decision"]["reason"] == "catalogue_changed" and not result["apps"]
-
 
 WATCH = app("TurbineWatch", "TurbineWatch analyses gearbox vibration measurements and flags patterns associated "
                             "with bearing failures. Engineers review the alerts before scheduling maintenance. "
@@ -303,27 +214,17 @@ def test_examples_fall_back_to_documented_workflow_and_overviews_do_not_repeat_t
 def test_an_unconfirmed_capability_shows_the_nearest_statement_without_confirming_it():
     statement = explainer.related_statement(guide_module.build(WATCH), "Can it schedule maintenance automatically?")
     assert statement.text == "Engineers review the alerts before scheduling maintenance."
-    presenter = expert("store_conversation")
-    row = {"app": WATCH, "rank": 1, "suitability": {"status": "uncertain", "requirements": [
-        {"requirement": "schedule maintenance automatically", "status": "not_documented"}]}}
-    message = presenter.prepared_answer("Can it schedule maintenance automatically?",
-                                        {"intent": "detail", "apps": [], "candidates": [row], "context": {}}, "en")
-    assert message.startswith("I couldn’t confirm that from **TurbineWatch**’s description.")
-    assert "It also says: “Engineers review the alerts before scheduling maintenance.”" in message
-    both = presenter.prepared_answer("Which one schedules maintenance?", {
-        "intent": "detail", "apps": [], "context": {},
-        "candidates": [row, {**row, "app": LOOP, "rank": 2}]}, "en")
-    assert both.startswith("I couldn’t confirm that from the descriptions of **TurbineWatch** or **LoopLab**.")
-    assert "fits what you need" not in both
-
-
-def test_an_elliptical_follow_up_searches_for_the_previous_need():
-    assert acts.elliptical_search("Find me one that does", "does it predict electricity prices?") == \
-        "Find an app to predict electricity prices"
-    assert acts.elliptical_search("Show me something that can", "can it submit bids to a live market?") == \
-        "Find an app to submit bids to a live market"
-    assert acts.elliptical_search("Find me one that does", "") is None
-    assert acts.elliptical_search("Find an app for weather forecasts", "does it forecast prices") is None
+    answers = expert("answers")
+    rows = [{"app": WATCH, "rank": 1}]
+    answer = answers.capability_answer("schedule maintenance automatically", rows, "en")
+    assert answer["decision"]["outcome"] == "abstained" and not answer["apps"]
+    assert answer["message"] == ("I can’t confirm that from **TurbineWatch**’s description. The closest statement is: "
+                                 "“Engineers review the alerts before scheduling maintenance.”")
+    both = answers.capability_answer("schedule maintenance automatically", [*rows, {"app": LOOP, "rank": 2}], "en")
+    assert both["message"].startswith("I couldn’t confirm an exact match, but these App descriptions come closest")
+    assert "fits what you need" not in both["message"]
+    stated = answers.capability_answer("control turbine operation", rows, "en")
+    assert stated["message"] == "No. **TurbineWatch**’s description says: “It does not control turbine operation.”"
 
 
 # --- Streaming checked sentences ----------------------------------------------
@@ -415,25 +316,6 @@ def test_widget_stream_forwards_deltas_and_completes_the_same_message(monkeypatc
     assert kinds.index("explanation_delta") < kinds.index("recommendations") < kinds.index("complete")
 
 
-def test_an_interpreted_explanation_uses_the_same_explainer(monkeypatch):
-    monkeypatch.setenv("STORE_SEMANTIC_ENABLED", "true")
-    available = [deepcopy(RELAY), deepcopy(HUB)]
-    interpret = Mock(return_value={"action": "answer", "view": "simple", "apps": ["1"], "query": "",
-                                   "reference": "focus"})
-    async def recommend(**kwargs):
-        return {"apps": [], "candidates": [], "message": "", "decision": {"outcome": "abstained"}}
-
-    policy = dialogue.StoreConversation(
-        recommend, lambda ids: [deepcopy(a) for a in available if ids is None or a["id"] in ids],
-        lambda *args: "source fields", interpret, None, decide=Mock(), present=lambda q, r, locale: "template",
-        explainer=lambda *args: explainer.respond(*args))
-    context = {"turn": 2, "focused_ids": [RELAY["id"]], "last_results": [{"app": RELAY, "rank": 1}]}
-    result = ask(policy, "Break it into smaller pieces for me.", context)
-    interpret.assert_called_once()
-    assert "**The background, in general terms:**" in result["message"]
-    assert result["generation"]["explanation"] == "explanation_simple"
-
-
 def test_answers_never_open_with_a_verdict_and_questions_find_statements_by_meaning(model):
     model.return_value = "Yes, it could help an energy community [S1]."
     answer = explainer.respond("open", "Would it help an energy community?", [RELAY], {}, [])
@@ -462,47 +344,6 @@ def test_checked_sentences_before_a_failure_are_kept_in_every_mode(model):
     assert answer["generation"]["cited"] is False and "*For reference, from BidRelay’s description:*" in answer["message"]
 
 
-@pytest.mark.parametrize("status,screened,planned", [
-    ("related", False, False), ("excluded", False, False), ("not_documented", True, False),
-    ("not_documented", False, True),  # only then can interpretation recover a missed paraphrase
-])
-def test_capability_follow_ups_reinterpret_only_when_the_verifier_found_nothing(monkeypatch, status, screened, planned):
-    monkeypatch.setenv("STORE_SEMANTIC_ENABLED", "true")
-    interpret = Mock(return_value={"action": "answer", "view": "capability", "apps": ["1"], "query": "x",
-                                   "reference": "focus"})
-    row = {"app": RELAY, "rank": 1, "suitability": {"status": "uncertain", "screened": screened, "requirements": [
-        {"requirement": "settlement", "status": status, "quote": "It tracks provider contributions."}]}}
-    decide = Mock(return_value={"apps": [], "candidates": [row], "message": "",
-                                "decision": {"outcome": "abstained", "reason": "insufficient_evidence"}})
-    policy = dialogue.StoreConversation(
-        None, lambda ids: [deepcopy(a) for a in [RELAY] if ids is None or a["id"] in ids],
-        lambda *args: "fields", interpret, None, decide=decide,
-        present=lambda q, r, locale: "presented", explainer=lambda *args: explainer.respond(*args))
-    ask(policy, "Does it support settlement?", {"turn": 2, "focused_ids": [RELAY["id"]],
-                                                "last_results": [{"app": RELAY, "rank": 1}]})
-    assert interpret.called is planned
-
-
-def test_an_elliptical_search_is_not_bound_to_the_previous_app(monkeypatch):
-    monkeypatch.setenv("STORE_SEMANTIC_ENABLED", "true")
-    interpret = Mock()
-    queries = []
-
-    async def recommend(**kwargs):
-        queries.append(kwargs["query"])
-        return {"apps": [], "candidates": [], "message": "none", "decision": {"outcome": "abstained",
-                                                                            "reason": "partial_matches_only"}}
-
-    policy = dialogue.StoreConversation(
-        recommend, lambda ids: [deepcopy(a) for a in [RELAY, HUB] if ids is None or a["id"] in ids],
-        lambda *args: "fields", interpret, None, decide=Mock(), present=lambda q, r, locale: "presented",
-        explainer=lambda *args: explainer.respond(*args))
-    ask(policy, "Find me one that does", {"turn": 3, "focused_ids": [RELAY["id"]],
-                                          "comparison_need": "does it forecast prices?"})
-    assert queries == ["forecast prices"]
-    interpret.assert_not_called()
-
-
 def test_who_an_app_is_for_comes_from_documented_roles_or_says_it_is_not_stated():
     message, _ = explainer.prepared("audience", "", [RELAY_WITH_ROLES], {})
     assert message.startswith("Its description names these roles: **aggregators** and **market operators**.")
@@ -517,26 +358,6 @@ RELAY_WITH_ROLES = app("PoolLink", "PoolLink combines flexibility bids from aggr
 
 # --- Review corrections ---------------------------------------------------------
 
-def test_a_clicked_card_is_answered_about_that_app_not_the_previous_focus(monkeypatch):
-    policy, calls, _ = conversation(monkeypatch)
-    action = {"type": "inspect", "store_id": HUB["store_id"], "app_id": HUB["app_id"]}
-    result = asyncio.run(policy.respond_with_history(
-        ChatRequestV2(message="Tell me about MeaningHub", locale="en", app_action=action), "detail",
-        {"turn": 3, "focused_ids": [RELAY["id"]]}, []))
-    assert [r["app"]["id"] for r in result["apps"]] == [HUB["id"]]
-    assert "**MeaningHub**" in result["message"] and "BidRelay" not in result["message"]
-    assert result["context"]["focused_ids"] == [HUB["id"]]
-
-
-def test_a_clicked_card_that_no_longer_resolves_is_never_answered_about_another_app(monkeypatch):
-    policy, calls, _ = conversation(monkeypatch)
-    action = {"type": "inspect", "store_id": HUB["store_id"], "app_id": "withdrawn-app"}
-    result = asyncio.run(policy._act_response(
-        ChatRequestV2(message="Tell me about it", locale="en", app_action=action),
-        {"turn": 3, "focused_ids": [RELAY["id"]]}, []))
-    assert result is None  # the prepared path reports that the App is unavailable
-    calls.assert_not_called()
-
 
 @pytest.mark.parametrize("question,reply", [
     ("Does it guarantee 100% savings?", "It does guarantee 100% savings [S1]."),
@@ -550,29 +371,3 @@ def test_user_wording_and_earlier_answers_never_ground_an_app_claim(model, quest
         {"role": "assistant", "content": "LogKeeper guarantees 100% savings and integrates with SAP automatically."}])
     assert answer["generation"]["model_completed"] is False
     assert "guarantee" not in answer["message"] and "SAP" not in answer["message"]
-
-
-@pytest.mark.parametrize("change_after", [0, 1])
-def test_streamed_sentences_are_released_only_while_the_app_is_still_authorized(monkeypatch, change_after):
-    policy, calls, available = conversation(monkeypatch)
-    sentences = ["It combines bids.", " It tracks contributions."]
-
-    def streaming_explainer(*args):
-        relay = dialogue.STREAM.get()
-        for index, sentence in enumerate(sentences):
-            if index == change_after:
-                available[0]["source_evidence"]["readme"] = "Withdrawn or revised."
-            relay(sentence)
-        return {"message": "".join(sentences), "generation": {"source": "ollama", "model_completed": True}}
-
-    calls.side_effect = streaming_explainer
-    shown = []
-    token = dialogue.STREAM.set(shown.append)
-    try:
-        result = ask(policy, "Would BidRelay help an energy cooperative?", {})
-    finally:
-        dialogue.STREAM.reset(token)
-    assert shown == sentences[:change_after]
-    assert result["decision"]["reason"] == "catalogue_changed" and not result["apps"]
-    assert result["message"].startswith("".join(shown))  # the stored reply is exactly what was shown
-    assert "changed while" in result["message"]

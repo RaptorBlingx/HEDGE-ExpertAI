@@ -158,6 +158,8 @@ _STOP = set((
     "software service services something anything which what who how when where some any one single also "
     "too very really just than then so such way place help able get make let using use used about "
     "support supports provide provides offer offers several multiple many various numerous "
+    # Light verbs: "handle settlement" asks for settlement.
+    "handle handles handling "
     "preciso quero encontre encontrar procure mostre mostrar recomende por favor um uma os as o para de da do que "
     "pode podem voce aplicacao aplicacoes e ich suche brauche bitte empfehlen empfehle zeige mir eine ein der die "
     "das fur zu und kann kannst du anwendungen"
@@ -461,7 +463,9 @@ def _nominate(wanted: set[str], numbers: set[str], clause: Clause, dense: float 
     coverage = _coverage(wanted, clause)
     if dense is None:
         return coverage if coverage >= .5 else None
-    if clause.polarity == "negative" and coverage >= .5 and dense >= GAP_MATCH:
+    # A negated sentence about exactly what was asked ("Vocabulary governance is not
+    # supported") excludes it however E5 scores it; embeddings under-rate negation.
+    if clause.polarity == "negative" and (coverage == 1.0 and len(wanted) > 1 or coverage >= .5 and dense >= GAP_MATCH):
         return dense + .05 * coverage
     if len(clause.text.split()) <= TITLE_WORDS and coverage < .5:
         return None  # short titles score high with E5 regardless of meaning

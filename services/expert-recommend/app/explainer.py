@@ -19,7 +19,7 @@ import time
 from hedge_shared import glossary
 from hedge_shared.config import Settings
 
-from . import app_guide
+from . import answers, app_guide
 from .evidence import terms as evidence_terms
 from .llm_client import OllamaClient
 from .recommender import _quoted_store_text
@@ -27,7 +27,7 @@ from .recommender import _quoted_store_text
 # Each App is explained through progressively different representations.
 # "Explain it differently" moves to the next one not yet used for that App.
 LADDER = ("overview", "simple", "analogy", "example", "how")
-PREPARED_ACTS = {*LADDER, "term", "compare", "choose", "differently", "meaning", "facts", "audience"}
+PREPARED_ACTS = {*LADDER, "term", "compare", "choose", "differently", "meaning", "audience", *answers.FIELDS}
 _MAX_DEFINITIONS = 3
 
 
@@ -356,26 +356,6 @@ def compare(guides: list[app_guide.Guide], state: dict, *, choose: bool = False)
     return "\n\n".join(lines)
 
 
-def facts(guide: app_guide.Guide, app: dict, question: str) -> str:
-    """Provider and access, from the source record, in one answer."""
-    lines = []
-    if re.search(r"\b(?:who|provider|provides|developed|makes|operates|vendor)\b", question, re.I):
-        lines.append(f"{_name(guide)} is provided by **{_q(guide.provider)}**." if guide.provider
-                     else f"No provider is listed for {_name(guide)}.")
-    if re.search(r"\b(?:access|use it|get started|start using|log ?in|sign ?up|install|open|url|link)\b", question, re.I):
-        access = guide.by_role("access")
-        urls = list(dict.fromkeys(u.rstrip(".,;)") for s in access for u in re.findall(r"https?://[^\s<>\"\\]+", s.quote)
-                                  if not re.search(r"[\[\]()]", u.rstrip(".,;)"))))
-        notes = [s.text for s in access if not re.search(r"https?://", s.text)]
-        if urls or notes:
-            lines.append("**Access**, according to its Store entry:" + "".join(f"\n- “{_q(n)}”" for n in notes)
-                         + "".join(f"\n- [{u}]({u})" for u in urls[:3]))
-        else:
-            lines.append("Its description doesn’t say how to access it. You can open its Store entry from the "
-                         "App card, and the provider can confirm how to get access.")
-    return "\n\n".join(lines)
-
-
 _LAYERS = {"overview": overview, "simple": simple, "analogy": analogy, "example": example, "how": how,
            "audience": audience}
 
@@ -391,8 +371,8 @@ def prepared(act: str, question: str, apps: list[dict], state: dict, *, phrase: 
         return "", act
     guide, app_id = guides[0], apps[0]["id"]
     entry = _state(state, app_id)
-    if act == "facts":
-        return facts(guide, apps[0], question), act
+    if act in answers.FIELDS:
+        return answers.fact_answer(act, apps), act
     if act in {"differently", "meaning"}:
         # A different representation each time; never the same overview again.
         for candidate in [a for a in LADDER[1:] if a not in entry["used"]]:
@@ -638,13 +618,8 @@ def _without_model(act: str, question: str, apps: list[dict], state: dict, phras
             lines.append(f"{_q(guide.name)}’s description uses it here: “{_q(used.text)}”" if used else
                          f"{_q(guide.name)}’s description doesn’t use that term.")
         return " ".join(lines)
-    if guides and guides[0].lead:
-        names = " and ".join(_name(g) for g in guides)
-        documented = "\n".join(f"- {_claim(g, g.lead)}" for g in guides if g.lead)
-        return (f"I don’t have a reliable answer to that from the description{'s' if len(guides) > 1 else ''} "
-                f"of {names}. What {'they' if len(guides) > 1 else 'it'} document{'' if len(guides) > 1 else 's'}:\n"
-                f"{documented}\n\nIf you name a specific capability you need, I can check it against the description.")
-    return ""
+    # An open question: the statements that bear on it, quoted, rather than a refusal.
+    return answers.extractive_answer(question, apps) if apps else ""
 
 
 def respond(act: str, question: str, apps: list[dict], state: dict, history: list[dict],

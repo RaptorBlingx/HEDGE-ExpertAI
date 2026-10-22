@@ -1,4 +1,10 @@
-"""Internal composition by the existing expert; no duplicate recommendation logic."""
+"""Internal answers for the Store assistant; the recommendation boundary stays in the verifier.
+
+Chat decides what is asked and about which Apps. These routes answer it from
+current sources: verifier decisions, capability and search answers (with model
+review of paraphrased matches when enabled), listings, explanations, and the
+model's choice between two readings of a message.
+"""
 import json
 import queue
 import threading
@@ -8,21 +14,19 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from hedge_shared.config import Settings
 from hedge_shared.private_store import require_internal_key
-from hedge_shared.store_language import search_language
 from pydantic import BaseModel, Field
 
-from .recommender import _recommendation_decision, _recommendation_narrative
-from .store_conversation import prepared_answer
-from .suitability import ReviewedSupport, source_digest
+from .answers import capability_answer, listing, search_answer, unverified
+from .recommender import _recommendation_decision
 
 router = APIRouter(prefix="/internal/store", dependencies=[Depends(require_internal_key)])
 
 
 class Compose(BaseModel):
-    mode: Literal["describe", "decide", "present"]
-    question: str = Field(max_length=8000)
+    mode: Literal["decide", "check", "review", "list", "unverified"]
+    question: str = Field(default="", max_length=8000)
     rows: list[dict] = Field(default_factory=list, max_length=100)
-    response: dict = Field(default_factory=dict)
+    fields: list[str] = Field(default_factory=list, max_length=20)
     locale: str = "en"
 
 
@@ -30,73 +34,42 @@ class Compose(BaseModel):
 def compose(req: Compose):
     if req.mode == "decide":
         return _recommendation_decision(req.question, req.rows, req.locale)
-    if req.mode == "describe":
-        return {"message": _recommendation_narrative(req.question, req.rows, req.locale)}
-    message = prepared_answer(req.question, req.response, req.locale)
-    return {"message": message, "context": req.response.get("context", {})}
-
-
-class Interpret(BaseModel):
-    question: str = Field(max_length=8000)
-    locale: str = "en"
-    directory: list[dict] = Field(default_factory=list, max_length=100)
-    context: dict = Field(default_factory=dict)
-    history: list[dict] = Field(default_factory=list, max_length=20)
-
-
-class Reason(BaseModel):
-    question: str = Field(max_length=8000)
-    locale: str = "en"
-    action: Literal["browse", "search", "answer", "compare", "clarify", "chat"]
-    rows: list[dict] = Field(default_factory=list, max_length=5)
-    history: list[dict] = Field(default_factory=list, max_length=20)
-    references: dict = Field(default_factory=dict)
-    nlu: dict = Field(default_factory=dict)
+    if req.mode == "check":
+        # Whether these Apps document the need, said as an answer to that question.
+        return capability_answer(req.question, req.rows, req.locale)
+    if req.mode == "review":
+        # A search found no documented match; confirm paraphrased ones.
+        return search_answer(req.question, req.rows, req.locale)
+    if req.mode == "list":
+        return {"message": listing([row["app"] for row in req.rows])}
+    return {"message": unverified(req.fields)}
 
 
 def require_semantic():
     if not Settings().STORE_SEMANTIC_ENABLED:
-        raise HTTPException(404, "Semantic recovery is disabled")
+        raise HTTPException(404, "Model interpretation is disabled")
 
 
-@router.post("/interpret", dependencies=[Depends(require_semantic)])
-def interpret(req: Interpret):
-    from .store_conversation import plan
+class Arbitrate(BaseModel):
+    message: str = Field(max_length=2000)
+    options: list[str] = Field(min_length=2, max_length=4)
+    history: list[dict] = Field(default_factory=list, max_length=4)
+
+
+@router.post("/arbitrate", dependencies=[Depends(require_semantic)])
+def arbitrate(req: Arbitrate):
+    """Which of two readings the user meant; a number, never facts or Apps."""
+    from .interpretation import choose
     try:
-        return plan(req.question, req.locale, req.directory, req.context, req.history)
+        return {"choice": choose(req.message, [o[:300] for o in req.options], req.history)}
     except Exception:
-        # Validation errors can include model text. Keep it out of HTTP errors
-        # and server tracebacks; the caller records an unavailable interpretation.
-        raise HTTPException(503, "Store interpretation unavailable") from None
-
-
-@router.post("/reason", dependencies=[Depends(require_semantic)])
-def reason(req: Reason):
-    from .store_conversation import respond
-    answer = respond(req.question, req.rows, req.locale, req.action, req.history,
-                     references=req.references, semantic=True, allow_repair=True, nlu_hint=req.nlu)
-    if answer["generation"]["source"] != "ollama":
-        return answer
-    receipts = {row["app"]["id"]: ReviewedSupport(
-                request=search_language(req.question, req.locale), app_id=row["app"]["id"],
-                source_digest=source_digest(row["app"], req.locale),
-                quotes=tuple((q["field"], q["quote"]) for q in answer.get("support", {}).get(str(row["rank"]), [])))
-                for row in req.rows if str(row["rank"]) in answer.get("recommendations", [])}
-    selected = [r for r in req.rows if r["app"]["id"] in receipts]
-    # Reuse the single recommendation boundary. Explanations/browsing may show
-    # context cards without asserting that an App meets a functional requirement.
-    decision = _recommendation_decision(req.question, selected, req.locale, reviewed_support=receipts)
-    answer["reviewed_rows"] = decision["apps"]
-    if selected:
-        answer["recommendation_decision"] = decision["decision"]
-    elif req.action == "search" or answer["decision"] == "no_match":
-        answer["recommendation_decision"] = {"outcome": "abstained", "reason": "semantic_evidence_insufficient"}
-    answer["generation"]["reviewed_support"] = answer.get("support", {})
-    return answer
+        # Validation errors can include model text; keep it out of errors and logs.
+        raise HTTPException(503, "Interpretation unavailable") from None
 
 
 class Explain(BaseModel):
-    act: str = Field(pattern=r"^(?:overview|simple|example|analogy|how|term|meaning|differently|compare|choose|facts|audience|open)$")
+    act: str = Field(pattern=r"^(?:overview|simple|example|analogy|how|term|meaning|differently|compare|choose|"
+                             r"audience|provider|price|access|details|ask|open)$")
     question: str = Field(max_length=2000)
     apps: list[dict] = Field(default_factory=list, max_length=5)
     state: dict = Field(default_factory=dict)

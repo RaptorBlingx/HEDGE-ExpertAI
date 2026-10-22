@@ -638,7 +638,9 @@ def lookup(phrase: str) -> Term | None:
     for term in TERMS:
         if any(p.fullmatch(phrase) for p in term.patterns):
             return term
-    return None
+    # "BSP market": the concept the phrase is about, when it names exactly one.
+    found = mentioned(phrase)
+    return BY_ID[found[0]] if len(found) == 1 else None
 
 
 def sentence(text: str) -> str:

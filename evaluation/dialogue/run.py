@@ -50,20 +50,24 @@ async def main(args) -> None:
     root = args.repo.resolve()
     sys.path[:0] = [str(root / "shared"), str(root), str(root / "evaluation/recommendation")]
     from evaluate import Dense, catalogue  # noqa: E402  (same pinned E5 pools)
-    from hedge_shared.models_v2 import ChatRequestV2
-    from scripts.store_v1_playground import load_service
-
     from score import score
 
+    from scripts.store_v1_playground import load_service
+
     expert = load_service("dialogue_expert", "expert-recommend")
-    recommender, presenter, explainer, evidence = (expert(m) for m in ("recommender", "store_conversation", "explainer", "evidence"))
+    recommender, explainer, evidence = (expert(m) for m in ("recommender", "explainer", "evidence"))
     chat = load_service("dialogue_chat", "chat-intent")
     if not args.model_url:
-        for module in (presenter, explainer):
-            module.OllamaClient = Unavailable
+        # Every module that calls the model, in whichever commit is mounted.
+        for name in ("store_conversation", "explainer", "interpretation", "review"):
+            try:
+                expert(name).OllamaClient = Unavailable
+            except ImportError:
+                pass
 
     apps = catalogue(args.catalogue)
     dense = Dense(apps)
+    DENSE_MODEL.append(dense.model)
     evidence.set_similarity(dense.similarity)
     by_id = {app["id"]: app for app in dense.apps}
 
@@ -74,7 +78,7 @@ async def main(args) -> None:
     def resolve(ids):
         return list(by_id.values()) if ids is None else [by_id[i] for i in ids if i in by_id]
 
-    policy, turn_runner = build(chat, expert, recommender, presenter, explainer, recommend, resolve)
+    policy, turn_runner = build(chat, expert, recommender, explainer, recommend, resolve)
     data = json.loads(args.scenarios.read_text())
     out, lines = [], []
     for case in data["conversations"]:
@@ -101,7 +105,7 @@ async def main(args) -> None:
     print(json.dumps({"turns": summary["turns"], "passed": summary["passed"]}))
 
 
-def build(chat, expert, recommender, presenter, explainer, recommend, resolve):
+def build(chat, expert, recommender, explainer, recommend, resolve):
     """The dialogue under test, driven the way the chat route drives it."""
     classifier = chat("classifier")
     try:
@@ -110,10 +114,10 @@ def build(chat, expert, recommender, presenter, explainer, recommend, resolve):
         assistant = None
     if assistant is None:
         # Baseline (86fa782 and earlier): StoreConversation behind route_intent.
-        dialogue = chat("store_conversation")
+        dialogue, presenter = chat("store_conversation"), expert("store_conversation")
         policy = dialogue.StoreConversation(
             recommend, resolve, recommender._recommendation_narrative,
-            lambda q, l, d, c, h: presenter.plan(q, l, d, c, h), None,
+            lambda q, locale, d, c, h: presenter.plan(q, locale, d, c, h), None,
             decide=recommender._recommendation_decision, present=presenter.prepared_answer,
             explainer=lambda act, q, apps, s, h, phrase="": explainer.respond(act, q, apps, s, h, phrase))
         from hedge_shared.models_v2 import ChatRequestV2
@@ -128,7 +132,34 @@ def build(chat, expert, recommender, presenter, explainer, recommend, resolve):
             state["history"] += [{"role": "user", "content": message}, {"role": "assistant", "content": reply["message"]}]
             return reply
         return policy, run
-    return assistant.evaluation_runner(chat, expert, recommend, resolve)
+    from evaluate import Dense  # noqa: E402
+
+    from scripts.store_assistant_local import local_assistant
+
+    model = Dense.__new__(Dense)
+    model.model = DENSE_MODEL[0]
+    cache: dict[str, object] = {}
+
+    def semantic(text, examples):
+        import numpy as np
+        key = "\n".join(examples)
+        if key not in cache:
+            cache[key] = model.encode(examples, "query")
+        return (np.asarray(cache[key]) @ model.encode([text], "query")[0]).tolist()
+
+    policy = local_assistant(chat, expert, recommend=recommend, resolve=resolve, semantic=semantic,
+                             arbitrate=bool(os.environ.get("ARBITRATE")))
+    from hedge_shared.models_v2 import ChatRequestV2
+
+    async def run(state, message, number):
+        reply = await policy.reply(ChatRequestV2(message=message, locale="en"), state["context"], state["history"])
+        state["context"] = {**state["context"], **reply["context"], "turn": number + 1}
+        state["history"] += [{"role": "user", "content": message}, {"role": "assistant", "content": reply["message"]}]
+        return reply
+    return policy, run
+
+
+DENSE_MODEL: list = []
 
 
 if __name__ == "__main__":

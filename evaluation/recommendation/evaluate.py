@@ -1,9 +1,10 @@
-"""Replay discovery requests through the real prepared Store dialogue path.
+"""Replay discovery requests through the real Store assistant.
 
-Decision, presentation and dialogue code are the repository's own; Rasa is
-replaced by the intent each case names and no language model is called.
-Candidate pools are E5 dense top-10 over prepared index text, an approximation of
-hybrid retrieval. Requires the pinned CPU E5 model image (see README.md).
+Interpretation, decision and presentation code are the repository's own; acts
+are classified with the same E5 model (and Rasa when RASA_URL is set), and no
+language model is called. Candidate pools are E5 dense top-10 over prepared
+index text, an approximation of hybrid retrieval. Requires the pinned CPU E5
+model image (see README.md).
 """
 from __future__ import annotations
 
@@ -23,11 +24,12 @@ from hedge_shared.models_v2 import ChatRequestV2  # noqa: E402
 from hedge_shared.store_knowledge import prepare  # noqa: E402
 from hedge_shared.store_v1 import StoreAppMetadata  # noqa: E402
 
+from scripts.store_assistant_local import local_assistant  # noqa: E402
 from scripts.store_v1_playground import load_service  # noqa: E402
 
 expert = load_service("evaluation_expert", "expert-recommend")
-recommender, presenter, evidence = expert("recommender"), expert("store_conversation"), expert("evidence")
-dialogue = load_service("evaluation_chat", "chat-intent")("store_conversation")
+recommender, evidence = expert("recommender"), expert("evidence")
+chat = load_service("evaluation_chat", "chat-intent")
 
 
 def catalogue(path: pathlib.Path) -> list[tuple[dict, str]]:
@@ -70,9 +72,12 @@ def conversation(dense: Dense, trace: dict):
     def resolve(ids):
         return list(by_id.values()) if ids is None else [by_id[i] for i in ids if i in by_id]
 
-    return dialogue.StoreConversation(
-        recommend, resolve, recommender._recommendation_narrative, None, None,
-        decide=recommender._recommendation_decision, present=presenter.prepared_answer)
+    def semantic(text, examples):
+        if "examples" not in trace:
+            trace["examples"] = dense.encode(examples, "query")
+        return (trace["examples"] @ dense.encode([text], "query")[0]).tolist()
+
+    return local_assistant(chat, expert, recommend=recommend, resolve=resolve, semantic=semantic)
 
 
 def grade(case: dict, recommended: list[str], closest: list[str]) -> str:
@@ -105,8 +110,7 @@ async def run(args) -> None:
     for path in args.queries or []:
         for case in json.loads(path.read_text())["queries"]:
             trace = {}
-            reply = await conversation(dense, trace).respond_with_history(
-                ChatRequestV2(message=case["query"], locale="en"), "search", {}, [])
+            reply = await conversation(dense, trace).reply(ChatRequestV2(message=case["query"], locale="en"), {}, [])
             recommended = ([row["app"]["app_id"] for row in reply["apps"]]
                            if reply.get("decision", {}).get("outcome") == "recommended" else [])
             result = {"id": case["id"], "query": case["query"], "pool": trace.get("pool"),
@@ -118,10 +122,10 @@ async def run(args) -> None:
             print(f"{case['id']:4} {result['grade']:18} recommended={recommended}")
     for path in args.conversations or []:
         for case in json.loads(path.read_text())["conversations"]:
-            context, turns = {}, []
+            context, turns, trace = {}, [], {}
+            policy = conversation(dense, trace)
             for number, turn in enumerate(case["turns"]):
-                reply = await conversation(dense, {}).respond_with_history(
-                    ChatRequestV2(message=turn["message"], locale="en"), turn["intent"], context, [])
+                reply = await policy.reply(ChatRequestV2(message=turn["message"], locale="en"), context, [])
                 context = {**context, **reply["context"], "turn": number + 1}
                 turns.append({"message": turn["message"], "expect": turn["expect"], "reply": reply["message"]})
                 print(f"--- {case['id']} > {turn['message']}\n{reply['message']}\n")

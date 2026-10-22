@@ -36,18 +36,27 @@ def test_internal_key_and_native_scope(monkeypatch):
         require_internal_key('wrong')
 
 
-def test_http_composition_preserves_context_updates(monkeypatch):
+def test_http_bridge_batches_example_similarity_and_degrades_without_it(monkeypatch):
     bridge = load_service('private_chat_bridge', 'chat-intent')('private_store')
     calls = []
 
     def call(service, path, body):
         calls.append((service, path, body))
-        return {'message': 'Simpler.', 'context': {**body['response']['context'],
-                                                'simplification': {'topic': 'records'}}}
+        return {'scores': [[0.5] * len(body['passages'])]}
 
     monkeypatch.setattr(bridge, 'call', call)
-    response = {'apps': [], 'context': {'explanation_topic': 'records'}}
-    assert bridge.present('Explain it simply', response, 'en') == 'Simpler.'
-    assert response['context']['explanation_topic'] == 'records'
-    assert response['context']['simplification']['topic'] == 'records'
-    assert calls[0][:2] == ('EXPERT_RECOMMEND_URL', '/internal/store/compose')
+    examples = [f'example {i}' for i in range(450)]
+    assert len(bridge.semantic('hello', examples)) == 450
+    assert [len(c[2]['passages']) for c in calls] == [400, 50]
+    assert all(c[:2] == ('DISCOVERY_RANKING_URL', '/api/v2/evidence/similarity') and c[2]['symmetric'] for c in calls)
+
+    def unavailable(service, path, body):
+        raise HTTPException(503, 'Store service unavailable')
+
+    monkeypatch.setattr(bridge, 'call', unavailable)
+    assert bridge.semantic('hello', examples) is None
+    monkeypatch.setenv('STORE_SEMANTIC_ENABLED', 'true')
+    assert bridge.arbitrate('x', [{'gloss': 'a'}, {'gloss': 'b'}], {}) is None
+    monkeypatch.setenv('STORE_SEMANTIC_ENABLED', 'false')
+    monkeypatch.setattr(bridge, 'call', lambda *a: (_ for _ in ()).throw(AssertionError('no model call')))
+    assert bridge.arbitrate('x', [{'gloss': 'a'}, {'gloss': 'b'}], {}) is None

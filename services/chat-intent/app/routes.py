@@ -38,7 +38,7 @@ from .session import (
 )
 
 if TYPE_CHECKING:
-    from .store_dialogue import StoreDialogue
+    from .assistant import Assistant
 
 logger = logging.getLogger(__name__)
 
@@ -463,20 +463,20 @@ async def chat_v2(req: ChatRequestV2) -> dict:
     return await run_chat_v2(req)
 
 
-async def run_chat_v2(req: ChatRequestV2, *, store_dialogue: StoreDialogue | None = None) -> dict:
-    """Application-owned dialogue; Store policy requires explicit private scope."""
+async def run_chat_v2(req: ChatRequestV2, *, assistant: Assistant | None = None) -> dict:
+    """Application-owned dialogue; the Store assistant requires explicit private scope."""
     from hedge_shared.private_store import scope
-    if store_dialogue is None and scope():
+    if assistant is None and scope():
         from .private_store import policy
-        store_dialogue = policy()
-    if req.app_action and not store_dialogue:
+        assistant = policy()
+    if req.app_action and not assistant:
         raise HTTPException(422, "App actions require the Store catalogue")
     session_id, history = get_or_create_session(req.session_id)
     context = _context_for(session_id)
+    if assistant:
+        return await _store_turn(assistant, req, session_id, history, context)
     result = classify(req.message)
     intent = result.intent
-    if store_dialogue:
-        intent = "detail" if req.app_action else store_dialogue.route_intent(req.message, result.intent, context)
 
     if not req.session_id:
         log_session_event(session_id, "start", {"locale": req.locale})
@@ -489,31 +489,15 @@ async def run_chat_v2(req: ChatRequestV2, *, store_dialogue: StoreDialogue | Non
         message = _static_message("reset", req.locale)
         history.append({"role": "assistant", "content": message})
         update_session(session_id, history, {"locale": req.locale, "turn": 0})
-        return {
-            "schema_version": "2.0",
-            "session_id": session_id,
-            "intent": intent,
-            "message": message,
-            "apps": [],
-            "impression_id": None,
-            **({"nlu": {"source": result.source, "intent": result.intent, "confidence": result.confidence}}
-               if store_dialogue else {}),
-        }
+        return {"schema_version": "2.0", "session_id": session_id, "intent": intent, "message": message,
+                "apps": [], "impression_id": None}
 
-    if store_dialogue and intent not in {"greeting", "help", "out_of_scope"}:
-        recommendation = await store_dialogue.respond_with_history(
-            req, intent, context, history,
-            nlu={"intent": result.intent, "confidence": result.confidence, "source": result.source, "entities": result.entities},
-        )
-        intent = recommendation["intent"]
-        filters = recommendation["context"].get("filters", {})
-        message = recommendation["message"]
-        apps = recommendation["apps"]
-        timings = recommendation.get("timings", {})
-    elif intent in {"greeting", "help", "out_of_scope"}:
+    recommendation: dict = {}
+    if intent in {"greeting", "help", "out_of_scope"}:
         message = _static_message(intent, req.locale)
         apps: list[dict] = []
         timings: dict = {}
+        filters: dict = {}
     else:
         filters = _dialogue_filters(req, intent, context)
         extension_uri = result.entities.get("extension_uri")
@@ -535,53 +519,18 @@ async def run_chat_v2(req: ChatRequestV2, *, store_dialogue: StoreDialogue | Non
         apps = recommendation.get("apps", [])
         timings = recommendation.get("timings", {})
 
-    impression_id = None
-    if apps:
-        app_ids = [item.get("app", item).get("id", "") for item in apps]
-        impression_id = create_impression(
-            session_id=session_id,
-            result_ids=[app_id for app_id in app_ids if app_id],
-            locale=req.locale,
-            intent=intent,
-            timings=timings,
-        )
-        log_session_event(
-            session_id,
-            "recommendation",
-            {"impression_id": impression_id, "count": len(apps)},
-        )
-
-    history.extend(
-        [
-            {"role": "user", "content": req.message},
-            {"role": "assistant", "content": message},
-        ]
-    )
+    impression_id = _impression(session_id, apps, req.locale, intent, timings)
+    history.extend([{"role": "user", "content": req.message}, {"role": "assistant", "content": message}])
     context_update = {
         "locale": req.locale,
         "intent": intent,
-        "filters": filters if intent not in {"greeting", "help", "out_of_scope"} else {},
+        "filters": filters,
         "last_query": req.message,
         "turn": int(context.get("turn", 0)) + 1,
     }
     if apps:
         context_update["last_results"] = apps[:5]
         context_update["last_impression_id"] = impression_id
-    if store_dialogue:
-        # Small talk and targeted/unsupported follow-ups must not replace search context.
-        context_update = {**context, "locale": req.locale, "intent": intent,
-                          "turn": int(context.get("turn", 0)) + 1}
-        if intent not in {"greeting", "help", "out_of_scope"}:
-            context_update.update(recommendation["context"])
-        context_update["turn"] = int(context.get("turn", 0)) + 1
-        if impression_id:
-            context_update["last_impression_id"] = impression_id
-        # Conversation bindings can outlive a no-match or clarification. Restore
-        # only the cards actually shown by this turn, not the older binding list.
-        context_update["displayed_ids"] = [item.get("app", item)["id"] for item in apps]
-        context_update["displayed_ranks"] = {
-            item.get("app", item)["id"]: item.get("rank", i + 1) for i, item in enumerate(apps)
-        }
     update_session(session_id, history[-20:], context_update)
     return {
         "schema_version": "2.0",
@@ -591,12 +540,51 @@ async def run_chat_v2(req: ChatRequestV2, *, store_dialogue: StoreDialogue | Non
         "apps": apps,
         "impression_id": impression_id,
         "timings": timings,
-        **({key: recommendation[key] for key in ("decision", "candidates") if key in recommendation}
-           if intent not in {"greeting", "help", "out_of_scope"} else {}),
-        **({"nlu": {"source": result.source, "intent": result.intent, "confidence": result.confidence},
-            **({"generation": recommendation["generation"]} if intent not in {"greeting", "help", "out_of_scope"} and recommendation.get("generation") else {})}
-           if store_dialogue else {}),
+        **{key: recommendation[key] for key in ("decision", "candidates") if key in recommendation},
     }
+
+
+def _impression(session_id: str, apps: list[dict], locale: str, intent: str, timings: dict) -> str | None:
+    if not apps:
+        return None
+    app_ids = [item.get("app", item).get("id", "") for item in apps]
+    impression_id = create_impression(session_id=session_id, result_ids=[app_id for app_id in app_ids if app_id],
+                                      locale=locale, intent=intent, timings=timings)
+    log_session_event(session_id, "recommendation", {"impression_id": impression_id, "count": len(apps)})
+    return impression_id
+
+
+async def _store_turn(assistant: Assistant, req: ChatRequestV2, session_id: str, history: list, context: dict) -> dict:
+    """One Store assistant turn: it interprets and answers; the route keeps the session."""
+    reply = await assistant.reply(req, context, history)
+    intent = reply["intent"]
+    if not req.session_id:
+        log_session_event(session_id, "start", {"locale": req.locale})
+    log_session_event(session_id, "message", {"role": "user", "intent": intent})
+    frame = reply.get("frame", {})
+    nlu = {"source": frame.get("source"), "intent": frame.get("act"),
+           "confidence": frame.get("signals", {}).get("rasa_confidence")}
+    if intent == "reset":
+        delete_session(session_id)
+        session_id, history = get_or_create_session(None)
+        log_session_event(session_id, "start", {"locale": req.locale, "reset": True})
+        history.append({"role": "assistant", "content": reply["message"]})
+        update_session(session_id, history, {"locale": req.locale, "turn": 0})
+        return {"schema_version": "2.0", "session_id": session_id, "intent": intent, "message": reply["message"],
+                "apps": [], "impression_id": None, "nlu": nlu}
+    apps, timings = reply["apps"], reply.get("timings", {})
+    impression_id = _impression(session_id, apps, req.locale, intent, timings)
+    history.extend([{"role": "user", "content": req.message}, {"role": "assistant", "content": reply["message"]}])
+    turn = int(context.get("turn", 0)) + 1
+    context_update = {**context, **reply["context"], "locale": req.locale, "intent": intent, "turn": turn,
+                      "displayed_ids": [item.get("app", item)["id"] for item in apps]}
+    if impression_id:
+        context_update["last_impression_id"] = impression_id
+    update_session(session_id, history[-20:], context_update)
+    return {"schema_version": "2.0", "session_id": session_id, "intent": intent, "message": reply["message"],
+            "apps": apps, "impression_id": impression_id, "timings": timings,
+            **{key: reply[key] for key in ("decision", "candidates") if key in reply},
+            "nlu": nlu, **({"generation": reply["generation"]} if reply.get("generation") else {})}
 
 
 def _sse_v2(event_id: str, data: dict) -> str:
@@ -619,7 +607,7 @@ async def chat_stream_v2(req: ChatRequestV2):
         from hedge_shared.private_store import scope
 
         if scope():
-            from .private_store import STREAM
+            from .assistant import STREAM
             yield _sse_v2("1", {"type": "stage", "stage": "retrieval"})
             # Model-assisted explanations release checked sentences while they
             # are generated; everything else still arrives as one message.

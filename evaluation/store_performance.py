@@ -8,7 +8,6 @@ multi-process gateway latency acceptance. Cold preparation is measured separatel
 
 import argparse
 import hashlib
-import inspect
 import json
 import math
 import os
@@ -21,7 +20,7 @@ import httpx
 import uvicorn
 
 from scripts.store_v1_browser import create_app
-from scripts.store_v1_playground import load_service, offline_playground
+from scripts.store_v1_playground import offline_playground
 
 cases = [
     ("browse-en", "Show me all available applications", "en", {}),
@@ -60,16 +59,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--rounds", type=int, default=10)
     parser.add_argument(
-        "--legacy", action="store_true", help="Opt into the prior model path for comparison"
-    )
-    parser.add_argument(
         "--managed-snapshot",
         action="store_true",
         help="Exercise the existing workspace adapter with saved bootstrap files and no token",
     )
     args = parser.parse_args()
-    if args.managed_snapshot and args.legacy:
-        parser.error("Use the disposable snapshot mode for the legacy comparison")
     if not 1 <= args.rounds <= 100:
         parser.error("--rounds must be between 1 and 100")
     started = time.perf_counter()
@@ -86,29 +80,6 @@ def main():
     else:
         context = offline_playground
     with context() as pg:
-        if not args.managed_snapshot:
-            module = load_service("bench_policy", "chat-intent")("store_conversation")
-            expert = load_service("bench_expert", "expert-recommend")("store_conversation")
-
-            async def search(**kwargs):
-                return pg.recommend(**kwargs)
-
-            options = {}
-            if 'routine' in inspect.signature(module.StoreConversation).parameters:
-                options['routine'] = not args.legacy
-            if not args.legacy:
-                options['decide'] = pg.recommender._recommendation_decision
-                if 'present' in inspect.signature(module.StoreConversation).parameters:
-                    options['present'] = expert.prepared_answer
-            pg.policy = module.StoreConversation(
-                search,
-                pg.policy.resolve,
-                pg.recommender._recommendation_narrative,
-                expert.plan,
-                expert.respond,
-                **options,
-            )
-            pg.catalogue = pg.policy.resolve
         # Bind an actual loopback HTTP server, including sessions, NLU, impressions and serialization.
         app = create_app(pg)
         server = uvicorn.Server(
@@ -130,7 +101,6 @@ def main():
                     ),
                     "vectors": getattr(pg, "pipeline", {}).get("vector_points"),
                     "managed_snapshot": args.managed_snapshot,
-                    "legacy": args.legacy,
                     "rounds": args.rounds,
                 }
             ),

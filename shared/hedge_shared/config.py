@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     # Output budget for one model-assisted conversational answer (~110 words).
     STORE_EXPLANATION_TOKENS: int = Field(default=220, ge=64, le=1024)
     STORE_SEMANTIC_ENABLED: bool = False
+    # Model choice between two readings when the act classifiers disagree.
+    STORE_INTERPRETATION_SECONDS: float = Field(default=30.0, gt=0, le=120)
     STORE_MODEL_CONTEXT_TOKENS: int = Field(default=16384, ge=2048, le=65536)
     STORE_MODEL_OUTPUT_TOKENS: int = Field(default=2048, ge=256, le=16384)
     STORE_MODEL_TIMEOUT_SECONDS: float = Field(default=120, gt=0, le=300)

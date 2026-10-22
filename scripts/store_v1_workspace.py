@@ -25,6 +25,7 @@ from hedge_shared.store_index import repair_store_index
 from hedge_shared.store_knowledge import project
 from qdrant_client import QdrantClient
 
+from scripts.store_assistant_local import local_assistant
 from scripts.store_v1_browser import create_app
 from scripts.store_v1_playground import ROOT, Playground, load_service
 
@@ -43,9 +44,7 @@ def workspace():
     ingest = load_service("workspace_ingest", "metadata-ingest")
     discovery = load_service("workspace_discovery", "discovery-ranking")
     recommend = load_service("workspace_expert", "expert-recommend")("recommender")
-    answers = __import__(recommend.__package__ + ".store_conversation", fromlist=["respond"])
     chat = load_service("workspace_chat", "chat-intent")("routes")
-    policy_module = __import__(chat.__package__ + ".store_conversation", fromlist=["StoreConversation"])
     settings = Settings()
     client = ingest("client").HedgeApiClient(
         "https://store.haslab-dataspace.pt/backend/api/v1",
@@ -153,12 +152,11 @@ def workspace():
         # Keep retrieval orchestration deterministic. Dialogue owns bounded model
         # interpretation and reviewed synthesis after authoritative App selection.
         stack.enter_context(patch.object(recommend, "OllamaClient", no_model))
-        policy = policy_module.StoreConversation(
-            search, resolve, recommend._recommendation_narrative,
-            answers.plan, answers.respond, lambda: store_sync.status(store_id),
-            decide=recommend._recommendation_decision,
-            present=answers.prepared_answer,
-        )
+        policy = local_assistant(
+            lambda m: importlib.import_module(f"{chat.__package__}.{m}"),
+            lambda m: importlib.import_module(f"{recommend.__package__}.{m}"),
+            recommend=search, resolve=resolve,
+            semantic=lambda text, examples: discovery("embeddings").similarity([text], examples, symmetric=True)[0])
         playground = Playground(chat, recommend, models_v2, [], policy)
         playground.source = "managed-authorized-store"
         playground.refresh = refresh
