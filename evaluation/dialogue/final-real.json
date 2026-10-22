@@ -1,0 +1,54 @@
+{
+ "purpose": "SEALED final set over the real Store observation, authored 22 October 2026 before implementation. Run once, at the end.",
+ "catalogue": "private:real",
+ "conversations": [
+  {
+   "id": "XR1",
+   "turns": [
+    {
+     "message": "Hey there",
+     "expect": {
+      "act": "greeting"
+     }
+    },
+    {
+     "message": "what's the hedge store got?",
+     "expect": {
+      "act": "list",
+      "subject": [
+       "EdgeConnect",
+       "Semantic Treehouse"
+      ]
+     }
+    },
+    {
+     "message": "the TNO one, what's it for",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "Semantic Treehouse"
+      ]
+     }
+    },
+    {
+     "message": "and what about the one from INESCTEC",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "EdgeConnect"
+      ]
+     }
+    },
+    {
+     "message": "which of these would help an aggregator?",
+     "expect": {
+      "act": "choose",
+      "concepts_any": [
+       "EdgeConnect"
+      ]
+     }
+    }
+   ]
+  }
+ ]
+}

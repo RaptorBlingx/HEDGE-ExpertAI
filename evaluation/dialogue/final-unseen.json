@@ -1,0 +1,252 @@
+{
+ "purpose": "SEALED final set over Apps never seen during development (catalogue-unseen.json), authored 22 October 2026 before implementation. Run once, at the end.",
+ "catalogue": "evaluation/dialogue/catalogue-unseen.json",
+ "conversations": [
+  {
+   "id": "XU1",
+   "turns": [
+    {
+     "message": "what apps are in here?",
+     "expect": {
+      "act": "list",
+      "min_cards": 2
+     }
+    },
+    {
+     "message": "anything that helps with EV chargers overloading our connection?",
+     "expect": {
+      "act": "find",
+      "subject": [
+       "Charge Pulse"
+      ]
+     }
+    },
+    {
+     "message": "who makes it",
+     "expect": {
+      "act": "provider",
+      "concepts_any": [
+       "Northwind"
+      ]
+     }
+    },
+    {
+     "message": "do they have anything else?",
+     "expect": {
+      "act": "find",
+      "concepts_any": [
+       "Grid Guardian"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "XU2",
+   "turns": [
+    {
+     "message": "e flex hub",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "e-Flex Hub"
+      ]
+     }
+    },
+    {
+     "message": "so how do members get paid?",
+     "expect": {
+      "act": "ask",
+      "concepts_any": [
+       "monthly",
+       "earnings",
+       "settlement"
+      ]
+     }
+    },
+    {
+     "message": "is it only for batteries?",
+     "expect": {
+      "act": "ask",
+      "concepts_any": [
+       "heat pump"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "XU3",
+   "turns": [
+    {
+     "message": "We want to run our solar panels, batteries and chargers together as one virtual plant",
+     "expect": {
+      "act": "find",
+      "subject": [
+       "VPP Studio"
+      ]
+     }
+    },
+    {
+     "message": "does it come with its own price forecasts?",
+     "expect": {
+      "act": "check",
+      "outcome": "abstained",
+      "concepts_any": [
+       "does not produce",
+       "supplied by the user",
+       "doesn't produce"
+      ]
+     }
+    },
+    {
+     "message": "and is there an app for forecasting solar output?",
+     "expect": {
+      "act": "find",
+      "subject": [
+       "SunCast"
+      ]
+     }
+    },
+    {
+     "message": "how far ahead does that forecast?",
+     "expect": {
+      "act": "ask",
+      "concepts_any": [
+       "48"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "XU4",
+   "turns": [
+    {
+     "message": "Tell me about the OpenADR bridge",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "OpenADR Bridge"
+      ]
+     }
+    },
+    {
+     "message": "what's OpenADR?",
+     "expect": {
+      "act": "term",
+      "concepts_any": [
+       "demand response"
+      ]
+     }
+    },
+    {
+     "message": "do I need anything else to use it?",
+     "expect": {
+      "act": "ask",
+      "concepts_any": [
+       "OpenADR server"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "XU5",
+   "turns": [
+    {
+     "message": "which app keeps track of who's allowed to use which data?",
+     "expect": {
+      "act": "find",
+      "subject": [
+       "DataTrust Ledger"
+      ]
+     }
+    },
+    {
+     "message": "does it store the data too?",
+     "expect": {
+      "act": "check",
+      "outcome": "abstained",
+      "concepts_any": [
+       "does not store",
+       "doesn't store"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "XU6",
+   "turns": [
+    {
+     "message": "Grid guardian vs charge pulse — what's the difference?",
+     "expect": {
+      "act": "compare",
+      "subject": [
+       "Grid Guardian",
+       "Charge Pulse"
+      ]
+     }
+    },
+    {
+     "message": "which would a DSO use?",
+     "expect": {
+      "act": "choose",
+      "concepts_any": [
+       "Grid Guardian"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "XU7",
+   "turns": [
+    {
+     "message": "can you recommend something to plan a district heating network?",
+     "expect": {
+      "act": "find",
+      "subject": [
+       "HeatMap 3D"
+      ]
+     }
+    },
+    {
+     "message": "where does its data come from",
+     "expect": {
+      "act": "ask",
+      "concepts_any": [
+       "public building data"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "XU8",
+   "turns": [
+    {
+     "message": "I need a free app that forecasts solar",
+     "expect": {
+      "act": "find",
+      "forbid": [
+       "fits what you need",
+       "it is free",
+       "it's free"
+      ]
+     }
+    },
+    {
+     "message": "forget the free part",
+     "expect": {
+      "act": "find",
+      "subject": [
+       "SunCast"
+      ]
+     }
+    }
+   ]
+  }
+ ]
+}
