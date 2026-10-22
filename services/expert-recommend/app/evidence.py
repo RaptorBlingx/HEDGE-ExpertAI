@@ -236,10 +236,39 @@ def _absent(text: str) -> set[str]:
     return set().union(*(terms(m[0]) for m in _WITHOUT.finditer(_fold(text))))
 
 
-def input_only(requirement: str, text: str) -> bool:
-    """Whether a text names the requested function only as something it uses."""
+def owned_claim(text: str, names: tuple[str, ...] = ()) -> bool:
+    """Whether every sentence of a quotation is this App's own declarative claim."""
+    found = clauses({"quote": text}, names)
+    return bool(found) and all(c.verifiable for c in found) and not _OTHER_ACTOR.match(text)
+
+
+def delegated(requirement: str, source: dict[str, str]) -> bool:
+    """Whether the App's own source says someone else does what was requested.
+
+    "Another application predicts the failures", "Field engineers inspect
+    substations": a sentence led by another product, a service or people that
+    covers most of the request.
+    """
     wanted = terms(requirement) - inputs(requirement)
-    return bool(wanted) and wanted <= terms(text) and not wanted <= _core(text)
+    for text in source.values():
+        for sentence in (s.strip() for s in _SENTENCE.split(_AFTER_URL.sub("\\1\n", text)) if s.strip()):
+            actor = _OTHER_ACTOR.match(sentence) or _HUMAN_ACTOR.match(sentence) or re.match(
+                r"^(?:another|other|an external|a third.party)\s+(?:apps?|applications?|services?|systems?|tools?)\b",
+                sentence, re.I)
+            if actor and wanted and _coverage(wanted, Clause("", sentence, sentence, "affirmed")) >= .5:
+                return True
+    return False
+
+
+def input_only(requirement: str, text: str) -> bool:
+    """Whether a text relates to the request only through something it uses.
+
+    The words it shares with the request (outside inputs the request itself
+    names) all sit in its input phrases: "schedules batteries against price
+    forecasts supplied by the user" is about forecasts it consumes.
+    """
+    shared = (terms(requirement) - inputs(requirement)) & terms(text)
+    return bool(shared) and not shared & _core(text)
 
 
 def _topic(text: str) -> str:
@@ -583,7 +612,10 @@ def _assess(requirement: str, query: str, candidates: list[tuple[Clause, float |
     reference = max([s for s, c in affirmed] + [s for s, c in scored if c in verified] or [float("-inf")])
     # An explicit limitation on the same matter wins a tie with an affirmation.
     for polarity, status in (("negative", "excluded"), ("limited", "limited")):
-        stated = next(((s, c) for s, c in scored if c.polarity == polarity and (s, c) not in affirmed), None)
+        # A stated absence or limitation is an answer only when it concerns what was
+        # asked; similarity alone ("does not store the data") is not a "no".
+        stated = next(((s, c) for s, c in scored if c.polarity == polarity and (s, c) not in affirmed
+                       and (_coverage(wanted, c) >= .5 or _applies(c, wanted))), None)
         if stated and stated[0] >= reference - TIE:
             return Finding(requirement, status, stated[1])
     if verified:

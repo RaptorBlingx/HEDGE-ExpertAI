@@ -138,7 +138,8 @@ class Assistant:
         found = await self.recommend(query=frame.need, locale=req.locale, filters=filters)
         if not found.get("apps") and found.get("candidates"):
             # No sentence states every requested word: review paraphrased matches.
-            reviewed = await asyncio.to_thread(self.compose, "review", frame.need, found["candidates"][:3], req.locale)
+            # All candidates: review spends its budget on the most relevant reviewable ones.
+            reviewed = await asyncio.to_thread(self.compose, "review", frame.need, found["candidates"], req.locale)
             if reviewed.get("apps"):
                 found = {**found, **{k: reviewed[k] for k in ("apps", "candidates", "decision", "message")}}
         apps = found.get("apps", [])

@@ -28,8 +28,7 @@ MAX_QUOTES = 3
 SYSTEM = (
     "You check App Store descriptions. For each App, decide whether its quoted statements say that the App "
     "itself does what the request asks. Different wording counts. A related topic, a plan, a condition, a "
-    "simulation, doing only part of the request, or merely using as input what the request asks for (data or "
-    "forecasts it takes from users or other systems) does not. Answer with one true or false per App, in order."
+    "simulation or doing only part of the request does not. Answer with one true or false per App, in order."
 )
 
 
@@ -43,11 +42,17 @@ def _reviewable(row: dict, need: str, locale: str) -> list[tuple[str, str]]:
             or all(f["status"] == "documented" for f in findings):
         return []
     fields = source_text(row["app"], locale)
+    if evidence.delegated(need, fields):
+        return []  # its source says another product or people do this
     quotes = list(dict.fromkeys((f["field"], f["quote"]) for f in findings if f.get("quote")))
     if any(f["status"] == "not_documented" for f in findings):
         # No sentence was nominated: offer the App's own statements closest to the need.
         quotes += [(s.path, s.quote) for s in _statements(row["app"], need) if (s.path, s.quote) not in quotes]
     quotes = [(p, q) for p, q in quotes if q in fields.get(p, "")][:MAX_QUOTES]
+    # Only the App's own claims: not what people, partners or other products do.
+    names = tuple(n for n in [row["app"].get("name")] if n)
+    if not quotes or not all(evidence.owned_claim(q, names) for _, q in quotes):
+        return []
     # A sentence that names the requested function only as something the App
     # works from ("against price forecasts supplied by the user") is never reviewed.
     if any(evidence.input_only(f["requirement"], f["quote"]) for f in findings if f.get("quote")) \
@@ -63,8 +68,8 @@ def reviewed_decision(need: str, rows: list[dict], locale: str) -> dict:
     if (decision["apps"] or not (settings.STORE_SEMANTIC_ENABLED and settings.STORE_EXPLANATIONS_ENABLED)
             or _strict(need)):
         return decision
-    pending = [(row, quotes) for row in decision["candidates"]
-               if (quotes := _reviewable(row, need, locale))][:MAX_REVIEWED]
+    reviewable = [(row, quotes) for row in decision["candidates"] if (quotes := _reviewable(row, need, locale))]
+    pending = sorted(reviewable, key=lambda pair: -_relevance(need, pair[1]))[:MAX_REVIEWED]
     if not pending:
         return decision
     try:
@@ -79,6 +84,12 @@ def reviewed_decision(need: str, rows: list[dict], locale: str) -> dict:
         return {**decision, "review": "not_supported"}
     reviewed = _recommendation_decision(need, rows, locale, reviewed_support=receipts)
     return {**reviewed, "review": "supported"}
+
+
+def _relevance(need: str, quotes: list[tuple[str, str]]) -> float:
+    """How closely an App's quoted sentences address the need: review goes to the closest."""
+    scores = evidence._similarity([need], [evidence._topic(q) for _, q in quotes])
+    return max(scores[0]) if scores else 0.0
 
 
 def _strict(need: str) -> bool:

@@ -7,16 +7,21 @@ both a baseline commit and this branch. `score.py` applies implementation-
 agnostic checks: expected subjects, source concepts, forbidden text, decision
 outcomes, and generic failures that no answerable turn may show (a generic
 clarification, "Which App do you mean?" for a named App, the open-question
-fallback, or an unrequested recommendation verdict). Each turn's `act` label
-records the intended interpretation for reading; it is not scored.
+fallback, or an unrequested recommendation verdict). Every recommendation must be
+accounted for: a turn's `recommend` lists the exact set its sources support (`[]`
+for none); without it, only the Apps the turn expects may be recommended, so an
+extra unsupported recommendation fails the turn even beside the expected App.
+Each turn's `act` label records the intended interpretation for reading; it is
+not scored.
 
 | Files | Status |
 | --- | --- |
 | `dev-real.json`, `dev-fictional.json`, `observed-real.json` | Development. May inform implementation. `observed-real` holds the owner's 22 October 8156 turns and the diagnosis probes. |
 | `heldout-real.json`, `heldout-fictional.json` | **Sealed.** Run at milestones only; never tune rules, prompts or training data to their failures. |
 | `final-real.json`, `final-unseen.json`, `catalogue-unseen.json` | **Sealed.** Run once at the end. `catalogue-unseen` holds Apps never seen during development. |
+| `safety.json`, `catalogue-safety.json` | Development regression for recommendation safety (negation, conditions, actor ownership, inputs versus outputs, a pricing condition across every path), written after the independent review; each decision turn names its exact `recommend` set. |
 
-All sets were authored on 22 October 2026, before any implementation on
+The development, held-out and final sets were authored on 22 October 2026, before any implementation on
 `feat/t2-conversational-architecture`, and committed first. SHA-256 at sealing:
 
 ```

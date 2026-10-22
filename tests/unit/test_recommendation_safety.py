@@ -197,3 +197,34 @@ def test_a_structural_fallback_yields_to_a_reading_that_stands_on_its_own():
         semantic=lambda text, ex: [1.0 if label == "remove_constraint" else 0.5 for label in labels])
     frame = reader.interpret("forget the free part", {"pending_filters": ["pricing"]}, CATALOGUE)
     assert frame.act == "remove_constraint"
+
+
+@pytest.mark.parametrize("need,target", [("inspect substations", CREW), ("predict equipment failures", PARTNER)])
+def test_model_review_never_promotes_what_people_or_other_products_do(approving_model, need, target):
+    decision = review.reviewed_decision(need, [{"app": target, "rank": 1}], "en")
+    assert decision["decision"]["outcome"] == "abstained" and not approving_model
+
+
+def test_review_spends_its_budget_only_on_reviewable_candidates(approving_model):
+    """Paraphrased needs too: an App related only through what it uses is never reviewed or promoted."""
+    charger = app("ChargeWise", "ChargeWise charges batteries using price forecasts from the grid operator.")
+    rows = [{"app": PLANNER, "rank": 1}, {"app": charger, "rank": 2}, {"app": FORECAST, "rank": 3}]
+    decision = review.reviewed_decision("produce day-ahead forecasts of electricity prices", rows, "en")
+    assert [r["app"]["name"] for r in decision["apps"]] == ["ForecastHub"]
+    assert len(approving_model) == 1 and "ForecastHub" in approving_model[0] and "PlanGrid" not in approving_model[0]
+
+
+LEDGER = app("AccessLedger", "AccessLedger records which organisation may access which energy data set. "
+                             "It does not store the data itself.")
+
+
+def test_a_stated_absence_answers_no_only_when_it_concerns_the_request():
+    assert suitability.assess("store the data", LEDGER, "en")["requirements"][0]["status"] == "excluded"
+    found = suitability.assess("keep track of who may use which data", LEDGER, "en")["requirements"][0]
+    assert found["status"] != "excluded"
+
+
+def test_a_source_that_delegates_the_function_is_recognised():
+    assert evidence.delegated("predict equipment failures", suitability.source_text(PARTNER, "en"))
+    assert evidence.delegated("inspect substations", suitability.source_text(CREW, "en"))
+    assert not evidence.delegated("store fault reports", suitability.source_text(CREW, "en"))
