@@ -1,5 +1,7 @@
 # Handoff: T2 conversational experience (21 October 2026)
 
+> **Superseded for dialogue policy (22 October 2026).** Store turns are now interpreted and executed by the [conversational architecture](t2-conversational-architecture.md); the dialogue modules named below were removed. The explainer, App guide, glossary and verifier described here remain.
+
 Branch `feat/t2-conversational-experience` (worktree
 `/home/ubuntu/hedge-t2-conversation-opus`), based on `a2a02ad`. Local commits
 only; not pushed, merged or deployed. The original checkout, its branch and the

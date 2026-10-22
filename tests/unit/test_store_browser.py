@@ -80,7 +80,7 @@ def test_private_snapshot_status_labels_source_and_blocks_private_input_download
         assert status["source"] == "authorized-api-snapshot"
         assert status["snapshot_complete"] is False
         assert "potentially incomplete" in status["catalogue"]
-        assert "Ollama not used" in status["generation"]
+        assert "no model calls" in status["generation"]
         assert status["records"] == evaluation.records
         assert client.get("/input/apps.json").status_code == 404
 

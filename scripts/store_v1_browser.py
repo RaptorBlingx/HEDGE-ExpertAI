@@ -62,9 +62,9 @@ def create_app(playground):
                 "snapshot_complete": False,
                 "embeddings": "real pinned E5" if os.getenv("STORE_PLAYGROUND_E5") == "true" else "unavailable; lexical fallback",
                 "intent": "real Rasa with confidence/health regex fallback" if os.getenv("RASA_ENABLED") == "true" else "regex fallback; Rasa unavailable",
-                "generation": ("Prepared source evidence; optional reasoning enabled for explicit complex requests"
-                               if os.getenv("STORE_REASONING_ENABLED") == "true" else
-                               "Prepared source evidence; Ollama not used for routine requests"),
+                "generation": ("Source answers; model choice between readings and review of paraphrases"
+                               if os.getenv("STORE_SEMANTIC_ENABLED") == "true" else
+                               "Source answers; no model calls"),
                 "synchronization": sync_state,
                 "managed_workspace": hasattr(playground, "refresh"),
                 "simulation_controls": callable(getattr(playground, "simulate", None)),

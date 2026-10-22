@@ -1,7 +1,7 @@
 # Recommendation decision evaluation
 
 Replays first-turn discovery requests (and short multi-turn conversations)
-through the real prepared Store dialogue: `StoreConversation` → Expert decision
+through the real Store assistant: interpretation → Expert decision
 → prepared presenter. Rasa is replaced by the intent named in each case, and no
 language model is called. Candidate pools are E5 dense top-10 over prepared index
 text, an approximation of hybrid retrieval; the decision stage, not retrieval,

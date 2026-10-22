@@ -1,5 +1,7 @@
 # T2 conversational experience: grounded, layered explanations
 
+> **Superseded for dialogue policy (22 October 2026).** Store turns are now interpreted and executed by the [conversational architecture](t2-conversational-architecture.md); the dialogue modules named below were removed. The explainer, App guide, glossary and verifier described here remain.
+
 Engineering change of 21 October 2026 on `feat/t2-conversational-experience`, based
 on `a2a02ad`. Controlled offline evidence through the repository's own dialogue
 code; not live-model, browser, real-user or proposal-KPI acceptance.

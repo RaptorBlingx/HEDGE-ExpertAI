@@ -1,5 +1,7 @@
 # Expert conversation over Store evidence
 
+> **Superseded (22 October 2026).** The generative expert path, its review loop and `scripts/check_store_conversation_grounding.py` were removed; see [conversational architecture](t2-conversational-architecture.md). This page records its revision.
+
 Local performance work on 2026-10-19 changes the default request path; see [prepared Store discovery](prepared-store-discovery.md). Routine replies now use prepared source evidence, with explicit bounded reasoning opt-in. The implementation and measurements below describe their earlier revision; the running workspace has not been changed by the local performance task.
 
 Review branch starts at `4fa7a6e`. The private preview remains

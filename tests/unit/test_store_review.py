@@ -72,3 +72,24 @@ def test_review_is_off_without_the_model_flags_and_failures_keep_the_decision(mo
     monkeypatch.setattr(review, "OllamaClient", Broken)
     decision = review.reviewed_decision("turn JSON into another format", rows, "en")
     assert decision["decision"]["outcome"] == "abstained" and decision["review"] == "unavailable"
+
+
+answers = expert("answers")
+
+
+def test_field_answers_quote_supplied_values_without_inferring_meaning():
+    record = {"app_id": "id-x", "name": "Meter View", "provider": "Provider A", "store_id": "synthetic-only",
+              "active": True, "visible": True, "readme": "<p>Meter View displays readings. Documentation: "
+              "https://docs.example.invalid/meter</p>", "connector_version": "1.2", "built_for_connector": "EDC",
+              "price": 0, "billable": False}
+    app = prepare(StoreAppMetadata.model_validate(record))["projection"]
+    assert answers.fact_answer("provider", [app]) == "**Meter View** is provided by **Provider A**."
+    assert "doesn’t establish free use" in answers.fact_answer("price", [app])
+    assert "Connector version: 1.2" in answers.fact_answer("details", [app])
+    assert "https://docs.example.invalid/meter" in answers.fact_answer("access", [app])
+    bare = prepare(StoreAppMetadata.model_validate({**record, "readme": "<p>Meter View displays readings.</p>",
+                                                     "connector_version": None, "built_for_connector": None}))["projection"]
+    assert "doesn’t say how to access it" in answers.fact_answer("access", [bare])
+    assert answers.listing([app]).startswith("**Meter View** displays readings.")
+    assert "price of 0 doesn’t confirm free use" in answers.unverified(["pricing"])
+    assert "protocol support" in answers.unverified(["protocols"])

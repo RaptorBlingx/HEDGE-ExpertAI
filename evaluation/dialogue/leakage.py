@@ -17,7 +17,8 @@ def tokens(text):
     return set(re.findall(r"[a-z0-9']+", text.casefold().replace("’", "'"))) - {"app"}
 
 
-examples = [e for act in json.loads((HERE.parents[1] / "shared/hedge_shared/dialogue_acts.json").read_text())["acts"].values()
+examples = [re.sub(r"\[([^\]]+)\]\(need\)", r"\1", e)
+            for act in json.loads((HERE.parents[1] / "shared/hedge_shared/dialogue_acts.json").read_text())["acts"].values()
             for e in act["examples"]]
 flagged = 0
 for name in SEALED:

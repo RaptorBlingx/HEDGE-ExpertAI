@@ -42,8 +42,8 @@ async def status():
                           else "Authored evaluation catalogue — not live Store evidence" if source_kind == "authored_evaluation_fixture"
                           else "Store catalogue not initialized"),
             "intent": "Real Rasa over HTTP", "embeddings": "Pinned E5 and private Qdrant",
-            "generation": ("Prepared fast path with contextual LLM recovery" if Settings().STORE_SEMANTIC_ENABLED
-                           else "Prepared English explanations; generation-free requests"),
+            "generation": ("Source answers; model choice between readings and review of paraphrases"
+                           if Settings().STORE_SEMANTIC_ENABLED else "Source answers; no model calls"),
             "managed_workspace": True, "simulation_controls": False,
             "deployed_commit": os.environ.get("DEPLOYED_COMMIT", "unknown"), **state}
 

@@ -12,7 +12,7 @@ from hedge_shared.config import Settings
 
 from .assistant import STREAM, Assistant
 from .classifier import rasa_acts
-from .understanding import Interpreter, acts
+from .understanding import Interpreter, acts, plain
 
 logger = logging.getLogger(__name__)
 client = httpx.Client(timeout=Settings().STORE_MODEL_TIMEOUT_SECONDS + 10, trust_env=False,
@@ -54,7 +54,7 @@ def semantic(text: str, examples: list[str]) -> list[float] | None:
 
 def warm(attempts: int = 30, pause: float = 10.0) -> None:
     """Have Discovery embed the example utterances before the first user turn needs them."""
-    examples = [e for act in acts().values() for e in act["examples"]]
+    examples = [plain(e) for act in acts().values() for e in act["examples"]]
 
     def run():
         for _ in range(attempts):

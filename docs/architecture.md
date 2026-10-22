@@ -46,25 +46,27 @@ assessment and prepared quotations without runtime generation. Versioned Store
 knowledge is prepared beside the source payload during incremental reconciliation;
 existing E5 passage indexing remains derived and rebuildable. The private workspace
 warms the query encoder before serving, polls daily by default, and uses separate
-refresh/per-session turn locks. Explicit complex turns can opt into the existing
-expert with a shared deadline and useful source fallback. See
+refresh/per-session turn locks. See
 [prepared Store discovery and measured limits](prepared-store-discovery.md).
 
 ## Conversation and streaming
 
-Rasa is NLU-only. Application code owns deterministic policy and authoritative state: locale, intent, concepts, filters, recent impression/results and turn number. Refinements merge filters; new searches and resets clear prior topic context intentionally.
+Rasa supplies NLU; application code owns dialogue policy and authoritative state.
+The public (non-Store) v2 path keeps its intent routing: refinements merge
+filters; new searches and resets clear prior topic context intentionally.
 
-In private Store conversations, explanation acts (overview, simplify, define a
-term, example, analogy, explain differently, plain comparison, choosing between
-Apps, provider and access) are recognized by one closed grammar
-(`chat-intent/app/conversation_acts.py`) and answered by Expert's explainer from a
-source-derived App guide (`app_guide.py`) and a general domain glossary
-(`hedge_shared/glossary.py`). They resolve their subject from named Apps, the
-focused App, the displayed Apps or recently discussed Apps, keep per-App
-explanation state so a repeated request uses a different representation, and
-never call the suitability decision. Capability questions, searches, filters and
-metadata reads keep their verified paths. Only open questions use one bounded,
-cited model answer. See [conversational experience](t2-conversational-experience.md).
+Private Store conversations go through one interpreter and one executor (see
+[conversational architecture](t2-conversational-architecture.md)). Chat's
+`understanding.Interpreter` turns each message into a frame: the App linker finds
+App mentions however they are spelled; closed-class references resolve against
+the dialogue state; Rasa and E5 nearest examples classify the dialogue act over
+`hedge_shared/dialogue_acts.json` with App mentions masked, agreement accepting a
+reading and a disagreement going to a short model choice (when enabled) or to the
+user as one question. `assistant.Assistant` executes the frame with Expert's
+explainer, field answers, verifier and Discovery retrieval, and owns the typed
+dialogue state. Recommendations come only from the verifier, optionally extended
+by model review of paraphrased evidence into the request-bound reviewed-support
+receipt. Only open questions use one bounded, cited model answer.
 
 SSE v2 events are `stage`, `recommendations`, `explanation_delta`, `complete` and `problem`. Recommendation events are emitted after the evidence decision, with admitted `apps`, unverified `candidates` and the `decision`. Explanation deltas contain the source-rendered response; for a model-assisted explanation they carry checked sentences as they are generated, and the stored reply equals the streamed text. No unchecked model prose or chain of thought is emitted. Retrieval failures remain terminal problem events, distinct from abstention.
 

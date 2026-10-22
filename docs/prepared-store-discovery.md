@@ -54,8 +54,9 @@ service, model, dependency or public Store indexing surface is introduced.
    index repair skips unchanged App vectors; source, embedding model/revision or
    preparation-version changes trigger replacement. Metadata is still committed
    before its derived index, and lexical retrieval remains usable during lag.
-3. **Cheap requests.** Routine Store turns use the existing `StoreDialogue` through
-   `StoreConversation`: browse, identity/details, reference binding, source-field
+3. **Cheap requests.** Routine Store turns (now interpreted by the
+   [conversational architecture](t2-conversational-architecture.md); at this
+   revision the `StoreDialogue`/`StoreConversation` grammar): browse, identity/details, reference binding, source-field
    inspection, publisher filtering and comparison require no LLM. Discovery still
    uses lexical/E5 retrieval and the existing SCRUM-39 `assess` function, with bounded grammar additions for
    purpose/provenance forms reproduced in the actual README evidence. Unknown

@@ -153,60 +153,52 @@ remain disabled; no dedicated credential acquisition or renewal flow is implied.
 The private workspace now defaults to daily synchronization
 (`STORE_SYNC_INTERVAL_SECONDS=86400`, range 60–86400). Routine discovery, details,
 filtering and comparison use prepared source evidence without runtime generation.
-`STORE_REASONING_ENABLED=false` leaves optional reasoning disabled;
-`STORE_REASONING_SECONDS=8` bounds the combined drafting/review time when enabled
-(maximum 15 seconds). Only explicit deep-reasoning turns opt in. The settings are
-passed by `scripts/store-workspace.sh`; the existing Compose services receive the
-shared `.env` settings. See [architecture and measurement boundaries](prepared-store-discovery.md).
+The settings are passed by `scripts/store-workspace.sh`; the existing Compose
+services receive the shared `.env` settings. See [architecture and measurement boundaries](prepared-store-discovery.md).
 The daily schedule does not establish the proposal's stricter two-hour freshness target.
 
 
-### Contextual English Store reasoning
+### Store assistant understanding and model assistance
 
-`STORE_SEMANTIC_ENABLED=false` keeps the accepted prepared path. Explicitly enabling
-it activates contextual interpretation and source-grounded recovery in the existing
-Expert service for uncertain English turns; Rasa intent/entities are fallible hints,
-not extra user requirements. No new inference provider, dependency or migration is
-required. `OLLAMA_BASE_URL` and `OLLAMA_MODEL` select the private inference endpoint
-and model. `OLLAMA_THINK=false` is configurable for structured calls: enable it
-only for models supporting boolean thinking mode, with sufficient output/time
-budgets. Model quality is not constrained to the VM's cached 2B model. For longer
-metadata and multiple candidates, configure a larger supported context (for example
-32768 tokens); complete-field context allocation scales with that budget.
-The private Compose profile forwards these settings; provide a permitted
-private network route when the endpoint is on another host.
+Every Store turn is interpreted by Chat's interpreter: the App linker finds App
+mentions, and Rasa (`RASA_URL`, `RASA_CONFIDENCE_THRESHOLD`) and E5 nearest
+examples (Discovery's `/api/v2/evidence/similarity`, symmetric mode) classify the
+dialogue act over `shared/hedge_shared/dialogue_acts.json`. No model is needed to
+understand or answer ordinary turns. See
+[conversational architecture](t2-conversational-architecture.md).
+
+`STORE_SEMANTIC_ENABLED=false` keeps the model out of the loop. When enabled (Chat
+and Expert), the model is used in two bounded places: choosing between two
+readings when Rasa and E5 disagree (`STORE_INTERPRETATION_SECONDS`, default 30,
+a short constrained call whose fixed instructions come first so the server can
+reuse their processed prompt), and reviewing paraphrased evidence when the
+verifier found only related sentences (one call, `STORE_MODEL_TIMEOUT_SECONDS`).
+A review never handles quantities, absences, conditions or stated limitations;
+a yes becomes the request-bound `ReviewedSupport` receipt. Without the model,
+disagreements become one plain clarification and paraphrases are shown as the
+closest unconfirmed statements. `OLLAMA_BASE_URL` and `OLLAMA_MODEL` select the
+private inference endpoint and model; `OLLAMA_THINK=false` keeps structured
+calls non-thinking.
 
 `STORE_MODEL_CONTEXT_TOKENS=16384` bounds context (2048–65536 tokens);
-`STORE_MODEL_OUTPUT_TOKENS=2048` bounds generated output (including model reasoning);
 `STORE_MODEL_TIMEOUT_SECONDS=120` bounds each inference call; and
-`STORE_MODEL_THREADS=1` controls structured CPU inference threads.
+`STORE_MODEL_THREADS=1` controls CPU inference threads.
 `STORE_MODEL_BATCH_SIZE=128` bounds prompt evaluation batches (32–2048), reducing
 peak CPU inference allocation. `STORE_MODEL_KEEP_ALIVE=2m` controls the inference
 cache lifetime; increase it (for example `10m`) only when measured RAM headroom
-permits keeping the model resident between conversations. The ordinary English recovery path makes **one**
-constrained, non-thinking interpretation call, capped at 80 output tokens. It
-interprets a short functional query, current source task and dialogue mode; application code composes the
-answer and uses the existing suitability assessor. There is no ordinary writer,
-self-review or repair loop. HTTP budgets allow one inference timeout plus service
-overhead. Ollama `truncate=false` and `shift=false` reject oversized input/output
-instead of silently discarding context. The legacy opt-in prose reasoning seam
-retains its separate review and conservative complete-field byte budget.
+permits keeping the model resident between conversations. Ollama `truncate=false`
+and `shift=false` reject oversized input/output instead of silently discarding
+context. The gateway allows one interpretation plus one inference timeout per
+turn.
 
-For short interpretation on constrained hardware, a smaller configured context
-can avoid a large, unused KV cache. Model choice, context, CPU threads, batch size
-and Ollama server cache settings must be measured together; the model weight file
-size alone is not its RAM requirement. The server's `OLLAMA_FLASH_ATTENTION` and
-`OLLAMA_KV_CACHE_TYPE` belong on the inference server, not the Expert client.
-Model failure is observable in generation metadata and yields a prepared answer
-or clarification, not a claimed negative catalogue result. Interpretation remains
-probabilistic: selecting related evidence does not establish complete-request fit.
-Read real negative/compound and contextual conversations before enabling a model.
+Model choice, context, CPU threads, batch size and Ollama server cache settings
+must be measured together; the model weight file size alone is not its RAM
+requirement. The server's `OLLAMA_FLASH_ATTENTION` and `OLLAMA_KV_CACHE_TYPE`
+belong on the inference server, not the Expert client. Model failure is
+observable in generation metadata and yields a prepared answer or a
+clarification, never a claimed negative catalogue result.
 
 These settings are off by default and do not modify the existing 8096 environment.
-See [T2 evaluation protocol](../evaluation/t2/README.md) for separate model, retrieval,
-evidence, dialogue and latency measurements before activation on suitable hardware.
-The [one-pass engineering follow-up](t2-efficient-interpretation.md) records the
-CPU evaluation and its limits.
 
 ### Conversational explanations
 

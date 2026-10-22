@@ -79,6 +79,14 @@ def acts() -> dict[str, dict]:
     return json.loads(files("hedge_shared").joinpath("dialogue_acts.json").read_text(encoding="utf-8"))["acts"]
 
 
+_NEED_SPAN = re.compile(r"\[([^\]]+)\]\(need\)")
+
+
+def plain(example: str) -> str:
+    """An example utterance without its need-span markup."""
+    return _NEED_SPAN.sub(r"\1", example)
+
+
 @dataclass
 class Frame:
     act: str
@@ -127,13 +135,22 @@ def _words(text: str) -> set[str]:
 
 @lru_cache(maxsize=1)
 def _operation_vocabulary() -> frozenset[str]:
-    """Words the needless acts use: asking *about* an App, not for a function."""
-    words: set[str] = set()
+    """Words that ask *about* Apps or *for* one, never what one should do.
+
+    The needless acts' examples, plus the wording around the marked need spans
+    of the need acts' examples ("is there an app for [...]"), less any word a
+    need span itself uses.
+    """
+    asking, requesting, inside = set(), set(), set()
     for name, act in acts().items():
-        if name not in NEED_ACTS and name not in {"term", "ask", "out_of_scope", "same", "remove_constraint"}:
-            for example in act["examples"]:
-                words |= _words(example)
-    return frozenset(words | _FUNCTION_WORDS | {PLACEHOLDER.casefold(), "app", "apps", "application", "applications", "one"})
+        for example in act["examples"]:
+            if name in NEED_ACTS:
+                inside |= {w for span in _NEED_SPAN.findall(example) for w in _words(span)}
+                requesting |= _words(_NEED_SPAN.sub(" ", example))
+            elif name not in {"term", "ask", "out_of_scope", "same", "remove_constraint"}:
+                asking |= _words(example)
+    return frozenset(asking | (requesting - inside) | _FUNCTION_WORDS
+                     | {PLACEHOLDER.casefold(), "app", "apps", "application", "applications", "one"})
 
 
 def residual(masked: str, refs: list[Reference] = ()) -> str:
@@ -149,14 +166,19 @@ def residual(masked: str, refs: list[Reference] = ()) -> str:
 
 
 def need_text(message: str, mentions: list[Mention], refs: list[Reference]) -> str:
-    """The request with App mentions and reference words removed; the verifier strips scaffolding."""
+    """The request without App mentions, reference words, or clauses that only ask ("which app should I use?").
+
+    The verifier strips the remaining request wording from each requirement.
+    """
     spans = sorted([(m.start, m.end) for m in mentions] + [(r.start, r.end) for r in refs], reverse=True)
     text = message
     for start, end in spans:
         text = text[:start] + " " + text[end:]
     text = expand_contractions(text)
     text = re.sub(r"\b(?:too|also|as well|then|anyway|instead|please|ok|okay|so)\b", " ", text, flags=re.I)
-    return " ".join(text.split()).strip(" ,.?!")
+    clauses = [c for c in re.split(r"\s*[,;.?!]+\s*", text) if c.strip()]
+    kept = [c for c in clauses if residual(c)] or clauses
+    return " ".join(" ".join(kept).split()).strip(" ,.?!")
 
 
 _GLOSSES = {
@@ -169,6 +191,8 @@ _GLOSSES = {
     "check": "check whether {apps} can {need}", "find": "find an App that can {need}",
     "compare": "compare {apps}", "choose": "say which of {apps} suits {need}", "ask": "answer that about {apps}",
     "list": "list the Apps in the Store", "term": "explain the term", "remove_constraint": "drop the earlier condition",
+    "greeting": "say hello", "thanks": "wrap up", "help": "explain what I can help with", "reset": "start over",
+    "out_of_scope": "treat it as a question outside the App Store",
 }
 
 
@@ -187,7 +211,7 @@ class Interpreter:
                  semantic: Callable[[str, list[str]], list[float] | None],
                  arbitrate: Callable[[str, list[dict], dict], int | None] | None = None):
         self.rasa, self.semantic, self.arbitrate = rasa, semantic, arbitrate
-        examples = [(name, e) for name, act in acts().items() for e in act["examples"]]
+        examples = [(name, plain(e)) for name, act in acts().items() for e in act["examples"]]
         self._labels, self._examples = [n for n, _ in examples], [e for _, e in examples]
 
     def classify(self, masked: str) -> dict:
@@ -235,8 +259,11 @@ class Interpreter:
             frame = self._complete(act, message, named, mentions, refs, content, state, catalogue)
             if all(frame.act != f.act or frame.subjects != f.subjects for f in frames):
                 frames.append(frame)
-        # A reading that fails its own structure (a search without a need) is no reading.
+        # A reading that fails its own structure (a search without a need) is no reading,
+        # and a message about an App it names or refers to is not out of scope.
         frames = [f for f in frames if f.act != "clarify"] or frames[:1]
+        if any(f.subjects for f in frames):
+            frames = [f for f in frames if f.act != "out_of_scope"]
         if len(frames) == 1:
             frames[0].source = "agreement" if len(readings) == 1 and confident and "semantic" in signals else "consistent"
             frames[0].signals = signals

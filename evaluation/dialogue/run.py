@@ -87,7 +87,7 @@ async def main(args) -> None:
         turns = []
         for number, turn in enumerate(case["turns"]):
             started = time.monotonic()
-            reply = await turn_runner(state, turn["message"], number)
+            reply = await turn_runner(state, turn["message"], number, case.get("locale", "en"))
             seconds = time.monotonic() - started
             record = {"message": turn["message"], "reply": reply["message"],
                       "apps": [row["app"].get("name") for row in reply["apps"]],
@@ -122,8 +122,8 @@ def build(chat, expert, recommender, explainer, recommend, resolve):
             explainer=lambda act, q, apps, s, h, phrase="": explainer.respond(act, q, apps, s, h, phrase))
         from hedge_shared.models_v2 import ChatRequestV2
 
-        async def run(state, message, number):
-            req = ChatRequestV2(message=message, locale="en")
+        async def run(state, message, number, locale="en"):
+            req = ChatRequestV2(message=message, locale=locale)
             context = state["context"]
             intent = policy.route_intent(message, classifier.classify(message).intent, context)
             reply = await policy.respond_with_history(req, intent, context, state["history"], nlu={"intent": intent})
@@ -151,8 +151,8 @@ def build(chat, expert, recommender, explainer, recommend, resolve):
                              arbitrate=bool(os.environ.get("ARBITRATE")))
     from hedge_shared.models_v2 import ChatRequestV2
 
-    async def run(state, message, number):
-        reply = await policy.reply(ChatRequestV2(message=message, locale="en"), state["context"], state["history"])
+    async def run(state, message, number, locale="en"):
+        reply = await policy.reply(ChatRequestV2(message=message, locale=locale), state["context"], state["history"])
         state["context"] = {**state["context"], **reply["context"], "turn": number + 1}
         state["history"] += [{"role": "user", "content": message}, {"role": "assistant", "content": reply["message"]}]
         return reply

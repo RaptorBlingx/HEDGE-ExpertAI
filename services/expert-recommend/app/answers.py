@@ -172,10 +172,12 @@ def _ranked(guide: app_guide.Guide, question: str) -> list[app_guide.Statement]:
     # Embeddings under-rate negated sentences; compare what each statement is about
     # ("does not control turbine operation" is about controlling turbines).
     scores = evidence._similarity([question], [evidence._topic(s.text) for s in candidates])
-    if scores:
-        ranked = sorted(zip(scores[0], candidates, strict=True), key=lambda pair: -pair[0])
-        return [s for score, s in ranked if score >= _EXTRACT_FLOOR][:2]
     asked = evidence.terms(question)
+    if scores:
+        # Like the verifier's nominations: very close, or close and sharing the question's wording.
+        ranked = sorted(zip(scores[0], candidates, strict=True), key=lambda pair: -pair[0])
+        return [s for score, s in ranked if score >= evidence.DENSE_MATCH
+                or score >= _EXTRACT_FLOOR and asked & evidence.terms(s.text)][:2]
     ranked = sorted(candidates, key=lambda s: -len(asked & evidence.terms(s.text)))
     return [s for s in ranked if len(asked & evidence.terms(s.text)) >= max(1, len(asked) // 2)][:2]
 

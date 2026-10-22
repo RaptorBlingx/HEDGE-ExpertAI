@@ -153,8 +153,9 @@ async def _get_json(
 
 
 def _chat_timeout_v2() -> float:
+    # A model-assisted turn makes at most one choice between readings and one answer or review call.
     settings = Settings()
-    return (settings.STORE_MODEL_TIMEOUT_SECONDS + 15
+    return (settings.STORE_INTERPRETATION_SECONDS + settings.STORE_MODEL_TIMEOUT_SECONDS + 15
             if settings.PRIVATE_STORE_ENABLED and settings.STORE_SEMANTIC_ENABLED else 300.0)
 
 
