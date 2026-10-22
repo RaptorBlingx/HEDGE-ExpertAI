@@ -164,7 +164,7 @@
     "/api/v2/evidence/similarity": {
       "post": {
         "summary": "Evidence Similarity",
-        "description": "Internal E5 scores for Expert's requirement/source-sentence matching.",
+        "description": "Internal E5 scores: requirements against source sentences, or utterances against examples.",
         "operationId": "evidence_similarity_api_v2_evidence_similarity_post",
         "requestBody": {
           "content": {
@@ -870,6 +870,11 @@
             "maxItems": 400,
             "minItems": 1,
             "title": "Passages"
+          },
+          "symmetric": {
+            "type": "boolean",
+            "title": "Symmetric",
+            "default": false
           }
         },
         "type": "object",
