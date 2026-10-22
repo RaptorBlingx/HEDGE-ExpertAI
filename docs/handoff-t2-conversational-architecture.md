@@ -33,9 +33,19 @@ New setting `STORE_INTERPRETATION_SECONDS` (default 30): shared settings,
 - Discovery embeds the ~400 example utterances on first use; Chat warms this at
   startup.
 
+## Corrective round after independent review (22 October)
+
+Commits `575ed9f`, `7ef890c`: negation survives need normalization; one gate
+holds every recommendation while a condition is pending; the verifier and model
+review distinguish what an App does from what it works from, credit only the
+App's own claims, and match requested absences only with stated ones. The
+scorer fails any unanticipated recommendation; `safety.json` adds exact
+recommendation sets. Details and results:
+[corrections](t2-conversational-architecture.md#corrections-after-independent-review-22-october).
+
 ## Verification performed
 
-- Ruff clean; 1,285 unit tests; generated Rasa corpus check; sealed-set leakage check.
+- Ruff clean; 1,318 unit tests; generated Rasa corpus check; sealed-set leakage check.
 - Recommendation decisions on the unseen query sets: unchanged from `86fa782`
   except one case improved (Fail to Suggested).
 - Integration suite against disposable PostgreSQL/Qdrant/Valkey: 3 failures, all
@@ -52,8 +62,9 @@ load, Turkish conversations.
 
 ## Recommended next steps
 
-1. Independent review, especially `review.py` (model review of paraphrased
-   evidence is the main recommendation-safety change) and the act dataset.
+1. Independent release verification, especially `review.py` (model review of
+   paraphrased evidence is the main recommendation-safety change), the role and
+   ownership rules in `evidence.py`, and the act dataset.
 2. Broaden `dialogue_acts.json` with varied, need-marked examples from real
    sessions, keeping a sealed set unseen.
 3. Before deploying: rebuild Rasa, measure on 8156-equivalent load, and settle

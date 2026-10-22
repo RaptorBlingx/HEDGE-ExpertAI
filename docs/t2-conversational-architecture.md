@@ -88,7 +88,22 @@ statements that bear on the question.
   absences, conditions or limitations, and its receipt is bound to the request,
   the App and its source digest.
 - Pricing conditions and typed catalogue filters are unverifiable: they stay
-  pending, hold back recommendations and are shown as such until dropped.
+  pending and are shown as such until dropped. One gate after execution holds
+  back every recommendation while one is pending, whichever path produced it
+  (search, capability check, choice, model review).
+- Need normalization never removes words carrying polarity, conditions or
+  exclusions ("not", "never", "without", "only", "if", "instead of").
+- The verifier credits an App only with what it does or provides, not with what
+  it works from ("from weather data", "against price forecasts supplied by the
+  user"); a requirement's own inputs may match the App's inputs, and an interface
+  it reads from ("from MQTT devices") counts as supported. Sentences led by
+  people or other products are not the App's claims; a requested absence
+  ("without internet access") needs a stated one; a stated absence answers "no"
+  only when it concerns the request.
+- Model review takes only the App's own claims, never an App whose source
+  delegates the function to another product or people, never a sentence related
+  to the need only through its inputs, and never quantities, absences or
+  conditions.
 - Model text is still released sentence by sentence through the existing checks.
 
 ## Decisions
@@ -163,6 +178,63 @@ Other verification: Ruff clean; 1,285 unit tests; integration suite against
 disposable PostgreSQL/Qdrant/Valkey 3 failures, all inherited from `86fa782`
 (27 failures there, 24 of them in tests of removed code).
 
+## Corrections after independent review (22 October)
+
+An independent review (Codex) blocked deployment on three defects, each now
+reproduced by tests that fail on `912b347` and pass after the fix:
+
+| Defect | Root cause | Correction |
+| --- | --- | --- |
+| Negation reversed ("must not collect personal data" recommended the App that collects it) | Trimming the request's leading words removed "must not"; review's negation guard then saw none | Trimming stops at polarity, condition and exclusion words; "instead of" survives |
+| Unresolved conditions bypassed | A search checked pending conditions before model review, which could then promote an App | One gate after execution for every path |
+| Inputs taken for capabilities (inherited from `86fa782`) | The verifier matched requested words anywhere in a sentence | Sentences and requirements are split into what is done and what is worked from; review never reconsiders input-only matches |
+
+Driving the corrections through live and integrated runs found more of the same
+class, also fixed: "Field engineers inspect substations" credited to the App
+(inherited); a requested absence that could never match a stated one
+(inherited); model review approving a sentence about people, or an App whose
+source says another application does the work; the input guard missing
+paraphrased needs; review spending its budget on non-reviewable candidates; a
+negated sentence nominated by similarity alone answering "no"; a fallback
+reading outranking a direct one. A review-prompt addition about inputs made the
+model reject a correct paraphrase and was reverted; deterministic guards carry
+that rule.
+
+**Scorer.** Every recommendation must be anticipated by the turn (an exact
+`recommend` set, or the Apps it expects); an extra one fails the turn even beside
+the expected App. Rescoring earlier runs with this rule exposed recommendations
+the old scorer passed: LoadAhead for "meter data", VPP Studio for "forecasts
+solar", EdgeConnect for "map data between two systems".
+
+**Safety set.** `safety.json` over `catalogue-safety.json` (17 turns, exact
+recommendation sets) covers negation, conditions, actor ownership, inputs
+versus outputs and a pricing condition across search, check, choice and review.
+
+Results under the strict scorer (passing turns; "extra" counts recommended Apps
+the turn does not allow). Before: the pre-correction code (`912b347`; offline
+runs at `338a688`, live runs at the commits listed in Evaluation). After: `7ef890c`.
+
+| Set (turns) | Before offline | After offline | Before + Qwen | After + Qwen |
+| --- | --- | --- | --- | --- |
+| Safety (17) | 12, extra 4 | 17, extra 0 | 12, extra 4 | 17, extra 0 |
+| Owner's turns and probes (17) | 17 | 17 | 17 | 17 |
+| Development (38) | 33, extra 1 | 34 | 36, extra 2 | 36 |
+| Held-out (33) | 28 | 28 | 29 | 30 |
+| Final, sealed (27) | 15 | 16 | 21, extra 1 | 22 |
+| **All (132)** | **105, extra 5** | **112, extra 0** | **115, extra 7** | **122, extra 0** |
+
+The extras before were HomeTrack for "must not collect personal data", PlanGrid
+for price forecasts it consumes (twice), FieldCrew for what field engineers do,
+LoadAhead for "meter data", VPP Studio for "forecasts solar" and EdgeConnect for
+"map data between two systems". The one live development turn lost (19 to 18)
+predates this round: after two wind-turbine candidates, "how does it work"
+asks which one is meant.
+
+Recommendation decisions on the unseen query sets stay identical to `86fa782`
+except one case improved (Fail to Suggested). Ruff clean; 1,318 unit tests (33
+new for this round); the new tests fail on `912b347`. Integration
+suite: the same 3 inherited failures as before.
+
 ## Limitations
 
 - **Classifier coverage is data.** Some ordinary phrasings are still misread
@@ -174,8 +246,14 @@ disposable PostgreSQL/Qdrant/Valkey 3 failures, all inherited from `86fa782`
   seen can count as a need: "what's the hedge store got?" became a search.
 - **Paraphrased capabilities need the model.** Offline, the lexical verifier
   hedges ("EV chargers" does not match "electric vehicle chargers"). Model review
-  has one observed false positive (fixed); its precision has not been measured
-  at scale and it is a recommendation-safety risk to review independently.
+  false positives found so far are fixed by deterministic guards, and the
+  remaining decision rests on a 4B model. Its precision has not been measured at
+  scale; it is the main recommendation-safety risk to review independently.
+- **Role and ownership detection is grammatical**, not parsed: input phrases
+  start at a closed set of prepositions and end at clause boundaries, verbs or
+  coordinated predicates; actors are recognised at sentence start. Phrasing it
+  does not recognise is verified as before this correction, so an input or a
+  delegated function written unusually can still be credited to an App.
 - **The 4B model embellishes** open answers ("this payment comes from the local
   system operator"); sentence checks are not entailment.
 - **Latency** of model turns (15–77 s) was measured on an isolated copy with

@@ -74,7 +74,7 @@
       "concepts_any": [
        "schema"
       ],
-      "recommend": [
+      "subject_any": [
        "FlowMapper",
        "PayloadPipe",
        "SchemaCheck"
