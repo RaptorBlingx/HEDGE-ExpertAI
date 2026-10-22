@@ -70,6 +70,10 @@ _FUNCTION_WORDS = frozenset((
 ).split())
 
 
+# Words that join a search phrase without asking anything.
+_LINKING = frozenset("a an the of to for in on at by with from into about as and or".split())
+
+
 def expand_contractions(text: str) -> str:
     for pattern, replacement in _CONTRACTIONS:
         text = re.sub(pattern, replacement, text, flags=re.I)
@@ -302,6 +306,12 @@ class Interpreter:
         """Fill the act's slots from the message and the dialogue state, adjusting the act to its structure."""
         last = state.get("last", {})
         need = need_text(message, mentions, refs)
+        # Like a search box: words that only name a function ("mqtt", "calculate
+        # settlement for activated flexibility") and no App are a search.
+        words = re.findall(r"[a-z0-9]+", expand_contractions(message).casefold())
+        if (not mentions and not refs and content and act not in NEED_ACTS | {"same"}
+                and all(w in _LINKING or w not in _operation_vocabulary() for w in words)):
+            act = "find"
         if act == "same":
             # "And the other one?" / "What about X?": the previous question, new subject.
             previous = last.get("act") if last.get("act") not in {None, "same", "clarify", "list", "find"} else "describe"
@@ -333,6 +343,9 @@ class Interpreter:
         if act == "find" and not need.strip():
             return Frame("clarify", problem="no_need")
         if act in SUBJECT_ACTS and not subjects:
+            if content and not refs:
+                # A need with no App to be about is a search, not "which App?".
+                return self._complete("find", message, named, mentions, refs, content, state, catalogue, readings)
             return Frame("clarify", act if act != "clarify" else "", problem="no_subject")
         if act == "compare" and len(subjects) < 2:
             return Frame("clarify", subjects, problem="no_comparison_pair")

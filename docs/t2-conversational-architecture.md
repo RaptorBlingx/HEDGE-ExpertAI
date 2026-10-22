@@ -107,8 +107,87 @@ statements that bear on the question.
 See [natural conversation evaluation](../evaluation/dialogue/README.md) for the
 sets, the sealing protocol and the runner.
 
-RESULTS_PLACEHOLDER
+Turns passing the implementation-agnostic checks (`evaluation/dialogue/score.py`).
+"Offline" is Rasa + E5 with every model call failing immediately, as the 8156
+planner did; "+ Qwen" uses an isolated read-only copy of the approved model with
+8156's CPU and context settings; "stack" is this branch's Gateway, Chat, Expert
+and Discovery from read-only source in the approved images, with real Rasa,
+E5 in Discovery, disposable PostgreSQL/Valkey and the isolated model, driven
+through the gateway's SSE route.
+
+| Set (turns) | Baseline `86fa782` offline | Branch offline | Branch + Qwen | Branch stack |
+| --- | --- | --- | --- | --- |
+| Owner's 8156 turns and probes (17) | 7 | 17 | 17 ¹ | 17 ² |
+| Development (38) | 20 | 34 | 38 ¹ | real part 18/18 ² |
+| Held-out (33) | 14 | 28 | 29 ³ | real part 12/15 ² |
+| **Final, sealed (27)** | **9** | **15** | **22** | **22** |
+
+Baseline `86fa782` + Qwen on the final set: **12/27**. Offline branch and final
+columns are at `1905a26`; ¹ at `7359166`, ² at `3784d9b`, ³ at `cbf3069` (each
+before later corrections, which these runs prompted).
+
+Final-set turn times with the model: baseline median 81 s, 90th percentile 93 s,
+17 of 27 turns over 30 s (planner timeouts); branch median 1.7 s, 90th
+percentile 37 s, 5 turns over 30 s (open questions answered by the model, 32–77 s
+on this CPU; first streamed sentence after 21–29 s through the stack). Model
+choices between readings took 15–25 s and reviews of paraphrased evidence 8–38 s.
+
+**Protocol and its limits.** All sets were written before implementation and
+committed first (`1d160da`); the held-out sets were run at milestones and their
+failures informed general changes, each recorded in the commit messages; the
+final set and its unseen-App catalogue were run once per configuration, after the
+code was frozen. Training examples are checked for overlap with sealed messages
+(`leakage.py`). The same author wrote the sets and the code, and the sets are
+small (110 turns), so these are engineering measurements, not acceptance.
+
+**What the runs found and changed.** The integrated stack found a startup crash
+(an API missing in the deployed FastAPI), a model-review false positive (an API
+sentence approved as "data mapping"; reviews beyond the verifier's nominations
+now also need E5 relevance at the verifier's own floor), and implicit-focus and
+pronoun gaps; the integration suite found that unconfirmed candidates were being
+sent as recommendation cards (and impressions), and stale-reference handling.
+A rule that offered both E5 readings on a near-tie was tried and reverted after
+it made answers worse.
+
+**Recommendation decisions** (`evaluation/recommendation`, single requests through
+the whole assistant, E5 only): identical to `86fa782` on `unseen.json` (10 Pass,
+13 Suggested, 1 Fail) and on `unseen-2.json` except one case that improved from
+Fail to Suggested; no recommended set changed. A first run found three requests
+misread without Rasa (a bare keyword and an imperative read as term questions, a
+need with no App asked "which App?"); two structural rules fixed them (a message
+of function words and no App is a search; a need with no App to be about is a
+search). They followed the final run, so a post-hoc offline rerun of every set
+was made: results unchanged.
+
+Other verification: Ruff clean; 1,285 unit tests; integration suite against
+disposable PostgreSQL/Qdrant/Valkey 3 failures, all inherited from `86fa782`
+(27 failures there, 24 of them in tests of removed code).
 
 ## Limitations
 
-LIMITATIONS_PLACEHOLDER
+- **Classifier coverage is data.** Some ordinary phrasings are still misread
+  ("Who runs it?", "What can I find in here?"), and domain words inside training
+  examples bias acts: "what's OpenADR?" was read as a capability check because a
+  check example mentions OpenADR. More varied examples (with need spans marked)
+  are the remedy, not rules; a held-out review of the dataset is advisable.
+- **Asking vocabulary is learned from the examples**, so casual words it has not
+  seen can count as a need: "what's the hedge store got?" became a search.
+- **Paraphrased capabilities need the model.** Offline, the lexical verifier
+  hedges ("EV chargers" does not match "electric vehicle chargers"). Model review
+  has one observed false positive (fixed); its precision has not been measured
+  at scale and it is a recommendation-safety risk to review independently.
+- **The 4B model embellishes** open answers ("this payment comes from the local
+  system operator"); sentence checks are not entailment.
+- **Latency** of model turns (15–77 s) was measured on an isolated copy with
+  8156's limits; 8156 itself may be slower under contention. The model's memory
+  sizing is unchanged and still to be reviewed.
+- **Access links** (UI, OpenAPI, deploy URLs) are in the Store record but not in
+  the recommendation projection, so "where is its API documentation?" is not
+  answered; adding them needs a preparation-version bump.
+- **Not supported:** provider-scoped follow-ups ("do they have anything else?").
+- **Languages.** E5 and Rasa's templates are multilingual, but answers are
+  English source text; the earlier Turkish dialogue grammar was removed with the
+  rest and Turkish was not re-evaluated.
+- **Not done:** the approved Angular widget was not re-driven in a browser (the
+  API and SSE contract are unchanged and were exercised through the gateway); no
+  real-user session; no multi-user load.

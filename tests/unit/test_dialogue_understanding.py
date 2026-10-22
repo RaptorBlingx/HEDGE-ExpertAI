@@ -169,3 +169,16 @@ def test_both_after_a_withdrawal_is_never_some_other_pair():
     frame = interpret("Compare both", "compare", state, [EDGE, TREE])
     assert (frame.act, frame.problem) == ("clarify", "no_comparison_pair")
     assert interpret("compare the two apps", "compare", {}, [EDGE, TREE]).subjects == [EDGE["id"], TREE["id"]]
+
+
+@pytest.mark.parametrize("text,act", [("mqtt", "term"), ("gearbox vibration analysis", "describe"),
+                                      ("We need a common glossary so partners read data fields alike", "meaning")])
+def test_a_need_without_an_app_is_a_search_whatever_the_reading(text, act):
+    frame = interpret(text, act)
+    assert frame.act == "find" and frame.need
+
+
+def test_a_bare_app_name_or_a_term_question_keeps_its_act():
+    assert interpret("EdgeConnect", "describe").act == "describe"
+    assert interpret("what is an aggregator?", "term").act == "term"
+    assert interpret("how does it work", "how").problem == "no_subject"

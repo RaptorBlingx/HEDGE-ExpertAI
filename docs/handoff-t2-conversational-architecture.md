@@ -33,4 +33,28 @@ New setting `STORE_INTERPRETATION_SECONDS` (default 30): shared settings,
 - Discovery embeds the ~400 example utterances on first use; Chat warms this at
   startup.
 
-VERIFICATION_PLACEHOLDER
+## Verification performed
+
+- Ruff clean; 1,285 unit tests; generated Rasa corpus check; sealed-set leakage check.
+- Recommendation decisions on the unseen query sets: unchanged from `86fa782`
+  except one case improved (Fail to Suggested).
+- Integration suite against disposable PostgreSQL/Qdrant/Valkey: 3 failures, all
+  inherited from `86fa782`.
+- Natural conversations offline, with an isolated Qwen copy, and through an
+  isolated stack of this branch's services with real Rasa and E5: see
+  [results](t2-conversational-architecture.md#evaluation). Final sealed set:
+  baseline 9/27 offline and 12/27 with Qwen; branch 15/27 offline, 22/27 with
+  Qwen and through the stack.
+- All evaluation containers and networks were removed. 8156 was only observed read-only (logs, container stats and environment); no requests were sent to it and nothing was changed.
+
+Not performed: the Angular widget in a browser, a real-user session, multi-user
+load, Turkish conversations.
+
+## Recommended next steps
+
+1. Independent review, especially `review.py` (model review of paraphrased
+   evidence is the main recommendation-safety change) and the act dataset.
+2. Broaden `dialogue_acts.json` with varied, need-marked examples from real
+   sessions, keeping a sealed set unseen.
+3. Before deploying: rebuild Rasa, measure on 8156-equivalent load, and settle
+   model memory sizing; then a short real-user session.
