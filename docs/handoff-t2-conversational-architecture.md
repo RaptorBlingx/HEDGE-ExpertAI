@@ -1,3 +1,5 @@
+> Current release state: see [approved private checkpoint](releases/t2-prototype-20261022.md). The implementation/evaluation narrative below predates owner approval and deployment.
+
 # Handoff: T2 conversational architecture (22 October 2026)
 
 Branch `feat/t2-conversational-architecture` (worktree
