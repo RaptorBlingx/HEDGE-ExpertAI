@@ -82,7 +82,7 @@ class Assistant:
         if act in SMALL_TALK:
             return self._small_talk(act, req.locale, catalogue)
         if act == "clarify":
-            return self._clarify(frame, catalogue)
+            return self._clarify(frame, catalogue, state.get("shown", []))
         if act == "remove_constraint":
             return await self._remove_constraint(req, state, history, catalogue, filters)
         if any(k != "publisher" for k in filters):
@@ -99,7 +99,7 @@ class Assistant:
             if not apps and frame.subjects:
                 return self._reply("None of those Apps is from that provider.", [], "clarify",
                                    {"outcome": "abstained", "reason": "publisher_filter"})
-        if act in {"find", "check", "choose"} and frame.need and cost_question(frame.need):
+        if act in {"find", "check", "choose"} and frame.need and cost_question(req.message):
             # "A free app that ..." – a pricing condition the Store cannot confirm.
             state["pending_filters"] = list(dict.fromkeys([*state.get("pending_filters", []), "pricing"]))
             state["constraint_request"] = req.message
@@ -185,9 +185,11 @@ class Assistant:
         }[act]
         return self._reply(message, [], intent, {"outcome": "not_applicable", "reason": act})
 
-    def _clarify(self, frame: Frame, catalogue: list[dict]) -> dict:
+    def _clarify(self, frame: Frame, catalogue: list[dict], shown: list[str] = ()) -> dict:
         names = {a["id"]: a.get("name") or a["app_id"] for a in catalogue}
-        listed = " or ".join(f"**{n}**" for n in list(names.values())[:3])
+        # Offer the Apps just shown first: "it" after two results means one of them.
+        offered = [names[i] for i in shown if i in names] or list(names.values())
+        listed = " or ".join(f"**{n}**" for n in offered[:3])
         if frame.problem == "two_readings":
             readings = [o["gloss"] for o in frame.options]
             message = "Do you want me to " + ", or ".join(readings) + "?"

@@ -77,8 +77,10 @@ def test_an_explicit_reference_that_resolves_to_nothing_is_never_the_focus():
 
 
 def test_a_functional_need_turns_a_description_into_a_check_and_a_listing_into_a_search():
-    frame = interpret("Can EdgeConnect forecast solar production?", "describe")
-    assert (frame.act, frame.subjects) == ("check", [EDGE["id"]]) and "forecast solar production" in frame.need
+    frame = interpreter("find", "describe").interpret("Can EdgeConnect forecast solar production?", {}, CATALOGUE)
+    assert (frame.act, frame.subjects) == ("check", [EDGE["id"]]) and frame.need == "forecast solar production"
+    # Only when a classifier heard a need: both reading a description keeps it one.
+    assert interpret("Explain EdgeConnect like I'm new to energy data", "describe").act == "describe"
     frame = interpret("list apps for gearbox vibration", "list")
     assert frame.act == "find" and "gearbox vibration" in frame.need
     # Qualifiers of an explanation are not a need, and listings with function words stay listings.
@@ -136,3 +138,15 @@ def test_dialogue_acts_are_one_labelled_dataset_with_masked_apps():
     data = json.loads((understanding.files("hedge_shared") / "dialogue_acts.json").read_text())
     assert data["placeholder"] == "APP" and {"describe", "check", "find", "list", "same"} <= set(data["acts"])
     assert all(act["gloss"] and len(act["examples"]) >= 6 for act in data["acts"].values())
+
+
+@pytest.mark.parametrize("text,need", [
+    ("Which is better for settlement?", "settlement"),
+    ("I'm looking for something that forecasts electricity prices", "forecasts electricity prices"),
+    ("we need to turn JSON messages from one format into another", "turn JSON messages from one format into another"),
+    ("I need a free app that forecasts solar", "free app that forecasts solar"),  # a condition is never trimmed
+    ("does it handle settlement too?", "handle settlement"),
+    ("any tool for gearbox vibration, which app should I look at?", "gearbox vibration"),
+])
+def test_the_need_keeps_every_requested_word_and_drops_only_asking(text, need):
+    assert understanding.need_text(text, [], understanding.references(text)) == need

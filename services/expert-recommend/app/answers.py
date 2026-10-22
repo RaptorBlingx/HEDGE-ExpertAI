@@ -110,6 +110,13 @@ def capability_answer(need: str, rows: list[dict], locale: str) -> dict:
     selected, candidates = decision["apps"], decision["candidates"]
     if selected:
         message = decision_message(selected, [], direct=len(rows) == 1)
+        # When choosing between named Apps, say what the others' descriptions state.
+        chosen = {r["app"]["id"] for r in selected}
+        for row in [r for r in candidates if r["app"]["id"] not in chosen]:
+            stated = next((f for f in row.get("suitability", {}).get("requirements", [])
+                           if f["status"] in {"excluded", "limited"} and f.get("quote")), None)
+            message += (f"\n\n**{_name(row['app'])}**’s description says: “{_quoted_store_text(stated['quote'])}”"
+                        if stated else f"\n\n**{_name(row['app'])}**’s description doesn’t document that.")
     elif len(rows) == 1:
         message = _single_gap(need, (candidates or rows)[0])
     elif any(r.get("suitability", {}).get("status") == "partial" for r in candidates):

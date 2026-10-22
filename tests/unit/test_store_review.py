@@ -93,3 +93,12 @@ def test_field_answers_quote_supplied_values_without_inferring_meaning():
     assert answers.listing([app]).startswith("**Meter View** displays readings.")
     assert "price of 0 doesn’t confirm free use" in answers.unverified(["pricing"])
     assert "protocol support" in answers.unverified(["protocols"])
+
+
+def test_link_lines_without_full_stops_are_separate_sentences():
+    text = ("Vocabulary hub of a data space. Deployed instance (Energy Vocabulary Hub): https://hub.example.invalid "
+            "Documentation: https://docs.example.invalid External service, accessible via its public URL.")
+    quotes = [c.quote for c in evidence.clauses({"readme": text})]
+    assert "External service, accessible via its public URL." in quotes
+    assert not any("Vocabulary Hub" in q and "External service" in q for q in quotes)
+    assert all(q in text for q in quotes)

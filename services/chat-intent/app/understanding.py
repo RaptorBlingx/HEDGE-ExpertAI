@@ -141,15 +141,23 @@ def _operation_vocabulary() -> frozenset[str]:
     of the need acts' examples ("is there an app for [...]"), less any word a
     need span itself uses.
     """
-    asking, requesting, inside = set(), set(), set()
+    asking: set[str] = set()
     for name, act in acts().items():
-        for example in act["examples"]:
-            if name in NEED_ACTS:
-                inside |= {w for span in _NEED_SPAN.findall(example) for w in _words(span)}
-                requesting |= _words(_NEED_SPAN.sub(" ", example))
-            elif name not in {"term", "ask", "out_of_scope", "same", "remove_constraint"}:
+        if name not in NEED_ACTS | {"term", "ask", "out_of_scope", "same", "remove_constraint"}:
+            for example in act["examples"]:
                 asking |= _words(example)
-    return frozenset(asking | (requesting - inside) | _FUNCTION_WORDS
+    return frozenset(asking | _request_vocabulary())
+
+
+@lru_cache(maxsize=1)
+def _request_vocabulary() -> frozenset[str]:
+    """Only the wording around need spans ("is there an app for"), never other acts' words such as "free"."""
+    requesting, inside = set(), set()
+    for name in NEED_ACTS:
+        for example in acts()[name]["examples"]:
+            inside |= {w for span in _NEED_SPAN.findall(example) for w in _words(span)}
+            requesting |= _words(_NEED_SPAN.sub(" ", example))
+    return frozenset((requesting - inside) | _FUNCTION_WORDS
                      | {PLACEHOLDER.casefold(), "app", "apps", "application", "applications", "one"})
 
 
@@ -176,9 +184,17 @@ def need_text(message: str, mentions: list[Mention], refs: list[Reference]) -> s
         text = text[:start] + " " + text[end:]
     text = expand_contractions(text)
     text = re.sub(r"\b(?:too|also|as well|then|anyway|instead|please|ok|okay|so)\b", " ", text, flags=re.I)
-    clauses = [c for c in re.split(r"\s*[,;.?!]+\s*", text) if c.strip()]
-    kept = [c for c in clauses if residual(c)] or clauses
+    clauses = [c for c in re.split(r"\s*[,;.?!:]+\s*", text) if c.strip()]
+    kept = [_trim(c) for c in clauses if residual(c)] or clauses
     return " ".join(" ".join(kept).split()).strip(" ,.?!")
+
+
+def _trim(clause: str) -> str:
+    """Drop the asking words a clause starts with ("which is better for [settlement]")."""
+    words, vocabulary = clause.split(), _request_vocabulary()
+    while len(words) > 1 and set(re.findall(r"[a-z0-9]+", words[0].casefold())) <= vocabulary:
+        words.pop(0)
+    return " ".join(words)
 
 
 _GLOSSES = {
@@ -256,7 +272,7 @@ class Interpreter:
         content = residual(masked, refs)
         frames = []
         for act in readings:
-            frame = self._complete(act, message, named, mentions, refs, content, state, catalogue)
+            frame = self._complete(act, message, named, mentions, refs, content, state, catalogue, readings)
             if all(frame.act != f.act or frame.subjects != f.subjects for f in frames):
                 frames.append(frame)
         # A reading that fails its own structure (a search without a need) is no reading,
@@ -278,7 +294,8 @@ class Interpreter:
         return Frame("clarify", problem="two_readings", options=options, signals=signals)
 
     def _complete(self, act: str, message: str, named: list[str], mentions: list[Mention],
-                  refs: list[Reference], content: str, state: dict, catalogue: list[dict]) -> Frame:
+                  refs: list[Reference], content: str, state: dict, catalogue: list[dict],
+                  readings: list[str] = ()) -> Frame:
         """Fill the act's slots from the message and the dialogue state, adjusting the act to its structure."""
         last = state.get("last", {})
         need = need_text(message, mentions, refs)
@@ -287,13 +304,15 @@ class Interpreter:
             previous = last.get("act") if last.get("act") not in {None, "same", "clarify", "list", "find"} else "describe"
             if not named and not refs and content and last.get("act") in NEED_ACTS:
                 # "What about for solar?": the previous operation with a new need.
-                return self._complete(last["act"], message, named, mentions, refs, content, state, catalogue)
+                return self._complete(last["act"], message, named, mentions, refs, content, state, catalogue, readings)
             act, need = previous, last.get("need", "") if previous in NEED_ACTS else ""
             content = need
         # A functional need turns a description into a check and a listing into a search
         # ("Can X forecast solar?", "list apps for meters"). Qualified explanations
         # ("explain it like I'm new to energy") keep their act.
-        if content and act in {"describe", "list"}:
+        # A listing never absorbs a need; a description does only when the other
+        # reading also heard one.
+        if content and (act == "list" or act == "describe" and NEED_ACTS & set(readings)):
             act = "check" if act == "describe" and (named or self._subjects("check", mentions, refs, state, catalogue)) else "find"
         # "Can it shut down the turbine?" asks about the App in focus, not for another App.
         if act == "find" and content and (len(named) == 1 or not named and any(r.kind == "focus" for r in refs)

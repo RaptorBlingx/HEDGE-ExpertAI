@@ -126,6 +126,9 @@ _REPEATED_OBJECT = re.compile(r"^[a-z]+s\s+(?:the\s+|these\s+|those\s+)?([a-z-]+
 _WITHOUT = re.compile(r"\b(?:without|sem|ohne)\s+(?:\w+\s+){0,2}\w+")
 _CONTRAST = re.compile(r",?\s+\b(?:but|however|whereas|although|though|except that)\b\s+", re.I)
 _SENTENCE = re.compile(r"(?<=[.!?])\s+|\s*[\n•]+\s*")
+# Readmes rendered from markup often run link lines together without full stops:
+# "Deployed instance (Hub): https://... Documentation: https://... External service".
+_AFTER_URL = re.compile(r"(https?://[^\s<>\"]+)\s+(?=[A-Z])")
 _SPLIT = re.compile(r"(\s*(?:[,;]\s*(?:and\s+(?:also\s+)?|then\s+|also\s+|plus\s+)?|\s+(?:and\s+also|as well as|and then|"
                     r"and|plus|then|also|with)\s+))", re.I)
 _NEED = re.compile(r"\b(?:need|needs|want|wants|looking|require|requires|must|should|find|recommend|"
@@ -297,7 +300,7 @@ def clauses(evidence: dict[str, str], names: tuple[str, ...] = ()) -> list[Claus
     result = []
     for path, text in evidence.items():
         label = path.startswith("dataspaceAppDescription.properties.featureList[")
-        sentences = [s.strip() for s in _SENTENCE.split(text) if s and s.strip()]
+        sentences = [s.strip() for s in _SENTENCE.split(_AFTER_URL.sub("\\1\n", text)) if s and s.strip()]
         skipped = False
         for index, sentence in enumerate(sentences):
             previous = sentences[index - 1] if index else ""

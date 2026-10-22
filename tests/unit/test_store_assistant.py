@@ -209,3 +209,18 @@ def test_small_talk_is_store_specific_and_keeps_the_dialogue():
     (_, thanks), context = converse(policy, readings, [("Tell me about BidRelay", "describe"), ("thanks", "thanks")])
     assert context["dialogue"]["focus"] == [RELAY["id"]]
     json.dumps(context)  # the state is session-serializable
+
+
+def test_choosing_between_named_apps_says_why_the_others_fall_short():
+    policy, readings, _ = assistant()
+    (reply,), _ = converse(policy, readings, [("Which is better for forecasting electricity prices: PriceLens or BidRelay?",
+                                               "choose")])
+    assert reply["decision"]["outcome"] == "recommended" and "**PriceLens** fits" in reply["message"]
+    assert "**BidRelay**’s description says: “It does not forecast prices.”" in reply["message"]
+
+
+def test_an_ambiguous_pronoun_after_several_results_offers_those_results():
+    policy, readings, _ = assistant()
+    context = {"dialogue": {"shown": [HUB["id"], LENS["id"]]}}
+    (reply,), _ = converse(policy, readings, [("how does it work", "how")], context=context)
+    assert reply["intent"] == "clarify" and "**MeaningHub** or **PriceLens**" in reply["message"]
