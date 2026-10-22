@@ -129,12 +129,10 @@ class Assistant:
         decision = await asyncio.to_thread(self.compose, "check", frame.need, _rows(apps), req.locale)
         if state.get("pending_filters") and decision["decision"]["outcome"] == "recommended":
             return self._unverified(state, frame.act)
-        # The Apps asked about stay on screen, each with its assessment.
-        assessed = {r["app"]["id"]: r for r in [*decision["apps"], *decision.get("candidates", [])]}
-        shown = [assessed.get(row["app"]["id"], row) for row in _rows(apps)]
-        return {"message": decision["message"], "apps": shown, "intent": "detail",
+        # Cards are recommendations; the Apps asked about stay the subject either way.
+        return {"message": decision["message"], "apps": decision["apps"], "intent": "detail",
                 "decision": decision["decision"], "candidates": decision.get("candidates", []),
-                "generation": {"source": "prepared", "reason": "source_evidence"}}
+                "presented": [a["id"] for a in apps], "generation": {"source": "prepared", "reason": "source_evidence"}}
 
     async def _find(self, frame, req, state, filters) -> dict:
         self.progress("retrieval")
@@ -147,8 +145,10 @@ class Assistant:
             if reviewed.get("apps"):
                 found = {**found, **{k: reviewed[k] for k in ("apps", "candidates", "decision", "message")}}
         apps = found.get("apps", [])
+        # Closest unconfirmed Apps are described, not shown as recommendations.
         partial = [r for r in found.get("candidates", []) if r.get("suitability", {}).get("status") == "partial"]
-        return {"message": found.get("message", ""), "apps": apps or partial[:3], "intent": "search",
+        return {"message": found.get("message", ""), "apps": apps, "intent": "search",
+                "presented": [r["app"]["id"] for r in (apps or partial[:3])],
                 "decision": found.get("decision", {"outcome": "abstained", "reason": "insufficient_evidence"}),
                 "candidates": found.get("candidates", []), "timings": found.get("timings", {}),
                 "generation": {"source": "prepared", "reason": "source_evidence"}}
@@ -272,7 +272,7 @@ class Assistant:
     # --- state ---------------------------------------------------------------
 
     def _next_state(self, state: dict, frame: Frame, reply: dict) -> dict:
-        shown = [r["app"]["id"] for r in reply.get("apps", [])]
+        shown = reply.get("presented") or [r["app"]["id"] for r in reply.get("apps", [])]
         if reply.get("changed"):
             return {k: v for k, v in state.items() if k in {"pending_filters", "constraint_request", "need"}}
         if frame.act in SMALL_TALK | {"clarify"}:

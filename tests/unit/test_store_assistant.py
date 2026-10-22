@@ -224,3 +224,11 @@ def test_an_ambiguous_pronoun_after_several_results_offers_those_results():
     context = {"dialogue": {"shown": [HUB["id"], LENS["id"]]}}
     (reply,), _ = converse(policy, readings, [("how does it work", "how")], context=context)
     assert reply["intent"] == "clarify" and "**MeaningHub** or **PriceLens**" in reply["message"]
+
+
+def test_unconfirmed_apps_are_described_but_never_sent_as_recommendation_cards():
+    policy, readings, _ = assistant()
+    (no, follow), context = converse(policy, readings, [("Can PriceLens submit bids?", "check"),
+                                                        ("who makes it?", "provider")])
+    assert no["decision"]["outcome"] == "abstained" and no["apps"] == [] and "**PriceLens**" in no["message"]
+    assert [r["app"]["name"] for r in follow["apps"]] == ["PriceLens"]

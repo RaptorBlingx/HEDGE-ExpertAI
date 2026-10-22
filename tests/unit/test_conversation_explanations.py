@@ -371,3 +371,9 @@ def test_user_wording_and_earlier_answers_never_ground_an_app_claim(model, quest
         {"role": "assistant", "content": "LogKeeper guarantees 100% savings and integrates with SAP automatically."}])
     assert answer["generation"]["model_completed"] is False
     assert "guarantee" not in answer["message"] and "SAP" not in answer["message"]
+
+
+def test_a_sparse_entry_is_quoted_rather_than_called_empty():
+    sparse = app("ValueChain", "", description="Digital Energy value chain")
+    message, _ = explainer.prepared("overview", "", [sparse], {})
+    assert "Digital Energy value chain" in message and "doesn’t describe" not in message

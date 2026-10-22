@@ -156,3 +156,16 @@ def test_an_agreed_check_without_a_pronoun_is_about_the_app_in_focus():
     state = {"focus": [EDGE["id"]], "shown": [EDGE["id"]]}
     frame = interpret("and how is settlement handled then?", "check", state)
     assert (frame.act, frame.subjects) == ("check", [EDGE["id"]])
+
+
+def test_ranges_and_a_single_result_are_addressable_by_position():
+    shown = {"shown": [EDGE["id"], TREE["id"], WATCH["id"]], "focus": [TREE["id"]]}
+    assert interpret("compare the first two apps", "compare", shown).subjects == [EDGE["id"], TREE["id"]]
+    assert interpret("Tell me about the first app", "describe", {"shown": [WATCH["id"]]}).subjects == [WATCH["id"]]
+
+
+def test_both_after_a_withdrawal_is_never_some_other_pair():
+    state = {"shown": ["withdrawn", EDGE["id"]], "compared": ["withdrawn", EDGE["id"]]}
+    frame = interpret("Compare both", "compare", state, [EDGE, TREE])
+    assert (frame.act, frame.problem) == ("clarify", "no_comparison_pair")
+    assert interpret("compare the two apps", "compare", {}, [EDGE, TREE]).subjects == [EDGE["id"], TREE["id"]]

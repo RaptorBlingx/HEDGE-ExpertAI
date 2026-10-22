@@ -15,6 +15,7 @@ from urllib.parse import urlparse
 import pytest
 from hedge_shared import storage
 from hedge_shared.models_v2 import ChatRequestV2
+from hedge_shared.store_knowledge import project
 from hedge_shared.store_v1 import StoreAppMetadata
 
 from scripts.store_assistant_local import local_assistant
@@ -51,10 +52,10 @@ def resolver():
     identities = [client_module.normalize_store_v1_app(r).id for r in RAW if r["fkAppStoreId"] == STORE]
 
     def resolve(ids):
+        # The same current projection Discovery's catalogue route serves.
         ids = identities if ids is None else ids
         rows = storage.get_catalogue_apps(ids, store_id=STORE)
-        return [StoreAppMetadata.model_validate(rows[i]["payload"]).recommendation_projection()
-                for i in ids if i in rows]
+        return [project(rows[i]) for i in ids if i in rows]
     return resolve
 
 
@@ -102,7 +103,8 @@ def test_followups_rehydrate_current_metadata_and_reject_withdrawal(conversation
     assert "Current authoritative description" in conversation("Tell me about the first app")["message"]
     storage.upsert_catalogue_app(storage.create_ingestion_run("dialogue-withdrawal"), changed.model_copy(update={"visible": False}))
     assert conversation("Tell me about the first app")["apps"] == []
-    assert conversation("Compare both")["apps"] == []
+    # Whatever "both" can still mean, the withdrawn App is never shown.
+    assert identity not in [a["app"]["id"] for a in conversation("Compare both")["apps"]]
 
 
 def test_new_empty_topic_discards_old_references(conversation):

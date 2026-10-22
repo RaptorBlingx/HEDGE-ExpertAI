@@ -382,6 +382,10 @@ def prepared(act: str, question: str, apps: list[dict], state: dict, *, phrase: 
                 return message, candidate
         return "", act
     message = _LAYERS[act](guide, state, app_id)
+    description = (apps[0].get("description") or "").strip()
+    if act == "overview" and not guide.statements and description:
+        # A sparse entry ("Digital Energy value chain") still says something: quote it.
+        message = f"{_name(guide)}’s Store description reads: “{_q(description)}”"
     if message:
         entry["used"].append(act)
     return message, act

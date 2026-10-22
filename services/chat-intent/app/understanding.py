@@ -48,7 +48,9 @@ _CONTRACTIONS = [(r"\b(\w+)n['’]t\b", r"\1 not"), (r"\bcan not\b", "cannot"), 
                  (r"\b(it|that|what|who|where|how|there|here|which)['’]s\b", r"\1 is")]
 _ORDINALS = {"first": 0, "1st": 0, "second": 1, "2nd": 1, "third": 2, "3rd": 2, "fourth": 3, "4th": 3,
              "fifth": 4, "5th": 4, "last": -1}
+_COUNTS = {"two": 2, "2": 2, "three": 3, "3": 3}
 _REFERENCES = [
+    ("range", re.compile(r"\b(?:the\s+)?first\s+(two|three|2|3)(?:\s+(?:ones|apps|applications))?\b", re.I)),
     ("other", re.compile(r"\bthe other(?:\s+(?:one|app|application))?\b", re.I)),
     ("ordinal", re.compile(r"\b(?:the\s+)?(" + "|".join(_ORDINALS) + r")(?:\s+(?:one|app|application))?\b", re.I)),
     ("set", re.compile(r"\b(?:both(?:\s+of\s+them)?|them|they|these(?:\s+apps)?|those(?:\s+(?:apps|two))?|"
@@ -105,7 +107,7 @@ class Frame:
 
 @dataclass
 class Reference:
-    kind: str  # focus, other, ordinal, set
+    kind: str  # focus, other, ordinal, range ("the first two"), set
     start: int
     end: int
     index: int | None = None
@@ -117,7 +119,8 @@ def references(text: str) -> list[Reference]:
         for match in pattern.finditer(text):
             if any(match.start() < r.end and r.start < match.end() for r in found):
                 continue
-            index = _ORDINALS[match[1].casefold()] if kind == "ordinal" else None
+            index = (_ORDINALS[match[1].casefold()] if kind == "ordinal"
+                     else _COUNTS[match[1].casefold()] if kind == "range" else None)
             found.append(Reference(kind, match.start(), match.end(), index))
     return sorted(found, key=lambda r: r.start)
 
@@ -346,10 +349,13 @@ class Interpreter:
         current = {a["id"] for a in catalogue}
         shown = [i for i in state.get("shown", []) if i in current]
         focus = [i for i in state.get("focus", []) if i in current]
-        group = shown if len(shown) > 1 else [i for i in state.get("compared", []) if i in current]
+        compared = [i for i in state.get("compared", []) if i in current]
+        group = shown if len(shown) > 1 else compared or shown
         resolved: list[tuple[int, str]] = []  # (position in the message, identity)
         for ref in refs:
-            if ref.kind == "ordinal" and group:
+            if ref.kind == "range" and len(group) >= (ref.index or 0):
+                resolved += [(ref.start, i) for i in group[:ref.index]]
+            elif ref.kind == "ordinal" and group:
                 position = ref.index if ref.index is not None else 0
                 if -len(group) <= position < len(group):
                     resolved.append((ref.start, group[position]))
@@ -370,6 +376,9 @@ class Interpreter:
             subjects = list(dict.fromkeys(i for _, i in ordered))
             if len(subjects) == 1 and len(focus) == 1 and focus != subjects:
                 subjects = focus + subjects  # "What's the difference with X?" compares X with the focus
+            earlier = state.get("shown", []) if len(state.get("shown", [])) > 1 else state.get("compared", [])
+            if len(subjects) < 2 and refs and any(i not in current for i in earlier):
+                return subjects  # "both" whose Apps were withdrawn is not some other pair
             if len(subjects) < 2:
                 discussed = [i for i in state.get("discussed", []) if i in current]
                 subjects = (group if len(group) > 1 else discussed[-2:] if len(discussed) > 1
@@ -379,7 +388,7 @@ class Interpreter:
             return named
         if resolved:
             return list(dict.fromkeys(i for _, i in resolved))
-        if any(r.kind in {"other", "ordinal", "set"} for r in refs):
+        if any(r.kind in {"other", "ordinal", "set", "range"} for r in refs):
             return []  # an explicit reference that resolves to nothing is not the focus
         if len(focus) == 1:
             return focus
