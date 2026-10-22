@@ -24,3 +24,6 @@ select = ["E", "F", "I", "B", "UP"]
 
 [tool.setuptools.packages.find]
 include = ["hedge_shared*"]
+
+[tool.setuptools.package-data]
+hedge_shared = ["*.json"]

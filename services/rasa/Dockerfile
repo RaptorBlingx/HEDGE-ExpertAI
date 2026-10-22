@@ -12,7 +12,7 @@ RUN chown -R 1001:1001 /app
 USER 1001
 
 RUN rasa train nlu --config config.yml --nlu data/nlu.yml --out models \
-    --fixed-model-name hedge-expertai-nlu-v2
+    --fixed-model-name hedge-expertai-nlu-v3
 
 EXPOSE 5005
 

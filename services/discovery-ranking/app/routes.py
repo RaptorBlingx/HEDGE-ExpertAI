@@ -166,16 +166,18 @@ def search_apps_v2_route(req: SearchRequestV2) -> dict[str, Any]:
 class SimilarityRequest(BaseModel):
     queries: list[str] = Field(min_length=1, max_length=8)
     passages: list[str] = Field(min_length=1, max_length=400)
+    # Utterance-to-utterance comparison (dialogue acts) rather than query-to-source.
+    symmetric: bool = False
 
 
 @v2_router.post("/evidence/similarity")
 def evidence_similarity(req: SimilarityRequest) -> dict[str, list[list[float]]]:
-    """Internal E5 scores for Expert's requirement/source-sentence matching."""
+    """Internal E5 scores: requirements against source sentences, or utterances against examples."""
     from .embeddings import similarity
 
     if any(len(text) > 2000 for text in [*req.queries, *req.passages]):
         raise HTTPException(status_code=422, detail="Text too long")
-    return {"scores": similarity(req.queries, req.passages)}
+    return {"scores": similarity(req.queries, req.passages, symmetric=req.symmetric)}
 
 
 @v2_router.get("/catalog/apps")
