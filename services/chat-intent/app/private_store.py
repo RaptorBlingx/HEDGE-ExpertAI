@@ -1,18 +1,13 @@
 """Bind the existing Store dialogue to deployed HTTP services."""
 import json
 import os
-from contextvars import ContextVar
 from functools import lru_cache
 
 import httpx
 from fastapi import HTTPException
 from hedge_shared.config import Settings
 
-from .store_conversation import StoreConversation
-
-# Set by the streaming chat route for the current request only: receives text
-# the widget may show before the reply completes.
-STREAM: ContextVar = ContextVar("store_explanation_stream", default=None)
+from .store_conversation import STREAM, StoreConversation
 
 client = httpx.Client(timeout=Settings().STORE_MODEL_TIMEOUT_SECONDS + 10, trust_env=False,
                       headers={"X-API-Key": os.environ.get("GATEWAY_API_KEY", "")})

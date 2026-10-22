@@ -513,3 +513,66 @@ def test_who_an_app_is_for_comes_from_documented_roles_or_says_it_is_not_stated(
 
 
 RELAY_WITH_ROLES = app("PoolLink", "PoolLink combines flexibility bids from aggregators and sends them to the market operator.")
+
+
+# --- Review corrections ---------------------------------------------------------
+
+def test_a_clicked_card_is_answered_about_that_app_not_the_previous_focus(monkeypatch):
+    policy, calls, _ = conversation(monkeypatch)
+    action = {"type": "inspect", "store_id": HUB["store_id"], "app_id": HUB["app_id"]}
+    result = asyncio.run(policy.respond_with_history(
+        ChatRequestV2(message="Tell me about MeaningHub", locale="en", app_action=action), "detail",
+        {"turn": 3, "focused_ids": [RELAY["id"]]}, []))
+    assert [r["app"]["id"] for r in result["apps"]] == [HUB["id"]]
+    assert "**MeaningHub**" in result["message"] and "BidRelay" not in result["message"]
+    assert result["context"]["focused_ids"] == [HUB["id"]]
+
+
+def test_a_clicked_card_that_no_longer_resolves_is_never_answered_about_another_app(monkeypatch):
+    policy, calls, _ = conversation(monkeypatch)
+    action = {"type": "inspect", "store_id": HUB["store_id"], "app_id": "withdrawn-app"}
+    result = asyncio.run(policy._act_response(
+        ChatRequestV2(message="Tell me about it", locale="en", app_action=action),
+        {"turn": 3, "focused_ids": [RELAY["id"]]}, []))
+    assert result is None  # the prepared path reports that the App is unavailable
+    calls.assert_not_called()
+
+
+@pytest.mark.parametrize("question,reply", [
+    ("Does it guarantee 100% savings?", "It does guarantee 100% savings [S1]."),
+    ("My manager says it integrates with SAP automatically. Does it?",
+     "It integrates with SAP automatically [S1]."),
+])
+def test_user_wording_and_earlier_answers_never_ground_an_app_claim(model, question, reply):
+    logging = app("LogKeeper", "LogKeeper stores application log files.")
+    model.return_value = reply
+    answer = explainer.respond("open", question, [logging], {}, [
+        {"role": "assistant", "content": "LogKeeper guarantees 100% savings and integrates with SAP automatically."}])
+    assert answer["generation"]["model_completed"] is False
+    assert "guarantee" not in answer["message"] and "SAP" not in answer["message"]
+
+
+@pytest.mark.parametrize("change_after", [0, 1])
+def test_streamed_sentences_are_released_only_while_the_app_is_still_authorized(monkeypatch, change_after):
+    policy, calls, available = conversation(monkeypatch)
+    sentences = ["It combines bids.", " It tracks contributions."]
+
+    def streaming_explainer(*args):
+        relay = dialogue.STREAM.get()
+        for index, sentence in enumerate(sentences):
+            if index == change_after:
+                available[0]["source_evidence"]["readme"] = "Withdrawn or revised."
+            relay(sentence)
+        return {"message": "".join(sentences), "generation": {"source": "ollama", "model_completed": True}}
+
+    calls.side_effect = streaming_explainer
+    shown = []
+    token = dialogue.STREAM.set(shown.append)
+    try:
+        result = ask(policy, "Would BidRelay help an energy cooperative?", {})
+    finally:
+        dialogue.STREAM.reset(token)
+    assert shown == sentences[:change_after]
+    assert result["decision"]["reason"] == "catalogue_changed" and not result["apps"]
+    assert result["message"].startswith("".join(shown))  # the stored reply is exactly what was shown
+    assert "changed while" in result["message"]

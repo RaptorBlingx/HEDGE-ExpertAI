@@ -9,6 +9,7 @@ import asyncio
 import json
 import re
 import time
+from contextvars import ContextVar
 from copy import deepcopy
 
 from hedge_shared.config import Settings
@@ -35,6 +36,10 @@ from .store_dialogue import (
 _COMPLEX = re.compile(r"^(?:reason in depth|analyze in depth|ayrıntılı değerlendir):\s*", re.I)
 _STRICT_REQUEST = re.compile(r"\d|\b(?:no|not|never|cannot|without|only|except|must|requires?|guarantee\w*|certifi\w*|production|offline|under|at least|at most|automatic\w*|all|every|always|unlimited)\b|n't\b", re.I)
 _NEW_SEARCH = re.compile(r"^(?:(?:can|could|would)\s+you\s+)?(?:please\s+)?(?:find|search|recommend)\b", re.I)
+# Set by the streaming chat route for one request: receives text the widget
+# shows before the reply completes. Only _guarded_explain wraps it for release.
+STREAM: ContextVar = ContextVar("store_explanation_stream", default=None)
+_CHANGED = "The catalogue changed while preparing this reply. Please search again."
 _NEXT_STEPS = ("Tell me which requirement you can change, and I can look for a partial fit. "
                "You can also ask the provider about the missing feature, or compare the available Apps "
                "to see whether part of your workflow is covered.")
@@ -222,6 +227,31 @@ class StoreConversation(StoreDialogue):
             return displayed
         return discussed[-1:] if act.kind != "overview" else []
 
+    async def _guarded_explain(self, act, message, apps, context, history, phrase=""):
+        """Run the explainer; release streamed text only while its Apps are unchanged.
+
+        Every sentence is re-checked against the current authorized catalogue
+        before the widget sees it, the same check a completed reply gets, so no
+        later validation can reject text that was already shown. Returns the
+        answer, the released text, and whether the Apps changed.
+        """
+        relay, ids, released, changed = STREAM.get(), [a["id"] for a in apps], [], []
+
+        def release(text):
+            if changed or self.resolve(ids) != apps:
+                changed.append(True)
+                return
+            released.append(text)
+            relay(text)
+
+        token = STREAM.set(release if relay else None)
+        try:
+            answer = await asyncio.to_thread(self.explainer, act, message, apps,
+                                             deepcopy(context.get("explanations", {})), history[-6:], phrase)
+        finally:
+            STREAM.reset(token)
+        return answer, "".join(released), bool(changed) or self.resolve(ids) != apps
+
     async def _act_response(self, req, context, history):
         """Explanation acts: prepared from source guides first, one bounded model call if needed.
 
@@ -234,11 +264,17 @@ class StoreConversation(StoreDialogue):
         current = self.resolve(None)
         act = conversation_acts.parse(req.message, [a.get("name") or a["app_id"] for a in current])
         if req.app_action:
-            act = conversation_acts.Act("overview")
-        if act is None:
+            # A clicked card names its App by native identity; that, never the
+            # previous conversational focus, is the subject.
+            action = req.app_action
+            clicked = [a["id"] for a in current if a["store_id"] == action.store_id and a["app_id"] == action.app_id]
+            if len(clicked) != 1:
+                return None  # the prepared path reports that the App is unavailable
+            act, subjects = conversation_acts.Act("overview"), clicked
+        elif act is None:
             return None
-        subjects = ([context["focused_ids"][0]] if req.app_action and context.get("focused_ids")
-                    else self._act_subjects(act, req.message, context))
+        else:
+            subjects = self._act_subjects(act, req.message, context)
         if act.kind in {"compare", "choose"} and len(subjects) < 2 or act.kind != "term" and not subjects:
             return None
         apps = self.resolve(subjects)
@@ -251,18 +287,19 @@ class StoreConversation(StoreDialogue):
         started = time.monotonic()
         self.progress("explanation")
         try:
-            answer = await asyncio.to_thread(self.explainer, act.kind, req.message, apps,
-                                             deepcopy(context.get("explanations", {})), history[-6:], act.phrase)
+            answer, released, changed = await self._guarded_explain(
+                act.kind, req.message, apps, context, history, act.phrase)
         except Exception:
             return None
-        if not answer.get("message"):
-            return None
-        # A slow explanation must not revive withdrawn or modified evidence.
-        if self.resolve(subjects) != apps:
-            return {**self._response("The catalogue changed while preparing this reply. Please search again.",
+        if changed:
+            # A slow explanation must not revive withdrawn or modified evidence.
+            # Text released before the change stays the start of the reply.
+            return {**self._response((released + "\n\n" if released else "") + _CHANGED,
                     [], "clarify", {**context, "focused_ids": []}),
                     "decision": {"outcome": "abstained", "reason": "catalogue_changed"},
                     "generation": {"source": "prepared", "model_completed": False}}
+        if not answer.get("message"):
+            return None
         rows = [{"app": a, "rank": i + 1, "evidence_fields": ["reference"]} for i, a in enumerate(apps)]
         comparison = act.kind in {"compare", "choose"}
         next_context = {**context, "filters": filters, "explanations": answer.get("state", {}),
@@ -618,11 +655,15 @@ class StoreConversation(StoreDialogue):
                        "comparison": "compare"}.get(view) if inspection else None
                 if act and self.explainer and shown and (act != "compare" or len(shown) > 1):
                     try:
-                        explained = await asyncio.to_thread(
-                            self.explainer, act, req.message, [r["app"] for r in shown],
-                            deepcopy(context.get("explanations", {})), history[-6:], "")
+                        explained, released, changed = await self._guarded_explain(
+                            act, req.message, [r["app"] for r in shown], context, history)
                     except Exception:
-                        explained = {}
+                        explained, released, changed = {}, "", False
+                    if changed:
+                        explained = {"message": (released + "\n\n" if released else "") + _CHANGED}
+                        response.update(apps=[], candidates=[],
+                                        decision={"outcome": "abstained", "reason": "catalogue_changed"})
+                        response["context"].update(last_results=[], focused_ids=[])
                     if explained.get("message"):
                         response["message"] = explained["message"]
                         response["context"]["explanations"] = explained.get("state", {})

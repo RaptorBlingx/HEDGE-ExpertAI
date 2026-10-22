@@ -26,8 +26,9 @@ Prepared explanations need no flag and no model.
 
 ## Verification performed
 
-- Ruff clean; 1,542 unit tests pass (baseline 1,483; the 24 elaboration tests are
-  replaced by explanation, act, streaming, routing and safety tests).
+- Ruff clean; 1,548 unit tests pass (baseline 1,483; the 24 elaboration tests are
+  replaced by explanation, act, streaming, routing and safety tests, including
+  regression tests for the three review corrections).
 - OpenAPI export regenerated: no diff (internal routes are not public).
 - Integration suite against disposable PostgreSQL/Qdrant/Valkey on an internal
   network: 206 pass, 27 fail, the same 27 on `a2a02ad` (stale expectations).

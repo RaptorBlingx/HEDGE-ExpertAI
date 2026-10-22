@@ -201,6 +201,26 @@ arrived as 3–5 checked sentences; first sentence after 6.6–16.3 s, complete 
 in 0.23 s. The only browser console errors were `/api/v2/status` 503s because
 metadata-ingest was not started.
 
+## Review corrections (22 October)
+
+An independent review accepted the branch with three confirmed defects, each
+reproduced here by a failing test before the fix:
+
+- **A clicked card answered about the previously focused App.** The inspection
+  action now resolves its own native `(store_id, app_id)` against the current
+  catalogue; if that does not resolve, the explanation path declines and the
+  existing prepared path reports the App as unavailable.
+- **User wording could ground a generated claim.** The sentence checks allowed
+  quantities and guarantee/integration words that appeared in the question or an
+  earlier answer. Only source statements and the curated glossary notes ground
+  claims now; a number the user mentions is no longer repeatable as an App fact.
+- **Withdrawal was checked only after streaming.** Every streamed sentence is now
+  released only if the App's current authorized record still equals the one being
+  explained, the same comparison a completed reply gets. After a change nothing
+  more is released, and the stored reply is the released text followed by the
+  catalogue-changed notice, so no later validation rejects text already shown.
+  The planner hand-off uses the same guard.
+
 ## Performance
 
 | Turn | Before (observed 8156) | Now |

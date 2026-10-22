@@ -475,7 +475,9 @@ def _prompt(question: str, guides: list[app_guide.Guide], history: list[dict]):
     data = {"apps": payload, "background": background, "previous_answer": previous, "question": question}
     messages = [{"role": "system", "content": SYSTEM},
                 {"role": "user", "content": json.dumps(data, ensure_ascii=False, separators=(",", ":"))}]
-    grounds = " ".join([question, previous, *background.values(), *(s.text for _, s in sources.values())])
+    # Only source statements and the curated glossary notes can ground a claim:
+    # the user's wording and earlier (generated) answers never do.
+    grounds = " ".join([*background.values(), *(s.text for _, s in sources.values())])
     # A negative claim about an App needs a stated limitation of that App.
     limits = {"names": [g.name for g in guides],
               "terms": set().union(*[evidence_terms(s.text) for g in guides for s in g.by_role("limitation")])}
