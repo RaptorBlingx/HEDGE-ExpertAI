@@ -95,7 +95,7 @@ _GENERIC_WORDS = (
 _DEPLOYMENT_WORDS = "container image docker registry deploy deployment install installation self-host host hosted offline".split()
 # People and partners carry out an activity; that is not the App performing it.
 _HUMAN_ACTOR = re.compile(
-    r"^(?:the\s+|our\s+|your\s+|its\s+)?(?:engineers?|operators?|users?|customers?|partners?|partner organi[sz]ations?|"
+    r"^(?:the\s+|our\s+|your\s+|its\s+)?(?:[a-z][\w-]*\s+){0,2}?(?:engineers?|operators?|users?|customers?|partners?|partner organi[sz]ations?|"
     r"teams?|administrators?|admins?|staff|people|organi[sz]ations?|companies|clients?|technicians?|analysts?|"
     r"developers?|you|we)\b", re.I)
 # Text addressed to an assistant or reader, or a question, is not a description of the App.
@@ -124,6 +124,14 @@ _REFERENCE = re.compile(r"\b(?:them|they|these|those|eles|elas)\b", re.I)
 # "Provides earthquake warnings. Delivers warnings via SMS." repeats the object noun.
 _REPEATED_OBJECT = re.compile(r"^[a-z]+s\s+(?:the\s+|these\s+|those\s+)?([a-z-]+)\s+(?:via|by|to|through|using|over)\b")
 _WITHOUT = re.compile(r"\b(?:without|sem|ohne)\s+(?:\w+\s+){0,2}\w+")
+# What an App works from, not what it provides: "predicts consumption from meter
+# readings", "transforms messages using mappings", "schedules assets against price
+# forecasts supplied by the user". The phrase is a noun phrase: it ends at a clause
+# boundary, a destination ("to", "into", "for"), a verb or relative clause ("are
+# combined", "which ...") or a coordinated predicate ("and submits").
+_INPUT = re.compile(r"\b(?:from|using|based on|against|out of|drawing on|with the help of)\b"
+                    r"(.*?)(?=[,;.:]|\b(?:to|into|for|so that|and then|is|are|was|were|be|been|being|can|could|will|"
+                    r"would|may|might|must|should|it|they|which|that)\b|\band\s+[a-z]+s\b|$)")
 _CONTRAST = re.compile(r",?\s+\b(?:but|however|whereas|although|though|except that)\b\s+", re.I)
 _SENTENCE = re.compile(r"(?<=[.!?])\s+|\s*[\n•]+\s*")
 # Readmes rendered from markup often run link lines together without full stops:
@@ -203,6 +211,35 @@ def _stem(word: str) -> str:
 
 def terms(text: str) -> set[str]:
     return {_stem(w) for w in re.findall(r"[^\W_]+", _fold(text)) if w not in _STOP and not w.isdigit()}
+
+
+def inputs(text: str) -> set[str]:
+    """Terms a text names as what is worked from (see _INPUT), with their marker ("against")."""
+    return set().union(*(terms(m[0]) for m in _INPUT.finditer(_fold(text))))
+
+
+_INTERFACE = re.compile(r"\b[A-Z][A-Z0-9]{1,}(?:[ -][A-Z0-9]{2,})?\b")
+
+
+def _core(text: str) -> set[str]:
+    """Terms of what the text says is done or provided, inputs aside.
+
+    An interface named in an input phrase ("from MQTT devices", "using OPC UA")
+    is part of what the App supports; the data it reads ("from weather data") is not.
+    """
+    interfaces = {t for m in _INPUT.finditer(text) for name in _INTERFACE.findall(m[1]) for t in terms(name)}
+    return terms(_INPUT.sub(" ", _WITHOUT.sub(" ", _fold(text)))) | interfaces
+
+
+def _absent(text: str) -> set[str]:
+    """Terms a text says something works without ("works without internet access")."""
+    return set().union(*(terms(m[0]) for m in _WITHOUT.finditer(_fold(text))))
+
+
+def input_only(requirement: str, text: str) -> bool:
+    """Whether a text names the requested function only as something it uses."""
+    wanted = terms(requirement) - inputs(requirement)
+    return bool(wanted) and wanted <= terms(text) and not wanted <= _core(text)
 
 
 def _topic(text: str) -> str:
@@ -480,8 +517,13 @@ def _nominate(wanted: set[str], numbers: set[str], clause: Clause, dense: float 
     return None
 
 
-def _verified(wanted: set[str], numbers: set[str], clause: Clause, query: str, *, negative: bool = False) -> bool:
-    """A self-contained claim by this App stating every requested term, unconditionally."""
+def _verified(wanted: set[str], numbers: set[str], clause: Clause, query: str, *, negative: bool = False,
+              used: frozenset[str] = frozenset(), without: frozenset[str] = frozenset()) -> bool:
+    """A self-contained claim by this App stating every requested term, unconditionally.
+
+    Terms the requirement does not itself place in an input role (``used``) must
+    be what the App does or provides, not what it works from.
+    """
     if negative:
         if clause.polarity != "negative":
             return False
@@ -489,8 +531,12 @@ def _verified(wanted: set[str], numbers: set[str], clause: Clause, query: str, *
         # quantities, scope and qualifications still need ordinary verification.
         # The whole quote retains an adjacent qualification on the absence.
         clause = replace(clause, text=clause.topic, polarity=_polarity(_topic(clause.quote)))
-    if not clause.verifiable or not wanted or not wanted <= clause.terms:
+    if not clause.verifiable or not wanted or not (wanted - without) <= clause.terms:
         return False
+    if not (wanted - used - without) <= _core(clause.text):
+        return False  # "predicts consumption from weather data" does not provide weather data
+    if without and not without <= _absent(clause.text):
+        return False  # "without internet access" needs a stated absence of internet access
     if clause.polarity != "affirmed" and not _requested_limitation(query, clause):
         return False
     if numbers and not numbers <= set(_NUMBER.findall(clause.text)):
@@ -511,15 +557,17 @@ def _assess(requirement: str, query: str, candidates: list[tuple[Clause, float |
     negative_request = bool(_NEGATIVE.search(_fold(requirement)))
     wanted = terms(_topic(requirement)) if negative_request else terms(requirement)
     numbers = set(_NUMBER.findall(requirement))
+    used = frozenset(inputs(_topic(requirement)) if negative_request else inputs(requirement))
+    without = frozenset(_absent(requirement))  # a requested absence is matched by a stated one
     affirmed_terms = set().union(*(c.terms for c, _, _ in candidates if c.polarity != "negative"))
     anchored = bool(wanted & affirmed_terms)
     if negative_request:
         # "Must not collect personal data" is met only by an owned statement that
         # the App does not collect personal data — the same action, not another.
-        absent = [c for c, _, _ in candidates if _verified(wanted, numbers, c, query, negative=True)]
+        absent = [c for c, _, _ in candidates if _verified(wanted, numbers, c, query, negative=True, used=used, without=without)]
         # A separately stated condition, App-wide restriction or affirmative
         # counterclaim cannot be bypassed by the negative-requirement path.
-        if any(c.app_wide or _verified(wanted, numbers, c, query)
+        if any(c.app_wide or _verified(wanted, numbers, c, query, used=used, without=without)
                or c.polarity == "limited" and _applies(c, wanted) and not _requested_limitation(query, c)
                for c, _, _ in candidates):
             absent = []
@@ -528,7 +576,7 @@ def _assess(requirement: str, query: str, candidates: list[tuple[Clause, float |
     scored = sorted(((strength, clause) for clause, dense, z in candidates
                      if (strength := _nominate(wanted, numbers, clause, dense, z, anchored)) is not None),
                     key=lambda pair: pair[0], reverse=True)
-    verified = [c for c, _, _ in candidates if _verified(wanted, numbers, c, query)]
+    verified = [c for c, _, _ in candidates if _verified(wanted, numbers, c, query, used=used, without=without)]
     affirmed = [(s, c) for s, c in scored if c.polarity == "affirmed" or _requested_limitation(query, c)]
     if not scored and not verified:
         return Finding(requirement, "not_documented")

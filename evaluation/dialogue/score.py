@@ -6,6 +6,11 @@ generic clarification, "Which App do you mean?" for a named App, the open-questi
 fallback, or a recommendation verdict where none was asked or supported).
 The `act` label documents the intended interpretation; it is reported, not
 scored, so the same scorer applies to any implementation.
+
+Every recommendation must be accounted for. When a reply recommends Apps, each
+must be allowed by the turn: by `recommend` (the exact set, `[]` for none) or,
+without it, by the Apps the turn expects (subjects, or names among its concepts). A recommendation the expectations do not
+anticipate fails the turn, even when the expected App is also recommended.
 """
 from __future__ import annotations
 
@@ -48,8 +53,18 @@ def problems(expect: dict, reply: dict) -> list[str]:
             found.append(f"generic reply {generic[0]!r}")
         if any(g in folded for g in OPEN_FALLBACK):
             found.append("open-question fallback")
-    if VERDICT in folded and (expect.get("outcome") == "abstained" or expect.get("act") not in DECISION_ACTS):
+    if VERDICT in folded and (expect.get("outcome") == "abstained"
+                              or expect.get("act") not in DECISION_ACTS and not expect.get("recommend")):
         found.append("unrequested or unsupported recommendation verdict")
+    recommended = set(names) if outcome == "recommended" else set()
+    if "recommend" in expect:
+        allowed = set(expect["recommend"])
+        if recommended != allowed:
+            found.append(f"recommended {sorted(recommended)}, expected exactly {sorted(allowed)}")
+    elif recommended:
+        allowed = set(expect.get("subject", [])) | set(expect.get("subject_any", [])) | set(expect.get("concepts_any", []))
+        if recommended - allowed:
+            found.append(f"recommendation not anticipated: {sorted(recommended - allowed)}")
     if not text.strip():
         found.append("empty reply")
     return found

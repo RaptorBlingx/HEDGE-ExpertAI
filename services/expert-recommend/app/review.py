@@ -28,7 +28,8 @@ MAX_QUOTES = 3
 SYSTEM = (
     "You check App Store descriptions. For each App, decide whether its quoted statements say that the App "
     "itself does what the request asks. Different wording counts. A related topic, a plan, a condition, a "
-    "simulation or doing only part of the request does not. Answer with one true or false per App, in order."
+    "simulation, doing only part of the request, or merely using as input what the request asks for (data or "
+    "forecasts it takes from users or other systems) does not. Answer with one true or false per App, in order."
 )
 
 
@@ -47,6 +48,11 @@ def _reviewable(row: dict, need: str, locale: str) -> list[tuple[str, str]]:
         # No sentence was nominated: offer the App's own statements closest to the need.
         quotes += [(s.path, s.quote) for s in _statements(row["app"], need) if (s.path, s.quote) not in quotes]
     quotes = [(p, q) for p, q in quotes if q in fields.get(p, "")][:MAX_QUOTES]
+    # A sentence that names the requested function only as something the App
+    # works from ("against price forecasts supplied by the user") is never reviewed.
+    if any(evidence.input_only(f["requirement"], f["quote"]) for f in findings if f.get("quote")) \
+            or any(evidence.input_only(need, q) for _, q in quotes):
+        return []
     return quotes
 
 

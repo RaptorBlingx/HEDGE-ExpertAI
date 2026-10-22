@@ -68,6 +68,7 @@ class Assistant:
                                         history=history, clicked=clicked)
         filters = {k: v for k, v in req.filters.model_dump(mode="json").items() if v not in (None, "", [])}
         reply = await self._execute(frame, req, state, history, catalogue, filters)
+        reply = self._hold(reply, state, frame)
         reply = self._recheck(reply)
         reply["frame"] = frame.summary()
         reply.setdefault("timings", {})["complete_seconds"] = time.monotonic() - started
@@ -127,8 +128,6 @@ class Assistant:
     async def _check(self, frame, req, state, apps) -> dict:
         self.progress("explanation")
         decision = await asyncio.to_thread(self.compose, "check", frame.need, _rows(apps), req.locale)
-        if state.get("pending_filters") and decision["decision"]["outcome"] == "recommended":
-            return self._unverified(state, frame.act)
         # Cards are recommendations; the Apps asked about stay the subject either way.
         return {"message": decision["message"], "apps": decision["apps"], "intent": "detail",
                 "decision": decision["decision"], "candidates": decision.get("candidates", []),
@@ -137,8 +136,6 @@ class Assistant:
     async def _find(self, frame, req, state, filters) -> dict:
         self.progress("retrieval")
         found = await self.recommend(query=frame.need, locale=req.locale, filters=filters)
-        if state.get("pending_filters") and found.get("apps"):
-            return self._unverified(state, "find")
         if not found.get("apps") and found.get("candidates"):
             # No sentence states every requested word: review paraphrased matches.
             reviewed = await asyncio.to_thread(self.compose, "review", frame.need, found["candidates"][:3], req.locale)
@@ -257,6 +254,18 @@ class Assistant:
         finally:
             STREAM.reset(token)
         return answer, "".join(released), bool(changed) or self.resolve(ids) != apps
+
+    def _hold(self, reply: dict, state: dict, frame: Frame) -> dict:
+        """No path recommends while a condition the Store cannot verify is pending.
+
+        One gate after execution, so search, capability checks, choices and model
+        review are all covered, whichever of them produced the recommendation.
+        """
+        recommended = reply.get("apps") and (reply.get("decision") or {}).get("outcome") == "recommended"
+        if state.get("pending_filters") and recommended:
+            return {**self._unverified(state, frame.act), "candidates": reply["apps"] + reply.get("candidates", []),
+                    "presented": [r["app"]["id"] for r in reply["apps"]]}
+        return reply
 
     def _recheck(self, reply: dict) -> dict:
         """A slow step must not show withdrawn or modified Apps."""

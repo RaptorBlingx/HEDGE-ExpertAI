@@ -70,6 +70,9 @@ _FUNCTION_WORDS = frozenset((
 ).split())
 
 
+# Words that reverse, restrict or condition a request; normalization never drops them.
+_POLARITY = frozenset("not no never none nor neither without cannot only except excluding unless if "
+                      "rather instead but".split())
 # Words that join a search phrase without asking anything.
 _LINKING = frozenset("a an the of to for in on at by with from into about as and or".split())
 
@@ -190,16 +193,24 @@ def need_text(message: str, mentions: list[Mention], refs: list[Reference]) -> s
     for start, end in spans:
         text = text[:start] + " " + text[end:]
     text = expand_contractions(text)
-    text = re.sub(r"\b(?:too|also|as well|then|anyway|instead|please|ok|okay|so)\b", " ", text, flags=re.I)
+    # Fillers only; "instead of" is an exclusion and stays.
+    text = re.sub(r"\b(?:too|also|as well|anyway|please|ok|okay)\b|\binstead\b(?!\s+of\b)", " ", text, flags=re.I)
     clauses = [c for c in re.split(r"\s*[,;.?!:]+\s*", text) if c.strip()]
     kept = [_trim(c) for c in clauses if residual(c)] or clauses
     return " ".join(" ".join(kept).split()).strip(" ,.?!")
 
 
 def _trim(clause: str) -> str:
-    """Drop the asking words a clause starts with ("which is better for [settlement]")."""
+    """Drop the asking words a clause starts with ("which is better for [settlement]").
+
+    Trimming stops at the first word that carries polarity or a condition: "must
+    not collect personal data" keeps "not collect personal data".
+    """
     words, vocabulary = clause.split(), _request_vocabulary()
-    while len(words) > 1 and set(re.findall(r"[a-z0-9]+", words[0].casefold())) <= vocabulary:
+    while len(words) > 1:
+        tokens = set(re.findall(r"[a-z0-9]+", words[0].casefold()))
+        if tokens & _POLARITY or not tokens <= vocabulary:
+            break
         words.pop(0)
     return " ".join(words)
 
@@ -285,6 +296,7 @@ class Interpreter:
         # A reading that fails its own structure (a search without a need) is no reading,
         # and a message about an App it names or refers to is not out of scope.
         frames = [f for f in frames if f.act != "clarify"] or frames[:1]
+        frames = [f for f in frames if f.source != "fallback"] or frames
         if any(f.subjects for f in frames):
             frames = [f for f in frames if f.act != "out_of_scope"]
         if len(frames) == 1:
@@ -344,8 +356,11 @@ class Interpreter:
             return Frame("clarify", problem="no_need")
         if act in SUBJECT_ACTS and not subjects:
             if content and not refs:
-                # A need with no App to be about is a search, not "which App?".
-                return self._complete("find", message, named, mentions, refs, content, state, catalogue, readings)
+                # A need with no App to be about is a search, not "which App?" (a
+                # fallback: it yields to any reading that stands on its own).
+                frame = self._complete("find", message, named, mentions, refs, content, state, catalogue, readings)
+                frame.source = "fallback"
+                return frame
             return Frame("clarify", act if act != "clarify" else "", problem="no_subject")
         if act == "compare" and len(subjects) < 2:
             return Frame("clarify", subjects, problem="no_comparison_pair")

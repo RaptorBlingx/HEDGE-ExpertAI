@@ -73,6 +73,11 @@
       "act": "choose",
       "concepts_any": [
        "schema"
+      ],
+      "recommend": [
+       "FlowMapper",
+       "PayloadPipe",
+       "SchemaCheck"
       ]
      }
     }

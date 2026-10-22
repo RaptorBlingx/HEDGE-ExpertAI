@@ -1,0 +1,150 @@
+{
+ "source": "authored_evaluation_fixture_not_live_store",
+ "purpose": "Recommendation-safety regression: negation, conditions, actor ownership, inputs versus outputs.",
+ "apps": [
+  {
+   "app_id": "safety-1",
+   "name": "PrivacyMeter",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-safety",
+   "active": true,
+   "visible": true,
+   "provider": "Authored safety fixture",
+   "description": null,
+   "readme": "<p>PrivacyMeter aggregates smart meter readings for neighbourhood energy reports. It does not collect personal data.</p>",
+   "price": 0
+  },
+  {
+   "app_id": "safety-2",
+   "name": "HomeTrack",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-safety",
+   "active": true,
+   "visible": true,
+   "provider": "Authored safety fixture",
+   "description": null,
+   "readme": "<p>HomeTrack collects personal data and appliance usage from households to build energy profiles.</p>",
+   "price": 0
+  },
+  {
+   "app_id": "safety-3",
+   "name": "ForecastHub",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-safety",
+   "active": true,
+   "visible": true,
+   "provider": "Authored safety fixture",
+   "description": null,
+   "readme": "<p>ForecastHub forecasts day-ahead electricity prices from market data.</p>",
+   "price": 0
+  },
+  {
+   "app_id": "safety-4",
+   "name": "PlanGrid",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-safety",
+   "active": true,
+   "visible": true,
+   "provider": "Authored safety fixture",
+   "description": null,
+   "readme": "<p>PlanGrid schedules home battery charging against day-ahead price forecasts supplied by the user.</p>",
+   "price": 0
+  },
+  {
+   "app_id": "safety-5",
+   "name": "LiveBid",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-safety",
+   "active": true,
+   "visible": true,
+   "provider": "Authored safety fixture",
+   "description": null,
+   "readme": "<p>LiveBid submits flexibility bids to the energy market operator.</p>",
+   "price": 0
+  },
+  {
+   "app_id": "safety-6",
+   "name": "SimBid",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-safety",
+   "active": true,
+   "visible": true,
+   "provider": "Authored safety fixture",
+   "description": null,
+   "readme": "<p>SimBid submits flexibility bids to the market only in simulation.</p>",
+   "price": 0
+  },
+  {
+   "app_id": "safety-7",
+   "name": "FailSense",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-safety",
+   "active": true,
+   "visible": true,
+   "provider": "Authored safety fixture",
+   "description": null,
+   "readme": "<p>FailSense predicts equipment failures from vibration measurements.</p>",
+   "price": 0
+  },
+  {
+   "app_id": "safety-8",
+   "name": "PartnerLink",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-safety",
+   "active": true,
+   "visible": true,
+   "provider": "Authored safety fixture",
+   "description": null,
+   "readme": "<p>PartnerLink sends equipment data to an external analytics service. Another application predicts the failures.</p>",
+   "price": 0
+  },
+  {
+   "app_id": "safety-9",
+   "name": "FieldCrew",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-safety",
+   "active": true,
+   "visible": true,
+   "provider": "Authored safety fixture",
+   "description": null,
+   "readme": "<p>Field engineers inspect substations and record faults in FieldCrew. FieldCrew stores the fault reports.</p>",
+   "price": 0
+  },
+  {
+   "app_id": "safety-10",
+   "name": "OfflineBox",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-safety",
+   "active": true,
+   "visible": true,
+   "provider": "Authored safety fixture",
+   "description": null,
+   "readme": "<p>OfflineBox logs meter data locally and works without internet access.</p>",
+   "price": 0
+  },
+  {
+   "app_id": "safety-11",
+   "name": "CloudLog",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-safety",
+   "active": true,
+   "visible": true,
+   "provider": "Authored safety fixture",
+   "description": null,
+   "readme": "<p>CloudLog logs meter data in the cloud. An internet connection is required.</p>",
+   "price": 0
+  },
+  {
+   "app_id": "safety-12",
+   "name": "SettleSoon",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-safety",
+   "active": true,
+   "visible": true,
+   "provider": "Authored safety fixture",
+   "description": null,
+   "readme": "<p>SettleSoon records flexibility activations. Automatic settlement is planned for a future release.</p>",
+   "price": 0
+  }
+ ]
+}
