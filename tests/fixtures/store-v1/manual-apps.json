@@ -1,0 +1,32 @@
+[
+  {
+    "appId": "sanitized-edgeconnect",
+    "fkAppStoreId": "Manual-Store-Fixture",
+    "name": "EdgeConnect",
+    "description": "Sanitized evaluation example: collects sensor readings at the edge and forwards measurements for monitoring. This authored fixture is not a verified product capability statement.",
+    "provider": null,
+    "active": true,
+    "visible": true,
+    "registrationDate": 1790856000000,
+    "appVersionList": [],
+    "uiUrl": null,
+    "registryBaseURL": null,
+    "readme": null,
+    "dataspaceAppDescription": null
+  },
+  {
+    "appId": "sanitized-semantic-treehouse",
+    "fkAppStoreId": "Manual-Store-Fixture",
+    "name": "Semantic Treehouse",
+    "description": "Sanitized evaluation example: organizes semantic data models and documents vocabulary definitions for review. This authored fixture is not a verified product capability statement.",
+    "provider": null,
+    "active": true,
+    "visible": true,
+    "registrationDate": 1790856000000,
+    "appVersionList": null,
+    "uiUrl": null,
+    "registryBaseURL": null,
+    "readme": null,
+    "dataspaceAppDescription": null
+  }
+]

@@ -1,0 +1,25 @@
+<div class="demo" [attr.data-theme]="dark() ? 'dark' : 'light'" [class.embedded]="mode() === 'pane'">
+  <a class="skip-link" href="#workspace">Skip to discovery</a>
+  <nav class="rail" aria-label="Prototype navigation">
+    <button class="brand-symbol" aria-label="ExpertAI workspace" (click)="switchMode('workspace')"><span></span><span></span><span></span><span></span></button>
+    <div class="rail-middle"><button class="rail-button" [class.current]="!about()" title="Discovery workspace" aria-label="Discovery workspace" (click)="about.set(false); assistant()?.mobileView.set('chat')"><expert-icon name="chat" [size]="20" /></button><button class="rail-button" title="View Store applications" aria-label="View Store applications" (click)="about.set(false); assistant()?.showApps()"><expert-icon name="layers" [size]="20" /></button></div>
+    <button class="rail-button about-button" [class.current]="about()" title="About this prototype" aria-label="About this prototype" (click)="about.set(!about())"><expert-icon name="help" [size]="20" /></button>
+    <span class="rail-label">HEDGE-IoT</span>
+  </nav>
+  <div class="demo-main">
+    <header class="demo-header"><a class="wordmark" href="./" (click)="$event.preventDefault(); switchMode('workspace')">HEDGE<span> / </span><strong>ExpertAI</strong></a><span class="prototype-tag">DISCOVERY PROTOTYPE</span><div class="header-right"><span class="private-label"><span></span> Private preview</span><button class="theme-toggle" [attr.aria-label]="dark() ? 'Switch to light theme' : 'Switch to dark theme'" (click)="theme()"><expert-icon [name]="dark() ? 'sun' : 'moon'" [size]="18" /></button></div></header>
+    <main id="workspace" tabindex="-1">
+      <div class="page-heading"><div><div class="breadcrumb">HEDGE-IoT <span>/</span> Application discovery</div><h2>A conversation away from the right App.</h2></div><div class="view-switch" aria-label="Presentation"><button [class.active]="mode() === 'workspace'" [attr.aria-pressed]="mode() === 'workspace'" (click)="switchMode('workspace')"><expert-icon name="expand" [size]="14" /> Workspace</button><button [class.active]="mode() === 'pane'" [attr.aria-pressed]="mode() === 'pane'" (click)="switchMode('pane')"><expert-icon name="panel" [size]="14" /> Embedded pane</button></div></div>
+      @if (about()) { <section class="about-panel"><span class="section-kicker">BUILT FOR THE NEXT CONVERSATION</span><h1>ExpertAI, in context.</h1><p>A working discovery prototype connected to authorized HEDGE App Store data. Ask about applications, explore capabilities, compare their documented purposes and inspect the evidence behind an answer.</p><p>This preview is our standalone interface. Native integration into the partner’s Angular App Store remains to be coordinated.</p><button class="return-button" (click)="about.set(false)">Back to discovery <expert-icon name="arrow" [size]="16" /></button></section> }
+      <div class="stage" [hidden]="about()">
+        <section class="host-preview" aria-label="Illustrative host layout">
+          <span class="section-kicker">ANGULAR HOST PREVIEW</span><h1>Your Store.<br>A new perspective.</h1><p>The assistant can sit alongside the App portfolio, ready when you need a little direction.</p>
+          <div class="host-rule"></div><div class="host-annotation"><span>01</span><div><strong>A companion to your catalogue</strong><p>The same conversation, in a compact pane. Switch back to the workspace for a broader view.</p></div></div><div class="host-annotation"><span>02</span><div><strong>Connected to real applications</strong><p>Browse the Apps tab in the assistant. Every App comes from the authorized catalogue.</p></div></div><span class="host-caption">Illustrative layout · not the official HEDGE App Store</span>
+        </section>
+        <hedge-expert-assistant [presentation]="mode()" [class.hidden-pane]="mode() === 'pane' && !paneOpen()" (expand)="switchMode('workspace')" (close)="paneOpen.set(false)" />
+        @if (mode() === 'pane' && !paneOpen()) { <button class="assistant-launcher" (click)="paneOpen.set(true)"><expert-icon name="spark" /> Ask ExpertAI <expert-icon name="arrow" [size]="16" /></button> }
+      </div>
+      <footer class="demo-footer"><span>HEDGE-ExpertAI <span class="footer-dot">·</span> A Arti Engineering</span><span>Standalone prototype <span class="footer-dot">·</span> English preview</span></footer>
+    </main>
+  </div>
+</div>

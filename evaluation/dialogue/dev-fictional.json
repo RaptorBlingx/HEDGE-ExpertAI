@@ -1,0 +1,232 @@
+{
+ "purpose": "Development: natural conversations over the authored fictional catalogue. May inform implementation.",
+ "catalogue": "evaluation/retrieval/catalogue.json",
+ "conversations": [
+  {
+   "id": "DF1",
+   "turns": [
+    {
+     "message": "what's available in the store?",
+     "expect": {
+      "act": "list",
+      "min_cards": 2
+     }
+    },
+    {
+     "message": "anything for wind turbines?",
+     "expect": {
+      "act": "find",
+      "subject": [
+       "TurbineWatch"
+      ]
+     }
+    },
+    {
+     "message": "how does it work",
+     "expect": {
+      "act": "how",
+      "subject": [
+       "TurbineWatch"
+      ],
+      "concepts_any": [
+       "vibration"
+      ]
+     }
+    },
+    {
+     "message": "can it shut down the turbine if something's wrong?",
+     "expect": {
+      "act": "check",
+      "outcome": "abstained",
+      "concepts_any": [
+       "not control",
+       "doesn't control",
+       "does not control"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "DF2",
+   "turns": [
+    {
+     "message": "we need to turn JSON messages from one format into another",
+     "expect": {
+      "act": "find",
+      "subject_any": [
+       "FlowMapper",
+       "PayloadPipe"
+      ]
+     }
+    },
+    {
+     "message": "compare those two",
+     "expect": {
+      "act": "compare",
+      "min_cards": 2
+     }
+    },
+    {
+     "message": "which one validates against a schema?",
+     "expect": {
+      "act": "choose",
+      "concepts_any": [
+       "schema"
+      ],
+      "subject_any": [
+       "FlowMapper",
+       "PayloadPipe",
+       "SchemaCheck"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "DF3",
+   "turns": [
+    {
+     "message": "Payload pipe - what is it?",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "PayloadPipe"
+      ],
+      "concepts_any": [
+       "JSON"
+      ]
+     }
+    },
+    {
+     "message": "who made it",
+     "expect": {
+      "act": "provider",
+      "concepts_any": [
+       "Authored evaluation fixture"
+      ]
+     }
+    },
+    {
+     "message": "does it do vocabulary governance?",
+     "expect": {
+      "act": "check",
+      "outcome": "abstained",
+      "concepts_any": [
+       "not supported",
+       "isn't supported",
+       "doesn't"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "DF4",
+   "turns": [
+    {
+     "message": "I'm looking for something that forecasts electricity prices",
+     "expect": {
+      "act": "find",
+      "subject": [
+       "PriceLens"
+      ],
+      "outcome": "recommended"
+     }
+    },
+    {
+     "message": "can it also submit bids?",
+     "expect": {
+      "act": "check",
+      "outcome": "abstained",
+      "subject": [
+       "PriceLens"
+      ]
+     }
+    },
+    {
+     "message": "what would I use instead for submitting bids?",
+     "expect": {
+      "act": "find",
+      "subject_any": [
+       "BidRelay",
+       "OfferBridge"
+      ]
+     }
+    },
+    {
+     "message": "give me an example of how that works",
+     "expect": {
+      "act": "example",
+      "subject_any": [
+       "BidRelay",
+       "OfferBridge"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "DF5",
+   "turns": [
+    {
+     "message": "tell me about meaninghub",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "MeaningHub"
+      ]
+     }
+    },
+    {
+     "message": "no sorry I meant modelcommons",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "ModelCommons"
+      ]
+     }
+    },
+    {
+     "message": "how are they different?",
+     "expect": {
+      "act": "compare",
+      "subject": [
+       "MeaningHub",
+       "ModelCommons"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "DF6",
+   "turns": [
+    {
+     "message": "what's the weather in Lisbon?",
+     "expect": {
+      "act": "out_of_scope",
+      "concepts_any": [
+       "App"
+      ]
+     }
+    },
+    {
+     "message": "ok, show me apps for meter data",
+     "expect": {
+      "act": "find",
+      "subject_any": [
+       "MeterScope"
+      ]
+     }
+    },
+    {
+     "message": "start over",
+     "expect": {
+      "act": "reset"
+     }
+    }
+   ]
+  }
+ ]
+}

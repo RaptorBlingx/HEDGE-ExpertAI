@@ -1,186 +1,116 @@
-"""Tests for recommendation orchestrator."""
+"""Recommendation admission, source-only rendering and legitimate abstention."""
+import json
+from types import SimpleNamespace
 
-import importlib
-import importlib.util
-import sys as _sys
-import types
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+import pytest
+from fastapi import HTTPException
 
-# Set up the package structure so relative imports work
-_app_dir = Path(__file__).parent.parent.parent / "services" / "expert-recommend" / "app"
+from scripts.store_v1_playground import load_service
 
-# Create a fake parent package
-_pkg = types.ModuleType("er_app")
-_pkg.__path__ = [str(_app_dir)]
-_pkg.__package__ = "er_app"
-_sys.modules["er_app"] = _pkg
-
-# Stub llm_client
-_llm_mod = types.ModuleType("er_app.llm_client")
-_llm_mod.OllamaClient = MagicMock()
-_sys.modules["er_app.llm_client"] = _llm_mod
-
-# Stub prompts - load real prompts module since it has no problematic imports
-_prompts_path = _app_dir / "prompts.py"
-_p_spec = importlib.util.spec_from_file_location("er_app.prompts", _prompts_path)
-_prompts_mod = importlib.util.module_from_spec(_p_spec)
-_prompts_mod.__package__ = "er_app"
-_p_spec.loader.exec_module(_prompts_mod)
-_sys.modules["er_app.prompts"] = _prompts_mod
-
-# Load recommender with proper package context
-_recommender_path = _app_dir / "recommender.py"
-_spec = importlib.util.spec_from_file_location("er_app.recommender", _recommender_path,
-                                                 submodule_search_locations=[])
-_mod = importlib.util.module_from_spec(_spec)
-_mod.__package__ = "er_app"
-_spec.loader.exec_module(_mod)
-_sys.modules["er_app.recommender"] = _mod
-
-_is_ranking_consistent = _mod._is_ranking_consistent
-_build_ranked_fallback = _mod._build_ranked_fallback
-_ensure_ranking_consistency = _mod._ensure_ranking_consistency
-_first_sentence = _mod._first_sentence
-recommend_stream = _mod.recommend_stream
-recommend_v2_stream = _mod.recommend_v2_stream
-
-
+_mod = load_service("unit_rec_suitability", "expert-recommend")("recommender")
 SAMPLE_RESULTS = [
-    {
-        "app": {"id": "app-001", "title": "SmartEnergy Monitor", "description": "Energy monitoring app.", "tags": ["energy"]},
-        "score": 0.85,
-    },
-    {
-        "app": {"id": "app-002", "title": "BuildingComfort Pro", "description": "HVAC system.", "tags": ["hvac"]},
-        "score": 0.70,
-    },
+    {"app": {"id": "energy", "title": "Energy Meter", "description": "Energy monitoring."}, "rank": 1,
+     "relevance": "high"},
+    {"app": {"id": "water", "title": "Water Meter", "description": "Displays water readings."}, "rank": 2,
+     "relevance": "high"},
 ]
 
 
-class TestIsRankingConsistent:
-    def test_consistent_top_mention(self):
-        explanation = "SmartEnergy Monitor is the top choice for energy monitoring."
-        assert _is_ranking_consistent(explanation, SAMPLE_RESULTS) is True
-
-    def test_inconsistent_wrong_app_called_top(self):
-        explanation = "BuildingComfort Pro is the best option for your needs."
-        assert _is_ranking_consistent(explanation, SAMPLE_RESULTS) is False
-
-    def test_no_ranking_claim(self):
-        # No "top" / "best" / "recommendation" words — should pass
-        explanation = "SmartEnergy Monitor handles energy data. BuildingComfort Pro handles HVAC."
-        assert _is_ranking_consistent(explanation, SAMPLE_RESULTS) is True
-
-    def test_empty_explanation(self):
-        assert _is_ranking_consistent("", SAMPLE_RESULTS) is True
-
-    def test_empty_results(self):
-        assert _is_ranking_consistent("Some text", []) is True
-
-    def test_app_name_before_keyword(self):
-        # App name appears BEFORE "top" keyword within 200 char window
-        explanation = "SmartEnergy Monitor is the top pick for energy."
-        assert _is_ranking_consistent(explanation, SAMPLE_RESULTS) is True
-
-    def test_recommendation_keyword(self):
-        explanation = "My recommendation is SmartEnergy Monitor for this use case."
-        assert _is_ranking_consistent(explanation, SAMPLE_RESULTS) is True
-
-    def test_start_with_keyword(self):
-        explanation = "I suggest you start with SmartEnergy Monitor."
-        assert _is_ranking_consistent(explanation, SAMPLE_RESULTS) is True
-
-    def test_multiple_claims_all_consistent(self):
-        explanation = "SmartEnergy Monitor is the best and top recommendation for energy monitoring."
-        assert _is_ranking_consistent(explanation, SAMPLE_RESULTS) is True
+@pytest.fixture
+def setup(monkeypatch):
+    monkeypatch.setattr(_mod, "_search_apps_v2", lambda *args, **kwargs: SAMPLE_RESULTS)
+    monkeypatch.setattr(_mod, "_search_apps", lambda *args, **kwargs: SAMPLE_RESULTS)
+    monkeypatch.setattr(_mod, "OllamaClient", lambda: SimpleNamespace(
+        chat_structured=lambda *args: '{"selected_ids":["energy"]}',
+    ))
 
 
-class TestBuildRankedFallback:
-    def test_contains_apps(self):
-        fallback = _build_ranked_fallback(SAMPLE_RESULTS)
-        assert "SmartEnergy Monitor" in fallback
-        assert "BuildingComfort Pro" in fallback
-
-    def test_ranking_order(self):
-        fallback = _build_ranked_fallback(SAMPLE_RESULTS)
-        pos1 = fallback.index("SmartEnergy Monitor")
-        pos2 = fallback.index("BuildingComfort Pro")
-        assert pos1 < pos2
-
-    def test_recommendation_line(self):
-        fallback = _build_ranked_fallback(SAMPLE_RESULTS)
-        assert fallback.startswith("Start with **SmartEnergy Monitor**")
-
-    def test_bullet_list(self):
-        fallback = _build_ranked_fallback(SAMPLE_RESULTS)
-        assert "- **App 1: SmartEnergy Monitor**" in fallback
-        assert "- **App 2: BuildingComfort Pro**" in fallback
+def test_high_retrieval_rank_is_not_suitability(setup):
+    result = _mod.recommend_v2(query="earthquake warnings", locale="en", filters={}, limit=5)
+    assert result["apps"] == [] and len(result["candidates"]) == 2
+    assert result["decision"]["outcome"] == "abstained"
+    assert "find an App in the catalogue" in result["message"]
+    assert "Start with" not in result["message"]
 
 
-class TestEnsureRankingConsistency:
-    def test_consistent_kept(self):
-        explanation = "SmartEnergy Monitor is the top choice."
-        result = _ensure_ranking_consistency(explanation, SAMPLE_RESULTS)
-        assert result == explanation
-
-    def test_inconsistent_replaced(self):
-        explanation = "BuildingComfort Pro is the best option for your needs."
-        result = _ensure_ranking_consistency(explanation, SAMPLE_RESULTS)
-        assert result.startswith("Start with **SmartEnergy Monitor**")
+def test_positive_recommendation_is_bound_to_source_and_original_order(setup):
+    result = _mod.recommend_v2(query="Find apps for energy monitoring", locale="en", filters={}, limit=5)
+    assert [r["app"]["id"] for r in result["apps"]] == ["energy"]
+    assert result["apps"][0]["suitability"]["evidence_fields"] == ["description"]
+    assert result["apps"][0]["rank"] == 1
+    assert [r["app"]["id"] for r in result["candidates"]] == ["water"]
+    assert result["message"] == "**Energy Meter** fits what you need. Energy monitoring."
 
 
-class TestFirstSentence:
-    def test_normal_sentence(self):
-        assert _first_sentence("Energy monitoring app. Second sentence.") == "Energy monitoring app."
-
-    def test_no_period(self):
-        assert _first_sentence("Just some text") == "Just some text"
-
-    def test_empty(self):
-        assert _first_sentence("") == "No description available."
-
-    def test_exclamation(self):
-        # Function checks '.' before '!' so period wins here
-        assert _first_sentence("Great app! Very useful.") == "Great app! Very useful."
-        # Pure exclamation without period
-        assert _first_sentence("Great app! Very useful") == "Great app!"
+def test_partial_fits_are_explained_but_never_recommended(setup, monkeypatch):
+    monkeypatch.setattr(_mod, "OllamaClient", lambda: (_ for _ in ()).throw(AssertionError("no model")))
+    results = [{"app": {"id": "hub", "title": "MeaningHub", "description":
+                        "MeaningHub publishes shared vocabularies. Payload transformation is not performed."},
+                "rank": 1}, *SAMPLE_RESULTS]
+    result = _mod._recommendation_decision("publish shared vocabularies and transform payloads", results, "en")
+    assert result["apps"] == [] and result["decision"] == {"outcome": "abstained", "reason": "partial_matches_only"}
+    assert result["candidates"][0]["suitability"]["status"] == "partial"
+    assert result["message"].startswith("No single App documents everything you asked for.")
+    assert "**MeaningHub** covers “publish shared vocabularies”: MeaningHub publishes shared vocabularies." in result["message"]
+    assert "doesn’t cover “transform payloads”; its description says: Payload transformation is not performed." in result["message"]
 
 
-class TestRecommendStream:
-    def test_no_results_emits_token_event(self):
-        with patch.object(_mod, "_search_apps", return_value=[]):
-            events = list(recommend_stream("watr leek detection", top_k=5))
-
-        assert '"type": "token"' in events[0]
-        assert "couldn't find any apps" in events[0]
-        assert '"type": "done"' in events[1]
+def test_assessed_pool_is_wider_than_the_displayed_limit(setup, monkeypatch):
+    requested = []
+    monkeypatch.setattr(_mod, "_search_apps_v2", lambda *a, limit, **k: requested.append(limit) or SAMPLE_RESULTS)
+    result = _mod.recommend_v2(query="energy monitoring", locale="en", filters={}, limit=1)
+    assert requested == [_mod.ASSESSED_CANDIDATES]
+    assert len(result["apps"]) == 1 and len(result["candidates"]) == 1
 
 
-class TestRecommendV2Stream:
-    def test_results_are_emitted_before_generation(self):
-        llm = MagicMock()
-        llm.chat.return_value = "invalid model output"
-        with (
-            patch.object(_mod, "_search_apps_v2", return_value=SAMPLE_RESULTS),
-            patch.object(_mod, "OllamaClient", return_value=llm),
-        ):
-            events = list(
-                recommend_v2_stream(query="energy", locale="en", filters={}, limit=2)
-            )
+def test_normal_and_streamed_paths_decide_before_emitting_cards(setup):
+    for query in ("energy monitoring", "earthquake warning"):
+        normal = _mod.recommend_v2(query=query, locale="en", filters={}, limit=5)
+        events = list(_mod.recommend_v2_stream(query=query, locale="en", filters={}, limit=5))
+        assert events[0]["apps"] == normal["apps"]
+        assert events[0]["candidates"] == normal["candidates"]
+        assert events[0]["decision"] == normal["decision"]
+        assert "".join(e["content"] for e in events if e["type"] == "explanation_delta") == normal["message"]
+        assert events[-1]["explanations"] == normal["explanations"]
 
-        assert events[0]["type"] == "recommendations"
-        assert events[1] == {"type": "stage", "stage": "explanation"}
-        assert events[-1]["type"] == "complete"
-        explanation = "".join(
-            event["content"] for event in events if event["type"] == "explanation_delta"
-        )
-        assert explanation.startswith("Start with **SmartEnergy Monitor**")
 
-    def test_empty_results_still_complete(self):
-        with patch.object(_mod, "_search_apps_v2", return_value=[]):
-            events = list(
-                recommend_v2_stream(query="none", locale="en", filters={}, limit=2)
-            )
-        assert events[0]["apps"] == []
-        assert any("No supported" in event.get("content", "") for event in events)
+def test_legacy_and_explain_routes_have_the_same_boundary(setup):
+    result = _mod.recommend("earthquake warnings")
+    events = [json.loads(event[6:]) for event in _mod.recommend_stream("earthquake warnings")]
+    assert result["apps"] == events[0]["apps"] == []
+    assert events[1]["content"] == result["message"]
+    assert "cannot recommend" in _mod.explain_app("earthquake warnings", SAMPLE_RESULTS[1]["app"])
+
+
+def test_stream_does_not_turn_retrieval_failure_into_abstention(monkeypatch):
+    def failed(*args, **kwargs):
+        raise HTTPException(503, "Catalogue search unavailable")
+    monkeypatch.setattr(_mod, "_search_apps_v2", failed)
+    with pytest.raises(HTTPException):
+        next(_mod.recommend_v2_stream(query="energy", locale="en", filters={}, limit=5))
+
+
+def test_legacy_standalone_explanation_preserves_missing_identity(setup):
+    app = {"title": "Energy App", "description": "Energy monitoring."}
+    positive = _mod.explain_app("energy monitoring", app)
+    negative = _mod.explain_app("earthquake warning", app)
+    assert 'description: "Energy monitoring."' in positive
+    assert "direct source evidence" in positive
+    assert "cannot recommend" in negative
+    assert "id" not in app
+
+
+def test_malformed_optional_title_cannot_break_standalone_source_explanation():
+    message = _mod.explain_app("energy monitoring", {"title": {"en": 17},
+                                                      "description": "Energy monitoring."})
+    assert 'description: "Energy monitoring."' in message
+    assert "title.en" not in message
+
+
+def test_routine_recommendation_does_not_depend_on_model(setup, monkeypatch):
+    from unittest.mock import Mock
+    model = Mock(side_effect=AssertionError("Routine generation attempted"))
+    monkeypatch.setattr(_mod, "OllamaClient", model)
+    assert _mod.recommend_v2(query="energy monitoring", locale="en", filters={}, limit=5)["apps"]
+    assert list(_mod.recommend_v2_stream(query="energy monitoring", locale="en", filters={}, limit=5))[0]["apps"]
+    model.assert_not_called()

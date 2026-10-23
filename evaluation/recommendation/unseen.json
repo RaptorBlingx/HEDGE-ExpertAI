@@ -1,0 +1,29 @@
+{
+  "description": "Recommendation-decision scenarios authored on 2026-10-21 before the evidence matcher was calibrated. Labels are agent-authored engineering judgments against evaluation/retrieval/catalogue.json, not HEDGE-approved relevance labels. complete = documents every requested function; partial = documents part of it (may be mentioned as a partial fit, never recommended as complete); forbidden = must not be recommended.",
+  "queries": [
+    {"id": "U1", "query": "Is there something that can tell me ahead of time when a turbine bearing is likely to fail?", "complete": ["fixture-3"], "partial": [], "forbidden": ["fixture-10"]},
+    {"id": "U2", "query": "I want to see dashboards of how much electricity our buildings use.", "complete": ["fixture-16"], "partial": [], "forbidden": []},
+    {"id": "U3", "query": "We have MQTT sensors and need their data delivered to a REST endpoint reliably, even if the network goes down.", "complete": ["fixture-19"], "partial": [], "forbidden": []},
+    {"id": "U4", "query": "Which app can tell me what electricity will cost on the market tomorrow?", "complete": ["fixture-5"], "partial": [], "forbidden": ["fixture-17"]},
+    {"id": "U5", "query": "Forecast tomorrow's electricity demand and also forecast market prices.", "complete": [], "partial": ["fixture-17", "fixture-5"], "forbidden": ["fixture-17", "fixture-5"]},
+    {"id": "U6", "query": "Validate JSON payloads against a schema and tell me which fields are invalid.", "complete": ["fixture-20"], "partial": ["fixture-4", "fixture-15"], "forbidden": []},
+    {"id": "U7", "query": "Combine offers from several aggregators into one market submission and work out settlement allocations.", "complete": ["fixture-13"], "partial": ["fixture-1", "fixture-18"], "forbidden": ["fixture-1", "fixture-18"]},
+    {"id": "U8", "query": "I need to try out combining flexibility offers in a simulation before going live.", "complete": ["fixture-8"], "partial": ["fixture-1", "fixture-13"], "forbidden": []},
+    {"id": "U9", "query": "Automatically settle market transactions.", "complete": [], "acceptable": ["fixture-18"], "partial": ["fixture-18", "fixture-6"], "forbidden": ["fixture-6"]},
+    {"id": "U10", "query": "Translate payloads from one JSON layout to another.", "complete": ["fixture-4", "fixture-15"], "partial": [], "forbidden": ["fixture-20", "fixture-19", "fixture-2"]},
+    {"id": "U11", "query": "We need a common glossary so partner companies interpret data fields the same way.", "complete": ["fixture-2", "fixture-14"], "partial": [], "forbidden": ["fixture-19"]},
+    {"id": "U12", "query": "Send the gearbox a stop command when vibration is too high.", "complete": [], "partial": ["fixture-3"], "forbidden": ["fixture-3"]},
+    {"id": "U13", "query": "Store maintenance notes.", "complete": [], "acceptable": ["fixture-12"], "partial": ["fixture-10"], "forbidden": []},
+    {"id": "U14", "query": "Which app guarantees 5000 bids per second?", "complete": [], "partial": [], "forbidden": ["fixture-12", "fixture-13", "fixture-1"]},
+    {"id": "U15", "query": "Find me a CRM for sales leads.", "complete": [], "partial": [], "forbidden": []},
+    {"id": "U16", "query": "Detect missing meter data", "complete": ["fixture-16"], "partial": [], "forbidden": []},
+    {"id": "U17", "query": "electricity price forecasting and bid submission", "complete": [], "partial": ["fixture-5", "fixture-13"], "forbidden": ["fixture-5", "fixture-13"]},
+    {"id": "U18", "query": "Keep an audit trail of old flexibility offers.", "complete": ["fixture-7"], "partial": [], "forbidden": []},
+    {"id": "U19", "query": "Is there a manual library for turbine gearboxes?", "complete": ["fixture-10"], "partial": [], "forbidden": []},
+    {"id": "U20", "query": "Predict gearbox bearing failures", "complete": ["fixture-3"], "partial": [], "forbidden": ["fixture-10"]},
+    {"id": "U21", "query": "Monitor room temperatures", "complete": ["fixture-9"], "partial": [], "forbidden": []},
+    {"id": "U22", "query": "Something to manage data model versions with partners", "complete": ["fixture-14"], "partial": ["fixture-2"], "forbidden": []},
+    {"id": "U23", "query": "I need an app that aggregates flexibility bids and forecasts prices", "complete": [], "partial": ["fixture-13", "fixture-1", "fixture-5"], "forbidden": ["fixture-11", "fixture-13", "fixture-1", "fixture-5"]},
+    {"id": "U24", "query": "mqtt", "complete": ["fixture-19"], "partial": [], "forbidden": []}
+  ]
+}

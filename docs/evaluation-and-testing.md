@@ -62,6 +62,68 @@ behavior separately from explanation generation. No report may assume which
 boundary the proposal's response-time target uses until the applicable
 acceptance protocol is agreed.
 
+## Executable evaluator semantics
+
+The evaluation-correctness remediation reproduces Astra finding 7 against
+`4a9e964`: invented savings/certification claims passed the text heuristic,
+one correct search plus nine timeouts reported 100% HitRate@2, and a stream
+containing only a 503 `problem` event was counted as successful. Focused HTTP
+mocks exercise the evaluator functions and its executable `__main__` path;
+they do not access the preserved demo or establish live-model quality.
+
+- Every attempted query is retained in `per_query`. `evaluated` counts valid
+  successful responses; `failed` accounts for HTTP errors, timeouts, malformed
+  responses, and failed/incomplete streams. All attempts remain in retrieval
+  means, confidence intervals, and category denominators; failures score zero.
+- Relevance uses exact `expected_apps` IDs against returned App IDs in rank
+  order. A matching title or fluent explanation cannot substitute for identity.
+  Missing/invalid/duplicate response IDs fail validation; invalid query labels
+  fail before requests. Empty expected lists are allowed for no-match probes:
+  they cannot earn a positive HitRate@2 and must be interpreted separately from
+  positive retrieval tasks when constructing an acceptance protocol.
+- Explanation length and fallback detection are formatting diagnostics only.
+  `explanation_accuracy` is `null` with status `unassessed` for chat and stream.
+  The evaluator has no human-review input path; factual/contextual accuracy
+  requires a separate reviewed claim-to-source record for the actual output.
+- SSE succeeds only on a valid terminal `complete` event. `problem`, malformed
+  data, timeout, or EOF without `complete` fails, even after partial text or Apps.
+  Partial output remains in per-query evidence but earns no retrieval credit.
+  Multiline SSE data and heartbeat comments are supported.
+- First explanation text and first nonempty App-result timings are observed
+  independently. A first App does not establish relevance. Aggregate TTFT/TTFA
+  uses successful streams with the corresponding event, reports sample counts,
+  and leaves absent measurements `null`; completion time is never substituted.
+
+The [proposal](proposals/HEDGE-IoT-OC1-Proposal-HedgeExpertAI.md) specifies
+**average response time <5 s** in objective 2 and **median response/query
+time <5 s** in its impact and task targets. The evaluator reports arithmetic
+mean, median, and nearest-rank P95 separately. Timing starts immediately before
+the request and ends after the complete JSON response is read/validated, or
+after terminal SSE `complete`; on failure it ends at the observed failure.
+All attempts contribute observed durations. Timeout durations are censored
+failure observations, not successful responses; a low mean never proves a
+timing target when requests fail. First-output timing is not full completion.
+These are client-observed API timings, excluding UI/user think time. The target
+host, network boundary, load, warm/cold state, and accepted end event still need
+agreement before either proposal target can be claimed.
+
+Run only against an explicitly chosen evaluation endpoint, never the frozen
+demo. `--output-json /absolute/path/results.json` optionally retains aggregate
+metrics and per-attempt IDs, status, errors, scores, and observed timings. Keep
+reports containing private IDs/query identifiers outside Git. The executable
+returns 1 if any selected mode has a failed request or exploratory HitRate@2
+below 70%; 0 means those engineering checks passed, while proposal acceptance
+and explanation accuracy remain unassessed. Invalid input/arguments return 2.
+No analytics endpoint is fetched by default. The legacy `--report-feedback`
+option is outside this remediation; it is not pilot-adoption acceptance evidence.
+Returned-App coverage is a retrieval diagnostic, not qualified visits.
+
+Focused offline verification:
+
+```bash
+python3 -m pytest tests/unit/test_evaluation_correctness.py
+```
+
 ## Reproducible engineering checks
 
 The following commands support local engineering verification. They do not

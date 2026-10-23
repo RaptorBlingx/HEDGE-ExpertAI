@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import logging
 import os
-from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import FastAPI, Response, status
+from hedge_shared.private_store import scope
 
-from .llm_client import OllamaClient
 from .routes import router, v2_router
 
 try:
@@ -21,22 +20,9 @@ except ImportError:
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
 
-@asynccontextmanager
-async def lifespan(_: FastAPI):
-    """Warm the generation model without delaying process liveness."""
-    import threading
-
-    def _warmup():
-        client = OllamaClient()
-        client.warmup()
-
-    threading.Thread(target=_warmup, daemon=True).start()
-    yield
-
 app = FastAPI(
     title="HEDGE-ExpertAI Expert Recommend",
     version="2.0.0",
-    lifespan=lifespan,
 )
 
 if _HAS_METRICS:
@@ -45,26 +31,28 @@ if _HAS_METRICS:
 app.include_router(router)
 app.include_router(v2_router)
 
+if scope():
+    from .private_store import router as private_router
+    app.include_router(private_router)
+
 
 @app.get("/health")
 def health(response: Response):
-    """Health check — verifies generation and retrieval dependencies."""
-    client = OllamaClient()
-    ollama_ok = client.is_healthy()
+    """Routine readiness depends on retrieval; generation is optional."""
     discovery_ok = False
     try:
         discovery_url = os.getenv("DISCOVERY_RANKING_URL", "http://discovery-ranking:8003")
         discovery_ok = httpx.get(f"{discovery_url}/ready", timeout=5.0).status_code == 200
     except Exception:
         logging.exception("Discovery health check failed")
-    ready_state = ollama_ok and discovery_ok
+    ready_state = discovery_ok
     if not ready_state:
         response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
     return {
         "status": "ok" if ready_state else "degraded",
         "service": "expert-recommend",
         "version": "2.0.0",
-        "ollama": ollama_ok,
+        "ollama": "optional",
         "discovery": discovery_ok,
     }
 

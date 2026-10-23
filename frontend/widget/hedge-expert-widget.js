@@ -34,10 +34,12 @@
   const SUPPORTED_LOCALES = ["en", "de", "fr", "es", "it", "nl", "pt", "tr"];
 
   const STAGE_LABELS = {
-    intent: "Understanding the request…",
+    intent: "Understanding your question…",
+    review: "Checking the answer against Store sources…",
+    revision: "Refining the answer using its sources…",
     retrieval: "Searching the application catalogue…",
-    ranking: "Ranking evidence-backed matches…",
-    explanation: "Preparing a grounded explanation…",
+    ranking: "Ranking retrieved Apps…",
+    explanation: "Writing your answer…",
   };
 
   const DOMAIN_COLORS = {
@@ -153,42 +155,129 @@
     return "evt-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
   }
 
-  /** Lightweight markdown → HTML (no external library). */
-  function renderMarkdown(raw) {
-    var html = escapeHtml(raw);
+  function markdownUrl(raw) {
+    // Absolute web URLs only. Do not let browser normalization hide controls,
+    // credentials, backslashes, or attribute-like syntax in a destination.
+    if (!/^https?:\/\//i.test(raw) || /[\u0000-\u0020\u007f"<>\\]/.test(raw)) return null;
+    try {
+      var url = new URL(raw);
+      return /^(http|https):$/.test(url.protocol) && url.hostname && !url.username && !url.password
+        ? url.href : null;
+    } catch (_) {
+      return null;
+    }
+  }
 
-    // Code blocks ``` … ```
-    html = html.replace(/```([\s\S]*?)```/g, '<pre class="he-code-block">$1</pre>');
-    // Inline code
-    html = html.replace(/`([^`]+)`/g, '<code class="he-code-inline">$1</code>');
-    // Headings (### … )
-    html = html.replace(/^#{3,}\s+(.+)$/gm, '<strong class="he-heading">$1</strong>');
-    // Bold
-    html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-    // Italic
-    html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
-    // Blockquotes
-    html = html.replace(/^&gt;\s?(.+)$/gm, '<div class="he-blockquote">$1</div>');
-    // Links — sanitise href (only http/https)
-    html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g,
-      '<a href="$2" target="_blank" rel="noopener noreferrer" class="he-link">$1</a>');
-    // Unordered lists (lines starting with "- ")
-    html = html.replace(/(?:^|\n)((?:- .+(?:\n|$))+)/g, function (_, block) {
-      var items = block.trim().split("\n").map(function (l) {
-        return "<li>" + l.replace(/^- /, "") + "</li>";
-      }).join("");
-      return '<ul class="he-list">' + items + "</ul>";
-    });
-    // Ordered lists (lines starting with "1. ", "2. " etc.)
-    html = html.replace(/(?:^|\n)((?:\d+\. .+(?:\n|$))+)/g, function (_, block) {
-      var items = block.trim().split("\n").map(function (l) {
-        return "<li>" + l.replace(/^\d+\.\s/, "") + "</li>";
-      }).join("");
-      return '<ol class="he-list">' + items + "</ol>";
-    });
-    // Line breaks (but not inside lists / pre)
-    html = html.replace(/\n/g, "<br>");
-    return html;
+  function markdownInline(raw, depth, allowLinks) {
+    var fragment = document.createDocumentFragment();
+    // Bound nesting, and never interpret formatting inside code or URLs.
+    if (depth >= 16) {
+      fragment.appendChild(document.createTextNode(raw));
+      return fragment;
+    }
+    // A bold span is one atom inside italic, rather than its first star closing
+    // the outer emphasis. Bold atoms stop at the next double-star delimiter.
+    var tokens = /`([^`]+)`|\[([^\]]+)\]\(([^)\n]*)\)|\*\*(.+?)\*\*|\*((?:\*\*(?:(?!\*\*)[^\n])+\*\*|[^*\n])+)\*/g;
+    var offset = 0;
+    var match;
+    while ((match = tokens.exec(raw)) !== null) {
+      fragment.appendChild(document.createTextNode(raw.slice(offset, match.index)));
+      var node;
+      if (match[1] !== undefined) {
+        node = document.createElement("code");
+        node.className = "he-code-inline";
+        match[1].split("\n").forEach(function (line, index) {
+          if (index > 0) node.appendChild(document.createElement("br"));
+          node.appendChild(document.createTextNode(line));
+        });
+      } else if (match[2] !== undefined) {
+        var href = allowLinks && markdownUrl(match[3]);
+        if (!href) {
+          node = document.createTextNode(match[0]);
+        } else {
+          node = document.createElement("a");
+          node.href = href;
+          node.target = "_blank";
+          node.rel = "noopener noreferrer";
+          node.className = "he-link";
+          node.appendChild(markdownInline(match[2], depth + 1, false));
+        }
+      } else {
+        node = document.createElement(match[4] !== undefined ? "strong" : "em");
+        node.appendChild(markdownInline(match[4] !== undefined ? match[4] : match[5], depth + 1, allowLinks));
+      }
+      fragment.appendChild(node);
+      offset = tokens.lastIndex;
+    }
+    fragment.appendChild(document.createTextNode(raw.slice(offset)));
+    return fragment;
+  }
+
+  function markdownLines(raw) {
+    var fragment = document.createDocumentFragment();
+    // Preserve complete inline-code spans before applying line-based blocks.
+    var lines = [];
+    var boundaries = /`[^`]+`|\n/g;
+    var offset = 0;
+    var boundary;
+    while ((boundary = boundaries.exec(raw)) !== null) {
+      if (boundary[0] === "\n") {
+        lines.push(raw.slice(offset, boundary.index));
+        offset = boundaries.lastIndex;
+      }
+    }
+    lines.push(raw.slice(offset));
+    for (var i = 0; i < lines.length; i++) {
+      if (i > 0) fragment.appendChild(document.createElement("br"));
+      var line = lines[i];
+      var list = line.match(/^(- |\d+\.\s)(.+)$/);
+      var node;
+      if (list) {
+        var ordered = list[1] !== "- ";
+        var pattern = ordered ? /^\d+\.\s(.+)$/ : /^- (.+)$/;
+        node = document.createElement(ordered ? "ol" : "ul");
+        node.className = "he-list";
+        var item;
+        while (i < lines.length && (item = lines[i].match(pattern))) {
+          var li = document.createElement("li");
+          li.appendChild(markdownInline(item[1], 0, true));
+          node.appendChild(li);
+          i++;
+        }
+        i--;
+      } else {
+        var heading = line.match(/^#{3,}\s+(.+)$/);
+        var quote = line.match(/^>\s?(.+)$/);
+        if (heading || quote) {
+          node = document.createElement(heading ? "strong" : "div");
+          node.className = heading ? "he-heading" : "he-blockquote";
+          node.appendChild(markdownInline((heading || quote)[1], 0, true));
+        } else {
+          node = markdownInline(line, 0, true);
+        }
+      }
+      fragment.appendChild(node);
+    }
+    return fragment;
+  }
+
+  /** Supported Markdown -> DOM; assistant text never enters an HTML parser. */
+  function renderMarkdown(raw) {
+    var fragment = document.createDocumentFragment();
+    var text = String(raw == null ? "" : raw).replace(/\r\n?/g, "\n");
+    var fences = /```([\s\S]*?)```/g;
+    var offset = 0;
+    var match;
+    while ((match = fences.exec(text)) !== null) {
+      fragment.appendChild(markdownLines(text.slice(offset, match.index)));
+      var pre = document.createElement("pre");
+      pre.className = "he-code-block";
+      pre.textContent = match[1];
+      fragment.appendChild(pre);
+      offset = fences.lastIndex;
+    }
+    fragment.appendChild(markdownLines(text.slice(offset)));
+    return fragment;
   }
 
   /* ------------------------------------------------------------------ */
@@ -218,6 +307,41 @@
       this.lastMessage = "";
 
       this._inject();
+      if (this.config.restoreHistory && this.sessionId) this._restoreHistory();
+    }
+
+    async _restoreHistory() {
+      this._setStreamState("thinking");
+      try {
+        var headers = await this._authHeaders();
+        var response = await fetch(this.config.apiUrl + "/api/v2/sessions/" + encodeURIComponent(this.sessionId), { headers: headers });
+        if (response.status === 404) {
+          this._forgetSession();
+          return;
+        }
+        if (!response.ok) throw new Error("History unavailable");
+        var data = await response.json();
+        this.messagesDiv.innerHTML = "";
+        for (var entry of data.messages || []) {
+          if (entry.role === "user") this._addUserMessage(entry.content);
+          else if (entry.role === "assistant") {
+            var message = document.createElement("div");
+            message.className = "he-msg he-msg--assistant";
+            message.innerHTML = '<div class="he-msg-body"><div class="he-msg-content"></div></div>';
+            message.querySelector(".he-msg-content").appendChild(renderMarkdown(entry.content));
+            this.messagesDiv.appendChild(message);
+          }
+        }
+        if (data.apps && data.apps.length) {
+          this.panel.classList.add("he-panel--expanded");
+          this._addAppCards(this.sideContent, data.apps, null);
+        }
+      } catch (_) {
+        this._addErrorMessage("Conversation history could not be restored. Retry or clear the conversation.");
+      } finally {
+        this._setStreamState("idle");
+        this._scrollBottom();
+      }
     }
 
     /* ---------- session persistence ---------- */
@@ -441,7 +565,7 @@
 
     _trapFocus(event) {
       var focusable = this.panel.querySelectorAll(
-        'button:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href]'
+        'button:not([disabled]), textarea:not([disabled]), select:not([disabled]), a[href], summary'
       );
       if (!focusable.length) return;
       var first = focusable[0];
@@ -473,11 +597,14 @@
         '</div>' +
         '<div class="he-suggestions" id="he-suggestions"></div>';
 
+      if (this.config.welcomeText) {
+        wrap.querySelector(".he-msg-content").textContent = this.config.welcomeText;
+      }
       this.messagesDiv.appendChild(wrap);
 
       var sugBox = wrap.querySelector("#he-suggestions");
       var self = this;
-      SUGGESTIONS.forEach(function (text) {
+      (this.config.suggestions || SUGGESTIONS).forEach(function (text) {
         var chip = document.createElement("button");
         chip.className = "he-chip";
         chip.textContent = text;
@@ -534,7 +661,7 @@
 
     /* ---------- send message ---------- */
 
-    _send() {
+    _send(appAction) {
       var text = this.textarea.value.trim();
       if (this.isStreaming) {
         this._cancelActive();
@@ -594,6 +721,7 @@
             message: text,
             locale: self.config.locale,
             filters: {},
+            app_action: appAction || undefined,
           }),
         });
       })
@@ -613,6 +741,8 @@
           var finalSessionId = null;
           var impressionId = null;
           var finalized = false;
+          var completed = false;
+          var failed = false;
 
           function finalizeStream() {
             if (finalized) return;
@@ -620,12 +750,12 @@
             self._clearTimer();
             var finalMs = Date.now() - self.responseStartMs;
             if (timerEl) timerEl.textContent = formatDuration(finalMs);
-            stageEl.textContent = "Complete";
-            stageEl.classList.add("he-stage--complete");
+            stageEl.textContent = failed ? "Request failed" : "Complete";
+            if (!failed) stageEl.classList.add("he-stage--complete");
             contentEl.classList.remove("he-streaming-cursor");
 
             if (accumulated) {
-              contentEl.innerHTML = renderMarkdown(accumulated);
+              contentEl.replaceChildren(renderMarkdown(accumulated));
               self._addCopyButton(msgWrap, accumulated);
             }
             if (appsData.length > 0 && !self.sideContent.querySelector(".he-cards")) {
@@ -645,6 +775,7 @@
           function readChunk() {
             return reader.read().then(function (result) {
               if (result.done) {
+                if (!completed && !failed) throw new Error("Incomplete assistant response");
                 finalizeStream();
                 return;
               }
@@ -664,7 +795,7 @@
                 } else if (evt.type === "explanation_delta") {
                   accumulated += evt.content || "";
                   contentEl.style.display = "";
-                  contentEl.innerHTML = renderMarkdown(accumulated);
+                  contentEl.replaceChildren(renderMarkdown(accumulated));
                   self._setStreamState("streaming");
                   self._scrollBottom();
                 } else if (evt.type === "recommendations") {
@@ -676,9 +807,11 @@
                     self._addAppCards(self.sideContent, appsData, impressionId);
                   }
                 } else if (evt.type === "complete") {
+                  completed = true;
                   if (evt.session_id) finalSessionId = evt.session_id;
                   impressionId = evt.impression_id || impressionId;
                 } else if (evt.type === "problem") {
+                  failed = true;
                   accumulated = evt.detail || evt.title || "An error occurred.";
                   contentEl.innerHTML = '<span class="he-error-text">' + escapeHtml(accumulated) + '</span>';
                 }
@@ -737,6 +870,9 @@
     /* ---------- app cards ---------- */
 
     _addAppCards(parentBody, apps, impressionId) {
+      this.panel.querySelector(".he-side-title").textContent = apps.some(function (result) {
+        return (result.app || result).source_profile === "hedge-store-v1";
+      }) ? "Apps in this conversation" : "Recommended Context";
       parentBody.innerHTML = ""; // Clear previous context
       var container = document.createElement("div");
       container.className = "he-cards he-animate-in";
@@ -744,17 +880,36 @@
       for (var i = 0; i < Math.min(apps.length, 5); i++) {
         var result = apps[i];
         var app = result.app || result;
-        var relevance = result.relevance || "medium";
+        var isStore = app.source_profile === "hedge-store-v1";
+        var relevance = result.suitability ? (result.suitability.status === "source_supported" ? "Source evidence" : "Unverified candidate") : (isStore ? "Rank " + result.rank : result.relevance || "medium");
         var domainLabel = (app.domains && app.domains[0]) || app.saref_type || app.domain || "";
         var dc = domainColor(domainLabel);
         var desc = (app.description || "").slice(0, 140);
-        var appTitle = localized(app.title, this.config.locale) || "Unknown App";
+        if (isStore && (app.description || "").length > 140) {
+          desc = "Read the complete description in source evidence below.";
+        }
+        var sourceDetails = "";
+        if (isStore) {
+          var evidence = app.source_evidence || {};
+          var sourceRows = Object.keys(evidence).map(function (path) {
+            var value = String(evidence[path]);
+            var quoted = value; // Bounded normalized evidence, escaped below; never cut qualifications.
+            return '<dt>' + escapeHtml(path) + '</dt><dd>' + escapeHtml(quoted) + '</dd>';
+          }).join("");
+          sourceDetails = '<details class="he-card-evidence"><summary>Source evidence</summary>' +
+            '<p>Original Store fields used to explain this App.</p>' +
+            '<p>Store: ' + escapeHtml(app.store_id) + '<br>App: ' + escapeHtml(app.app_id) + '</p>' +
+            '<dl>' + sourceRows + '</dl>' +
+            '<p>README: ' + escapeHtml(app.readme_status || "unavailable") +
+            ' · Embedded metadata: ' + escapeHtml(app.dataspace_description_status || "unavailable") + '</p></details>';
+        }
+        var appTitle = (isStore ? app.name : localized(app.title, this.config.locale)) || (isStore ? "Unnamed App" : "Unknown App");
         var versionValue = (app.lifecycle && app.lifecycle.version) || app.version || "";
-        var publisherValue = (app.publisher && app.publisher.name) || app.publisher || "";
+        var publisherValue = isStore ? app.provider || "" : (app.publisher && app.publisher.name) || app.publisher || "";
         var version = versionValue ? '<span class="he-card-version">v' + escapeHtml(versionValue) + '</span>' : "";
         var publisher = publisherValue ? '<span class="he-card-publisher">' + escapeHtml(publisherValue) + '</span>' : "";
 
-        var hasExternalAppUrl = app.app_url && !isSyntheticAppUrl(app.app_url);
+        var hasExternalAppUrl = !isStore && app.app_url && !isSyntheticAppUrl(app.app_url);
         var card = document.createElement(hasExternalAppUrl ? "a" : "div");
         card.className = "he-card";
         if (hasExternalAppUrl) {
@@ -775,8 +930,9 @@
             (domainLabel ? '<span class="he-card-domain" style="background:' + dc.bg + ';color:' + dc.fg + '">' + escapeHtml(domainLabel) + '</span>' : "") +
             publisher +
             version +
-            '<span class="he-card-id">' + escapeHtml(app.id || "") + '</span>' +
-          '</div>';
+            (isStore ? '' : '<span class="he-card-id">' + escapeHtml(app.id || "") + '</span>') +
+            (isStore ? '<span class="he-card-source">Store catalogue</span>' : '') +
+          '</div>' + sourceDetails;
         if (hasExternalAppUrl && impressionId) {
           var self = this;
           (function (appId) {
@@ -784,6 +940,22 @@
               self._sendRecommendationEvent(impressionId, "app_opened", appId);
             });
           })(app.id);
+        }
+        if (isStore) {
+          var explain = document.createElement("button");
+          explain.type = "button";
+          explain.className = "he-card-explain";
+          explain.textContent = "Explain this App";
+          explain.setAttribute("aria-label", "Explain " + appTitle);
+          var owner = this;
+          (function (storeId, nativeId, displayName) {
+            explain.addEventListener("click", function () {
+              if (owner.isStreaming) return;
+              owner.textarea.value = "Tell me about " + displayName;
+              owner._send({type: "inspect", store_id: storeId, app_id: nativeId});
+            });
+          })(app.store_id, app.app_id, appTitle);
+          card.appendChild(explain);
         }
         container.appendChild(card);
       }

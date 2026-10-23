@@ -6,6 +6,7 @@ import logging
 
 from fastapi import FastAPI, Response, status
 from hedge_shared.metrics import MetricsMiddleware
+from hedge_shared.private_store import scope
 from hedge_shared.storage import latest_ingestion_run, ping_database
 
 from .routes import router
@@ -21,6 +22,10 @@ app = FastAPI(
 )
 app.add_middleware(MetricsMiddleware, service_name="metadata-ingest")
 app.include_router(router)
+
+if scope():
+    from .private_routes import router as private_router
+    app.include_router(private_router)
 
 
 @app.get("/live")

@@ -53,8 +53,6 @@ sys.modules["er_app.recommender"] = _rec_mod
 _rec_spec.loader.exec_module(_rec_mod)
 
 recommend = _rec_mod.recommend
-_is_ranking_consistent = _rec_mod._is_ranking_consistent
-_build_ranked_fallback = _rec_mod._build_ranked_fallback
 
 
 SAMPLE_RESULTS = [
@@ -113,8 +111,9 @@ class TestRecommendPipeline:
 
         assert "message" in result
         assert "apps" in result
-        assert len(result["apps"]) == 2
-        assert result["apps"][0]["score"] >= result["apps"][1]["score"]
+        assert len(result["apps"]) == 1
+        assert len(result["candidates"]) == 1
+        assert result["apps"][0]["app"]["id"] == "app-001"
 
     @patch.object(_rec_mod, "httpx")
     def test_recommend_no_results(self, mock_httpx):
@@ -150,8 +149,9 @@ class TestRecommendPipeline:
 
         result = recommend(query="energy monitoring", top_k=2)
 
-        # Should use fallback which mentions App 1 as top
-        assert result["message"].startswith("Start with **SmartEnergy Monitor**")
+        # Invalid generation falls back to source evidence without promoting the first result.
+        assert "fits what you need" in result["message"]
+        assert "Start with" not in result["message"]
 
     @patch.object(_rec_mod, "httpx")
     @patch.object(_rec_mod, "OllamaClient")
@@ -169,32 +169,15 @@ class TestRecommendPipeline:
 
         result = recommend(query="energy monitoring", top_k=2)
 
-        assert len(result["apps"]) == 2
+        assert len(result["apps"]) == 1
+        assert len(result["candidates"]) == 1
         assert result["message"]  # Some fallback message
 
 
-class TestRankingConsistency:
-    """Test the ranking consistency checker directly."""
-
-    def test_consistent_explanation_passes(self):
-        assert _is_ranking_consistent(
-            "The top match is **SmartEnergy Monitor** for energy use.",
-            SAMPLE_RESULTS,
-        )
-
-    def test_contradictory_explanation_fails(self):
-        assert not _is_ranking_consistent(
-            "I recommend starting with **SolarPanel Optimizer** as best.",
-            SAMPLE_RESULTS,
-        )
-
-    def test_no_ranking_claims_passes(self):
-        assert _is_ranking_consistent(
-            "Here are two energy apps that may help.",
-            SAMPLE_RESULTS,
-        )
-
-    def test_fallback_mentions_top_app(self):
-        fallback = _build_ranked_fallback(SAMPLE_RESULTS)
-        assert "SmartEnergy Monitor" in fallback
-        assert "SolarPanel Optimizer" in fallback
+def test_title_mentions_and_rank_never_validate_fabricated_suitability():
+    source = _rec_mod._recommendation_narrative("earthquake warnings", SAMPLE_RESULTS, "en")
+    assert "90%" not in source and "highest-ranked" not in source
+    assert 'description: "Real-time energy consumption monitoring."' in source
+    decision = _rec_mod._recommendation_decision("earthquake warnings", SAMPLE_RESULTS, "en")
+    assert decision["apps"] == [] and len(decision["candidates"]) == 2
+    assert decision["decision"]["outcome"] == "abstained"

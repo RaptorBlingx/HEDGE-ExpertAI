@@ -1,0 +1,25 @@
+{
+  "description": "Second unseen set, authored on 2026-10-21 after the matcher rules were frozen (the first unseen set had informed rule changes, so it no longer measures generalization). Agent-authored labels against evaluation/retrieval/catalogue.json; not HEDGE-approved relevance labels.",
+  "queries": [
+    {"id": "V1", "query": "our building managers want to see where electricity consumption spikes on a dashboard", "complete": ["fixture-16"], "partial": [], "forbidden": []},
+    {"id": "V2", "query": "Is anything able to merge flexibility offers coming from different aggregators?", "complete": ["fixture-1", "fixture-13"], "partial": ["fixture-8"], "forbidden": ["fixture-7", "fixture-8"]},
+    {"id": "V3", "query": "We want to forward telemetry from field devices over HTTP", "complete": ["fixture-19"], "partial": [], "forbidden": []},
+    {"id": "V4", "query": "need help validating message payloads against JSON schemas", "complete": ["fixture-20", "fixture-4", "fixture-15"], "partial": [], "forbidden": []},
+    {"id": "V5", "query": "Which tool predicts tomorrow's power consumption for buildings?", "complete": ["fixture-17"], "partial": [], "forbidden": ["fixture-5"]},
+    {"id": "V6", "query": "I'd like to keep historical bid records for auditors", "complete": ["fixture-7"], "partial": [], "forbidden": []},
+    {"id": "V7", "query": "Calculate settlement for activated flexibility based on metered delivery", "complete": ["fixture-18"], "acceptable": ["fixture-13"], "partial": ["fixture-13"], "forbidden": ["fixture-6"]},
+    {"id": "V8", "query": "a registry where partner organisations can version approved data models", "complete": ["fixture-14"], "partial": ["fixture-2"], "forbidden": []},
+    {"id": "V9", "query": "Detect bearing failures from vibration data and automatically schedule maintenance", "complete": [], "partial": ["fixture-3"], "forbidden": ["fixture-3"]},
+    {"id": "V10", "query": "Translate field meanings between organisations and also buffer messages during outages", "complete": [], "partial": ["fixture-2", "fixture-14", "fixture-19"], "forbidden": ["fixture-2", "fixture-14", "fixture-19"]},
+    {"id": "V11", "query": "Do you have an app that records market transactions?", "complete": ["fixture-6"], "partial": [], "forbidden": []},
+    {"id": "V12", "query": "automatic settlement of market transactions", "complete": [], "acceptable": ["fixture-18"], "partial": ["fixture-6"], "forbidden": ["fixture-6"]},
+    {"id": "V13", "query": "Find an application for room temperature monitoring", "complete": ["fixture-9"], "partial": [], "forbidden": []},
+    {"id": "V14", "query": "Is there an energy trading platform?", "complete": [], "acceptable": ["fixture-13", "fixture-1"], "partial": [], "forbidden": ["fixture-16"]},
+    {"id": "V15", "query": "Convert JSON payloads but I don't need schema validation", "complete": ["fixture-4", "fixture-15"], "partial": [], "forbidden": ["fixture-20"]},
+    {"id": "V16", "query": "maintenance manuals", "complete": ["fixture-10"], "partial": [], "forbidden": []},
+    {"id": "V17", "query": "Send SMS alerts to engineers", "complete": [], "partial": ["fixture-3"], "forbidden": ["fixture-3"]},
+    {"id": "V18", "query": "I want to monitor my electricity meters and forecast my next-day consumption", "complete": [], "partial": ["fixture-16", "fixture-17"], "forbidden": ["fixture-16", "fixture-17"]},
+    {"id": "V19", "query": "Which apps work with JSON?", "complete": ["fixture-4", "fixture-15", "fixture-20"], "partial": [], "forbidden": []},
+    {"id": "V20", "query": "Book a meeting room", "complete": [], "partial": [], "forbidden": []}
+  ]
+}

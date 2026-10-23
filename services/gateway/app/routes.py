@@ -8,6 +8,7 @@ import os
 import httpx
 from fastapi import APIRouter, HTTPException, Path, Query, Request
 from fastapi.responses import JSONResponse, StreamingResponse
+from hedge_shared.config import Settings
 from hedge_shared.models_v2 import (
     ChatRequestV2,
     RecommendationEventRequest,
@@ -46,8 +47,10 @@ def _env_roles(name: str, default: str) -> set[str]:
     return {item.strip() for item in raw.split(",") if item.strip()}
 
 
-def _require_roles(request: Request, allowed_roles: set[str]) -> None:
-    if not _env_flag("ENABLE_RBAC"):
+def _require_roles(
+    request: Request, allowed_roles: set[str], *, required: bool = False
+) -> None:
+    if not required and not _env_flag("ENABLE_RBAC"):
         return
     if getattr(request.state, "api_key_authenticated", False):
         return
@@ -62,7 +65,16 @@ def _require_roles(request: Request, allowed_roles: set[str]) -> None:
 
 
 def _require_admin(request: Request) -> None:
-    _require_roles(request, _env_roles("RBAC_ADMIN_ROLES", "admin,administrator"))
+    _require_roles(request, _env_roles("RBAC_ADMIN_ROLES", "admin,administrator"), required=True)
+
+
+def _ingestion_admin_headers() -> dict[str, str]:
+    key = os.getenv("GATEWAY_API_KEY", "")
+    if not key:
+        raise HTTPException(
+            status_code=503, detail="Ingestion administrative access is not configured."
+        )
+    return {"X-API-Key": key}
 
 
 def _require_analyst(request: Request) -> None:
@@ -102,10 +114,17 @@ def _json_upstream(response: httpx.Response, service: str) -> JSONResponse:
     )
 
 
-async def _post_json(url: str, payload: dict, service: str, timeout: float) -> JSONResponse:
+async def _post_json(
+    url: str,
+    payload: dict,
+    service: str,
+    timeout: float,
+    *,
+    headers: dict[str, str] | None = None,
+) -> JSONResponse:
     try:
         async with httpx.AsyncClient() as client:
-            response = await client.post(url, json=payload, timeout=timeout)
+            response = await client.post(url, json=payload, timeout=timeout, headers=headers)
         return _json_upstream(response, service)
     except Exception:
         logger.exception("%s request failed", service)
@@ -133,6 +152,13 @@ async def _get_json(
 # ---------------------------------------------------------------------------
 
 
+def _chat_timeout_v2() -> float:
+    # A model-assisted turn makes at most one choice between readings and one answer or review call.
+    settings = Settings()
+    return (settings.STORE_INTERPRETATION_SECONDS + settings.STORE_MODEL_TIMEOUT_SECONDS + 15
+            if settings.PRIVATE_STORE_ENABLED and settings.STORE_SEMANTIC_ENABLED else 300.0)
+
+
 @router.post("/api/v2/chat")
 async def proxy_chat_v2(body: ChatRequestV2):
     """Proxy strict v2 chat requests."""
@@ -140,7 +166,7 @@ async def proxy_chat_v2(body: ChatRequestV2):
         f"{CHAT_INTENT_URL}/api/v2/chat",
         body.model_dump(mode="json"),
         "Chat service",
-        300.0,
+        _chat_timeout_v2(),
     )
 
 
@@ -159,7 +185,7 @@ async def proxy_chat_stream_v2(body: ChatRequestV2):
                     "POST",
                     f"{CHAT_INTENT_URL}/api/v2/chat/stream",
                     json=body.model_dump(mode="json"),
-                    timeout=300.0,
+                    timeout=_chat_timeout_v2(),
                 ) as response:
                     if response.status_code >= 400:
                         payload = {
@@ -293,6 +319,7 @@ async def proxy_ingestion_run_v2(request: Request):
         {},
         "Ingestion service",
         30.0,
+        headers=_ingestion_admin_headers(),
     )
 
 
@@ -342,14 +369,21 @@ async def proxy_ingestion_quarantine_v2(
 
 
 @router.post("/api/v2/ingestion/outbox/replay", status_code=202)
-async def proxy_ingestion_outbox_replay_v2(request: Request):
+async def proxy_ingestion_outbox_replay_v2(
+    request: Request,
+    outbox_id: int | None = Query(default=None, ge=1),
+):
     """Admin-only replay of pending and failed index operations."""
     _require_admin(request)
+    url = f"{METADATA_INGEST_URL}/api/v2/ingestion/outbox/replay"
+    if outbox_id is not None:
+        url += f"?outbox_id={outbox_id}"
     return await _post_json(
-        f"{METADATA_INGEST_URL}/api/v2/ingestion/outbox/replay",
+        url,
         {},
         "Ingestion service",
         30.0,
+        headers=_ingestion_admin_headers(),
     )
 
 
@@ -528,11 +562,13 @@ async def proxy_get_app(app_id: str):
 async def proxy_ingest_trigger(request: Request):
     """Proxy ingest trigger to metadata-ingest service."""
     _require_admin(request)
+    headers = _ingestion_admin_headers()
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 f"{METADATA_INGEST_URL}/api/v1/ingest/trigger",
                 timeout=30.0,
+                headers=headers,
             )
         return JSONResponse(status_code=resp.status_code, content=resp.json())
     except Exception:

@@ -1,0 +1,45 @@
+{
+  "purpose": "Development conversations. R* replay the observed 8156 widget conversations against an authorized real Store observation (pass it with --catalogue; keep it outside Git). F* use the fictional evaluation catalogue. These cases may inform implementation; held-out.json may not.",
+  "conversations": [
+    {"id": "R1", "catalogue": "real", "turns": [
+      {"message": "List the available Apps.", "expect": {"model": false}},
+      {"message": "Explain EdgeConnect in simple language.", "expect": {"subject": ["EdgeConnect"], "concepts_any": ["aggregator"], "model": false}},
+      {"message": "What does that mean?", "expect": {"subject": ["EdgeConnect"], "model": false}},
+      {"message": "Can you give a practical example?", "expect": {"subject": ["EdgeConnect"], "concepts_any": ["illustrative", "example"], "model": false}},
+      {"message": "I still don't understand. Explain it differently.", "expect": {"subject": ["EdgeConnect"]}},
+      {"message": "Who provides it, and how can I access it?", "expect": {"subject": ["EdgeConnect"], "concepts_any": ["INESCTEC"], "model": false}}
+    ]},
+    {"id": "R2", "catalogue": "real", "turns": [
+      {"message": "Explain Semantic Treehouse to someone unfamiliar with data models.", "expect": {"subject": ["Semantic Treehouse"], "concepts_any": ["data model"], "forbid": ["wiring", "power flow"], "model": false}},
+      {"message": "I still don't understand. Explain it differently.", "expect": {"subject": ["Semantic Treehouse"], "forbid": ["wiring", "power flow"]}},
+      {"message": "What does \"mapping\" mean?", "expect": {"concepts_any": ["translation", "corresponds"], "model": false}},
+      {"message": "Compare both Apps in plain English.", "expect": {"subject": ["EdgeConnect", "Semantic Treehouse"], "forbid": ["Which of these jobs"], "model": false}},
+      {"message": "Why would I choose one over the other?", "expect": {"subject": ["EdgeConnect", "Semantic Treehouse"]}}
+    ]},
+    {"id": "R3", "catalogue": "real", "turns": [
+      {"message": "Find an app to publish shared data models and mappings.", "expect": {"outcome": "recommended", "subject": ["Semantic Treehouse"]}},
+      {"message": "Does it also generate earthquake warnings?", "expect": {"subject": ["Semantic Treehouse"], "forbid": ["I haven’t found a confirmed match", "fits what you need"], "model": false}},
+      {"message": "Who provides it?", "expect": {"concepts_any": ["TNO"], "model": false}},
+      {"message": "What is it useful for?", "expect": {"subject": ["Semantic Treehouse"], "model": false}}
+    ]},
+    {"id": "R4", "catalogue": "real", "turns": [
+      {"message": "What is EdgeConnect?", "expect": {"subject": ["EdgeConnect"], "model": false}},
+      {"message": "What does \"flexibility bid\" mean?", "expect": {"concepts_any": ["offer"], "model": false}},
+      {"message": "Does it support settlement?", "expect": {"subject": ["EdgeConnect"]}},
+      {"message": "Would it help a small energy cooperative?", "expect": {"subject": ["EdgeConnect"], "forbid": ["guarantee", "fits what you need"]}}
+    ]},
+    {"id": "F1", "catalogue": "fictional", "turns": [
+      {"message": "Tell me about BidRelay", "expect": {"subject": ["BidRelay"], "model": false}},
+      {"message": "Explain that in simple English", "expect": {"subject": ["BidRelay"], "concepts_any": ["aggregat", "flexibility"], "model": false}},
+      {"message": "What is an aggregator?", "expect": {"concepts_any": ["pool", "group"], "model": false}},
+      {"message": "Does it forecast prices?", "expect": {"subject": ["BidRelay"], "concepts_any": ["does not forecast"], "forbid": ["fits what you need"]}},
+      {"message": "Compare it with SettlementDesk", "expect": {"subject": ["BidRelay", "SettlementDesk"], "model": false}}
+    ]},
+    {"id": "F2", "catalogue": "fictional", "turns": [
+      {"message": "I need to translate data between two systems that use different field names", "expect": {"forbid": ["Which App do you mean"]}},
+      {"message": "What does payload mean?", "expect": {"concepts_any": ["content", "data itself"], "model": false}},
+      {"message": "Explain the difference between FlowMapper and PayloadPipe in plain English", "expect": {"subject": ["FlowMapper", "PayloadPipe"], "model": false}},
+      {"message": "Which one validates against a schema?", "expect": {"forbid": ["Which App do you mean"]}}
+    ]}
+  ]
+}

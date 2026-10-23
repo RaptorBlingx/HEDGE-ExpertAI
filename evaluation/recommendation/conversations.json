@@ -1,0 +1,28 @@
+{
+  "description": "Multi-turn scenarios authored on 2026-10-21 before they were run. Each turn names the Rasa-like intent hint the harness supplies; expectations are agent-authored engineering judgments, checked by reading the replies.",
+  "conversations": [
+    {"id": "C1", "turns": [
+      {"message": "I need to aggregate flexibility bids from several providers", "intent": "search", "expect": "recommend BidRelay (and possibly OfferBridge)"},
+      {"message": "Does BidRelay also calculate settlement allocations?", "intent": "detail", "expect": "yes, quoting the settlement sentence"},
+      {"message": "Does it forecast prices?", "intent": "detail", "expect": "no, quoting 'It does not forecast prices.'"},
+      {"message": "Compare it with SettlementDesk", "intent": "compare", "expect": "purpose comparison of the two"}
+    ]},
+    {"id": "C2", "turns": [
+      {"message": "Find an app for JSON schema validation", "intent": "search", "expect": "SchemaCheck (FlowMapper/PayloadPipe acceptable)"},
+      {"message": "Which of them can also convert payloads?", "intent": "search", "expect": "FlowMapper and/or PayloadPipe, not SchemaCheck"},
+      {"message": "Tell me more about PayloadPipe", "intent": "detail", "expect": "PayloadPipe description"}
+    ]},
+    {"id": "C3", "turns": [
+      {"message": "Something for predictive maintenance of wind turbines", "intent": "search", "expect": "TurbineWatch"},
+      {"message": "Can it stop the turbine automatically?", "intent": "detail", "expect": "no, quoting 'It does not control turbine operation.'"}
+    ]},
+    {"id": "C4", "turns": [
+      {"message": "We need shared vocabularies and also to transform JSON payloads", "intent": "search", "expect": "no single App; partial fits with what each covers"},
+      {"message": "Which app can transform JSON payloads?", "intent": "search", "expect": "FlowMapper and/or PayloadPipe"}
+    ]},
+    {"id": "C5", "turns": [
+      {"message": "Show me all available apps", "intent": "search", "expect": "catalogue listing with affirmative summaries"},
+      {"message": "Which one forecasts electricity prices?", "intent": "search", "expect": "PriceLens"}
+    ]}
+  ]
+}

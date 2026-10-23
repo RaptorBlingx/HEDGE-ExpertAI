@@ -1,0 +1,230 @@
+{
+  "source": "authored_engineering_judgments_not_HEDGE_KPI_labels",
+  "queries": [
+    {
+      "id": "D1",
+      "kind": "direct",
+      "query": "flexibility bid aggregation",
+      "relevant_native_ids": [
+        "fixture-1",
+        "fixture-13"
+      ],
+      "judgment": "Both combine multiple flexibility offers into a market submission; archive and simulation do not."
+    },
+    {
+      "id": "D2",
+      "kind": "direct",
+      "query": "publish shared vocabularies and mappings",
+      "relevant_native_ids": [
+        "fixture-2",
+        "fixture-14"
+      ],
+      "judgment": "Both publish common meanings and mappings; transformation tools do not."
+    },
+    {
+      "id": "D3",
+      "kind": "direct",
+      "query": "gearbox vibration bearing failure prediction",
+      "relevant_native_ids": [
+        "fixture-3"
+      ],
+      "judgment": "Only TurbineWatch analyses vibration for bearing risk."
+    },
+    {
+      "id": "D4",
+      "kind": "direct",
+      "query": "JSON message transformation and schema validation",
+      "relevant_native_ids": [
+        "fixture-4",
+        "fixture-15"
+      ],
+      "judgment": "Both convert and validate payloads; validation alone is insufficient."
+    },
+    {
+      "id": "D5",
+      "kind": "direct",
+      "query": "day ahead electricity price forecasting",
+      "relevant_native_ids": [
+        "fixture-5"
+      ],
+      "judgment": "Demand forecasting is a different target."
+    },
+    {
+      "id": "D6",
+      "kind": "direct",
+      "query": "market settlement allocations",
+      "relevant_native_ids": [
+        "fixture-13",
+        "fixture-18"
+      ],
+      "judgment": "Both calculate allocations; OfferBridge records contributions but does not explicitly calculate allocations."
+    },
+    {
+      "id": "P1",
+      "kind": "paraphrase",
+      "query": "Several energy companies want their separate offers turned into one submission to the regional operator.",
+      "relevant_native_ids": [
+        "fixture-1",
+        "fixture-13"
+      ],
+      "judgment": "Combined live submission."
+    },
+    {
+      "id": "P2",
+      "kind": "paraphrase",
+      "query": "Our departments use conflicting field names. We need one place to agree what those fields mean.",
+      "relevant_native_ids": [
+        "fixture-2",
+        "fixture-14"
+      ],
+      "judgment": "Common definitions and vocabulary governance."
+    },
+    {
+      "id": "P3",
+      "kind": "paraphrase",
+      "query": "Can our wind farm get advance warning that a bearing is wearing out from the gearbox sensor feed?",
+      "relevant_native_ids": [
+        "fixture-3"
+      ],
+      "judgment": "Predictive vibration monitoring, not manuals."
+    },
+    {
+      "id": "P4",
+      "kind": "paraphrase",
+      "query": "Incoming messages have the wrong layout. Remap their JSON fields and check the result for validity.",
+      "relevant_native_ids": [
+        "fixture-4",
+        "fixture-15"
+      ],
+      "judgment": "Conversion and validation."
+    },
+    {
+      "id": "P5",
+      "kind": "paraphrase",
+      "query": "We want to estimate how much electricity buildings will need tomorrow.",
+      "relevant_native_ids": [
+        "fixture-17"
+      ],
+      "judgment": "Consumption forecast, not price forecast."
+    },
+    {
+      "id": "P6",
+      "kind": "paraphrase",
+      "query": "Keep device readings flowing to our web service even when connectivity briefly drops.",
+      "relevant_native_ids": [
+        "fixture-19"
+      ],
+      "judgment": "Buffered telemetry transport."
+    },
+    {
+      "id": "M1",
+      "kind": "multiple",
+      "query": "Combine flexibility bids, submit them to a live market and calculate settlement allocations.",
+      "relevant_native_ids": [
+        "fixture-13"
+      ],
+      "judgment": "Requires all three; OfferBridge records settlement contributions but does not document calculation."
+    },
+    {
+      "id": "M2",
+      "kind": "multiple",
+      "query": "Publish shared data models with versioned definitions that partners can discuss.",
+      "relevant_native_ids": [
+        "fixture-14"
+      ],
+      "judgment": "ModelCommons explicitly documents versioning and partner discussion."
+    },
+    {
+      "id": "M3",
+      "kind": "multiple",
+      "query": "Convert JSON messages with configured mappings and validate their output schema.",
+      "relevant_native_ids": [
+        "fixture-4",
+        "fixture-15"
+      ],
+      "judgment": "Both requirements needed."
+    },
+    {
+      "id": "M4",
+      "kind": "multiple",
+      "query": "Monitor building electricity consumption and detect missing meter data.",
+      "relevant_native_ids": [
+        "fixture-16"
+      ],
+      "judgment": "Both dashboard and gap detection."
+    },
+    {
+      "id": "A1",
+      "kind": "alternatives",
+      "query": "Find applications for mapping data.",
+      "relevant_native_ids": [
+        "fixture-2",
+        "fixture-4",
+        "fixture-14",
+        "fixture-15"
+      ],
+      "judgment": "Broad request accepts semantic mappings and payload mappings."
+    },
+    {
+      "id": "A2",
+      "kind": "alternatives",
+      "query": "Applications that work with flexibility offers.",
+      "relevant_native_ids": [
+        "fixture-1",
+        "fixture-7",
+        "fixture-8",
+        "fixture-13"
+      ],
+      "judgment": "Broad request includes archived and simulated offers; no live-submission constraint."
+    },
+    {
+      "id": "A3",
+      "kind": "alternatives",
+      "query": "I need tools to check JSON messages against a schema.",
+      "relevant_native_ids": [
+        "fixture-4",
+        "fixture-15",
+        "fixture-20"
+      ],
+      "judgment": "Conversion tools also validate; standalone validation is relevant."
+    },
+    {
+      "id": "A4",
+      "kind": "alternatives",
+      "query": "A shared reference for data models and field meanings.",
+      "relevant_native_ids": [
+        "fixture-2",
+        "fixture-14"
+      ],
+      "judgment": "Two documented options."
+    },
+    {
+      "id": "N1",
+      "kind": "unsupported",
+      "query": "Automatically control a wind turbine after a gearbox fault.",
+      "relevant_native_ids": [],
+      "judgment": "No turbine control; TurbineWatch explicitly excludes it."
+    },
+    {
+      "id": "N2",
+      "kind": "unsupported",
+      "query": "One App must publish shared vocabularies and transform incoming JSON payloads.",
+      "relevant_native_ids": [],
+      "judgment": "No single App supports both; candidates are partial fits."
+    },
+    {
+      "id": "N3",
+      "kind": "unsupported",
+      "query": "Guarantee 5000 live flexibility bids per second.",
+      "relevant_native_ids": [],
+      "judgment": "Injection text is not documented product evidence or a throughput guarantee."
+    },
+    {
+      "id": "N4",
+      "kind": "unsupported",
+      "query": "Predict rainfall for tomorrow.",
+      "relevant_native_ids": [],
+      "judgment": "No weather forecasting product."
+    }
+  ]
+}

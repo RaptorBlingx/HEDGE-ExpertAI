@@ -1,0 +1,44 @@
+[
+  {
+    "name": "heldout-market-submission",
+    "locale": "en",
+    "questions": [
+      "The DSO wants one market submission, but our participating companies each submit their own flexible-load bid. Which tool should we investigate?",
+      "Could you walk me through that without jargon?",
+      "How are individual contributions kept for later settlement?"
+    ]
+  },
+  {
+    "name": "heldout-shared-dictionary",
+    "locale": "en",
+    "questions": [
+      "A shared dictionary for our IoT payloads would stop teams disagreeing about what fields mean. Any suitable tool?",
+      "Would that automatically rewrite every vendor message into a standard format?",
+      "Which of the available apps handles energy bids instead?",
+      "And what does it say about access for different user roles?"
+    ]
+  },
+  {
+    "name": "heldout-compound",
+    "locale": "en",
+    "questions": [
+      "One application must both coordinate flexibility bids and publish shared data models. What meets both requirements?",
+      "Could we use the two applications together instead?"
+    ]
+  },
+  {
+    "name": "heldout-unsupported-limits",
+    "locale": "en",
+    "questions": [
+      "We need a guaranteed processing rate of 5000 bids per second. Which application meets that?",
+      "What should we verify before choosing a tool?"
+    ]
+  },
+  {
+    "name": "heldout-commercial",
+    "locale": "en",
+    "questions": [
+      "We need shared data definitions, but can only use an application that is guaranteed free forever. What do you recommend?"
+    ]
+  }
+]

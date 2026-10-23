@@ -1,0 +1,210 @@
+{
+ "purpose": "SEALED held-out set, authored 22 October 2026 before any implementation on this branch. Run only at milestones; never tune rules, prompts or training data to its failures.",
+ "catalogue": "evaluation/retrieval/catalogue.json",
+ "conversations": [
+  {
+   "id": "HF1",
+   "turns": [
+    {
+     "message": "what can I find in here?",
+     "expect": {
+      "act": "list",
+      "min_cards": 2
+     }
+    },
+    {
+     "message": "I need to store old flexibility offers for auditing",
+     "expect": {
+      "act": "find",
+      "subject": [
+       "BidArchive"
+      ]
+     }
+    },
+    {
+     "message": "can that one also combine them into a single bid?",
+     "expect": {
+      "act": "check",
+      "outcome": "abstained",
+      "subject": [
+       "BidArchive"
+      ]
+     }
+    },
+    {
+     "message": "which app can?",
+     "expect": {
+      "act": "find",
+      "subject_any": [
+       "OfferBridge",
+       "BidRelay"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "HF2",
+   "turns": [
+    {
+     "message": "Turbine watch??",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "TurbineWatch"
+      ]
+     }
+    },
+    {
+     "message": "what does 'bearing failure' mean",
+     "expect": {
+      "act": "term",
+      "concepts_any": [
+       "bearing"
+      ]
+     }
+    },
+    {
+     "message": "explain it differently",
+     "expect": {
+      "act": "differently",
+      "subject": [
+       "TurbineWatch"
+      ]
+     }
+    },
+    {
+     "message": "is there a manual library for gearboxes too",
+     "expect": {
+      "act": "find",
+      "subject": [
+       "MaintenanceDocs"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "HF3",
+   "turns": [
+    {
+     "message": "our buildings' meters have missing readings, any tool for that?",
+     "expect": {
+      "act": "find",
+      "subject": [
+       "MeterScope"
+      ]
+     }
+    },
+    {
+     "message": "could it predict tomorrow's consumption?",
+     "expect": {
+      "act": "check",
+      "outcome": "abstained",
+      "forbid": [
+       "fits what you need"
+      ]
+     }
+    },
+    {
+     "message": "what about LoadAhead?",
+     "expect": {
+      "act": "check",
+      "subject": [
+       "LoadAhead"
+      ],
+      "outcome": "recommended"
+     }
+    },
+    {
+     "message": "compare the two",
+     "expect": {
+      "act": "compare",
+      "subject": [
+       "MeterScope",
+       "LoadAhead"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "HF4",
+   "turns": [
+    {
+     "message": "Which is better for settlement: SettlementDesk or LedgerPlan?",
+     "expect": {
+      "act": "choose",
+      "subject": [
+       "SettlementDesk",
+       "LedgerPlan"
+      ],
+      "concepts_any": [
+       "not available",
+       "planned",
+       "future release"
+      ]
+     }
+    },
+    {
+     "message": "who provides SettlementDesk",
+     "expect": {
+      "act": "provider",
+      "concepts_any": [
+       "Authored evaluation fixture"
+      ]
+     }
+    },
+    {
+     "message": "how much does it cost",
+     "expect": {
+      "act": "price",
+      "concepts_any": [
+       "price",
+       "cost"
+      ],
+      "forbid": [
+       "it is free",
+       "it's free"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "HF5",
+   "turns": [
+    {
+     "message": "Which app guarantees 5000 bids per second?",
+     "expect": {
+      "act": "find",
+      "outcome": "abstained",
+      "forbid": [
+       "guarantees 5000",
+       "fits what you need"
+      ]
+     }
+    },
+    {
+     "message": "tell me about CommandCard",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "CommandCard"
+      ],
+      "forbid": [
+       "5000 bids",
+       "for all requests"
+      ]
+     }
+    },
+    {
+     "message": "thx, that's all for now",
+     "expect": {
+      "act": "thanks"
+     }
+    }
+   ]
+  }
+ ]
+}

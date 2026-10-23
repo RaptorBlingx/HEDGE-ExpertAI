@@ -1,0 +1,95 @@
+# Offline Store v1 search and recommendations
+
+This slice exercises Store Apps through existing PostgreSQL, Qdrant, reciprocal-rank
+fusion and recommendation code. It adds no production endpoint, environment switch, migration,
+dependency, scheduler, live ingestion or public Store result contract. Public
+search/detail/list, indexing operations, rebuilds and outbox creation still default
+to synthetic v2 only. The frozen demo is independent and was not used for testing.
+
+For interactive questions, use the lightweight [manual testing runner](store-v1-manual-testing.md).
+It shares the [isolated browser Chat Pane](store-v1-browser-evaluation.md), with
+Store-specific identity/context binding and labelled authored fixtures. Ranking and
+public contracts remain unchanged.
+
+## Explicit offline boundary
+
+For **disposable test resources only**, call the existing Python functions
+`discovery-ranking/app/indexer.py::apply_operations` and
+`discovery-ranking/app/searcher_v2.py::search_apps_v2` with both `store_id` and
+`collection_name`. The collection must be `hedge_store_offline_` followed by 32
+lowercase hexadecimal characters (a test UUID). Missing scope or a live collection
+name fails before I/O. Create/remove that collection in the test harness; no alias
+is created or promoted. These arguments are absent from public request models and
+HTTP handlers. The name guard is an accidental-use safeguard, not resource isolation:
+the harness must supply an isolated database/network/Qdrant and avoid demo resources.
+
+Scoped storage reads require the Store profile, matching native Store ID, local
+active state and both explicit source publication flags. Index writes reuse current
+revision/checksum checks and the App row lock through completed Qdrant writes.
+Retrieval rehydrates candidates from PostgreSQL, validates native identity, and
+rejects stale revisions or withdrawn/retired Apps. Local absence retirement remains
+effective even when retained source flags are true. Lexical search works before
+indexing or during vector failure; PostgreSQL failure fails closed. Offline search
+bypasses Valkey entirely, leaving public caches untouched. Store rows still create
+no production outbox work; tests supply explicit revisioned operations directly.
+
+## Supported evidence
+
+- Search/index text now uses the shared bounded evidence extractor for supplied
+  descriptions, connector/type values, README visible text, supported embedded
+  properties and version/comments. PostgreSQL uses the ingestion-derived document;
+  reingestion refreshes legacy documents. See the
+  [SCRUM-38 field map and upgrade limits](store-v1-metadata-preservation.md).
+- Results retain native identity, nullable source values, versions and publication
+  facts, plus `source_evidence` with original Store paths and extraction statuses.
+  README HTML and raw embedded JSON remain local. Billing values are available as
+  source evidence, with no currency/licensing/compatibility interpretation.
+- Provider filtering remains supported. Other synthetic taxonomy, capability,
+  language, licence, protocol, deployment and semantic filters still fail closed.
+  No ranking/relevance policy, public contract or navigation policy changes.
+- Missing source values stay missing; Apps with no searchable evidence are retained
+  locally but skipped for indexing/recommendations. Source-order versions are not
+  interpreted as current/latest. All text remains untrusted and output quotations
+  are escaped. Normal/streamed Store narratives remain deterministic; the opt-in
+  extractive generation seam can select supported source-path candidates.
+- Store Apps remain the entities. No external Assets are fetched or joined.
+
+## Verification and remaining gates
+
+`tests/fixtures/store-v1/offline-recommendations.json` contains invented records
+representing observed nullable/millisecond/empty-version/HTML/embedded-JSON formats,
+not copied private authenticated records. The offline integration tests connect
+normalization and reconciliation to PostgreSQL, actual disposable Qdrant writes,
+search and the existing normal/streaming recommendation orchestrator. Only the
+service transport seam and embeddings/LLM are replaced in tests; embeddings are
+constant deterministic vectors, and Store explanations do not invoke generation.
+These checks establish wiring and safety, not retrieval relevance or live-model KPIs.
+
+Run with the existing guarded disposable database named `hedge_phase1_test` and
+`HEDGE_TEST_QDRANT_URL=http://vectors:6333` on an isolated test network:
+
+```sh
+python -m pytest tests/integration/test_store_v1_recommendations.py \
+  tests/integration/test_index_consistency.py \
+  tests/integration/test_catalogue_snapshot.py \
+  tests/integration/test_store_v1_persistence.py -q
+```
+
+Coverage includes native collisions across Stores, missing fields, unsupported
+filters, HTML/instruction-bearing text, private/unknown publication, vector lag and
+failure, authoritative database failure, stale writes, withdrawal/reappearance,
+absence retirement, concurrency and public-result isolation. Tests apply migrations
+only inside their temporary schema in that explicitly disposable database.
+
+Final offline verification: **432 unit tests + 100 integration tests passed**
+(including 26 new Store recommendation cases), with **97.49% shared branch
+coverage**. Ruff and whitespace checks passed; all six regenerated OpenAPI
+files were byte-identical. One existing Starlette/httpx deprecation warning remains.
+Disposable resources used PostgreSQL 16.9 and Qdrant 1.18.2 without published ports
+or demo volumes. These results do not establish Store access or quality KPIs.
+
+Before live/public use, HEDGE still needs to confirm backend credential acquisition,
+visibility/`active` semantics, catalogue coverage and corpus permissions. An approved
+public result/UI/navigation contract and measured real-corpus quality remain separate
+work. A single observed App/Asset `@id` match does not authorize universal enrichment.
+See the [integration baseline](integration-baseline.md) for those decisions.

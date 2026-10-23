@@ -61,16 +61,31 @@ fixed to `en`, `de`, `fr`, `es`, `it`, `nl`, `pt`, and `tr`.
 | Variable | Default | Purpose |
 |---|---|---|
 | `MOCK_API_URL` | `http://mock-api:9000` | Synthetic fixture source |
-| `HEDGE_API_URL` | empty | Future real-store endpoint; real calls remain out of scope |
+| `HEDGE_API_URL` | empty | Store v1 client base; full credential-free HTTPS URL ending in `/api/v1`. Nonempty blocks generic ingestion unless isolated private mode is explicitly enabled |
+| `HEDGE_STORE_ID` | empty | Native Store identity for the scoped App endpoints |
+| `HEDGE_STORE_TOKEN_FILE` | empty | Absolute backend token-file path; provision/rotate externally, with a read-only container mount when needed |
+| `HEDGE_STORE_ISSUER` | empty | Optional backend M2M HTTPS issuer; independent of incoming user OIDC |
+| `HEDGE_STORE_CLIENT_ID` | empty | Backend client identifier for client-credentials grant |
+| `HEDGE_STORE_CLIENT_SECRET_FILE` | empty | Absolute owned private regular secret file; no secret environment value; mutually exclusive with Bearer token file |
+| `PRIVATE_STORE_ENABLED` | `false` | Explicit private HTTP Store service mode; requires native Store ID, rejects production mode. Use only [the isolated deployment](private-store-testing.md), never the demo/public stack |
+| `HEDGE_STORE_TIMEOUT_SECONDS` | `30` | Operation time budget and maximum per-I/O timeout; greater than zero, at most 120 seconds |
+| `HEDGE_STORE_MAX_RETRIES` | `2` | Additional GET attempts; allowed 0–3, within the same time budget |
 | `INGEST_INTERVAL_SECONDS` | `7200` | Scheduler interval |
 | `CHAT_INTENT_URL` | `http://chat-intent:8001` | Gateway chat target |
 | `EXPERT_RECOMMEND_URL` | `http://expert-recommend:8002` | Recommendation target |
-| `DISCOVERY_RANKING_URL` | `http://discovery-ranking:8003` | Retrieval/index target |
+| `DISCOVERY_RANKING_URL` | `http://discovery-ranking:8003` | Retrieval/index target; Expert also uses it to nominate evidence by similarity (unset: word-overlap nomination only; verification unchanged) |
 | `METADATA_INGEST_URL` | `http://metadata-ingest:8004` | Administrative ingestion target |
 
-`HEDGE_API_URL` does not enable a guessed legacy mapping. The adapter accepts
-only the provisional v2 fixture contract until the real API schema and data
-rights are approved.
+The explicit client factory now uses the documented Store v1 routes and an
+externally supplied backend Bearer token. Existing Compose `env_file` wiring
+passes these settings; it mounts no token file and enables no live Store job.
+Keep token contents outside `.env`, source, logs and browser configuration. Mount
+the token only into an authorized backend during later approved setup. Token
+acquisition/renewal and authenticated catalogue completeness remain pending;
+see [transport notes](store-v1-transport.md) and the
+[integration baseline](integration-baseline.md). Empty `HEDGE_API_URL` retains
+synthetic scheduling; nonempty returns a disabled job result before network,
+database or index access. ExpertAI API v2 is independent of Store API v1.
 
 ## Public security boundary
 
@@ -89,17 +104,28 @@ rights are approved.
 | `OAUTH_JWKS_URL` | empty | HTTPS JWKS required |
 | `OAUTH_SHARED_SECRET` | empty | Test-only and forbidden in production |
 | `RBAC_ADMIN_ROLES` | `admin,administrator` | Ingestion/reindex authority |
+| `GATEWAY_API_KEY` | empty | Non-default administrative credential required; shared with metadata-ingest via existing `env_file` wiring |
 | `RBAC_ANALYST_ROLES` | `analyst,admin` | Analytics/quarantine authority |
 
 Anonymous chat, search, catalogue detail, event submission, and session deletion
-remain public and rate-limited. Ingestion, reindex, quarantine, and analytics are
-role protected. Browser query-string API keys are not supported.
+remain public and rate-limited. Ingestion and reindex are always administrative;
+quarantine and analytics enforce roles when RBAC is enabled. Browser query-string
+API keys are not supported.
+Gateway administrative mutations always require a validated admin-role Bearer
+token or the configured administrative API key, even when `ENABLE_RBAC=false`.
+The key grants administrative authority; do not issue it to general clients or
+include it in frontend configuration. Gateway ingestion/replay calls use that
+key for the internal hop, not the caller's Bearer token. Direct metadata-ingest
+replay and both ingestion-trigger routes require `X-API-Key`; missing configuration
+returns 503 and missing/incorrect keys return 401 before database or queue work.
+Celery scheduling and worker recovery do not use these HTTP routes and are unchanged.
 
 ## Production validation
 
 At gateway startup, `APP_ENV=production` rejects default passwords, permissive
 origins, disabled HSTS/RBAC/OIDC/rate limiting, non-HTTPS issuer/JWKS URLs, and
-shared-secret JWT verification. Validate both Compose files before rollout:
+shared-secret JWT verification, and a missing/default administrative API key.
+Validate both Compose files before rollout:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.production.yml config --quiet
@@ -109,3 +135,102 @@ The production overlay removes host publishing for internal services and adds
 non-root/read-only/capability/process hardening to application containers. See
 the deployment guide and traceability matrix for gates that still require
 target-environment evidence.
+
+## Private managed Store workspace
+
+The opt-in [durable Store workspace](store-v1-managed-integration.md) is started
+with `scripts/store-workspace.sh`, independently of production Compose and `.env`.
+It uses the existing Store ID, token-file client, database/session settings and
+pinned E5 image in uniquely labelled private resources. Its backend reads
+`/credentials/token` from an owned private directory, supports atomic external
+token replacement, and attempts scoped read-only refresh every 7,200 seconds.
+The fixed local loopback browser port is 8098. Production scheduling/public indexing
+remain disabled; no dedicated credential acquisition or renewal flow is implied.
+
+
+### Prepared Store discovery
+
+The private workspace now defaults to daily synchronization
+(`STORE_SYNC_INTERVAL_SECONDS=86400`, range 60–86400). Routine discovery, details,
+filtering and comparison use prepared source evidence without runtime generation.
+The settings are passed by `scripts/store-workspace.sh`; the existing Compose
+services receive the shared `.env` settings. See [architecture and measurement boundaries](prepared-store-discovery.md).
+The daily schedule does not establish the proposal's stricter two-hour freshness target.
+
+
+### Store assistant understanding and model assistance
+
+Every Store turn is interpreted by Chat's interpreter: the App linker finds App
+mentions, and Rasa (`RASA_URL`, `RASA_CONFIDENCE_THRESHOLD`) and E5 nearest
+examples (Discovery's `/api/v2/evidence/similarity`, symmetric mode) classify the
+dialogue act over `shared/hedge_shared/dialogue_acts.json`. No model is needed to
+understand or answer ordinary turns. See
+[conversational architecture](t2-conversational-architecture.md).
+
+`STORE_SEMANTIC_ENABLED=false` keeps the model out of the loop. When enabled (Chat
+and Expert), the model is used in two bounded places: choosing between two
+readings when Rasa and E5 disagree (`STORE_INTERPRETATION_SECONDS`, default 30,
+a short constrained call whose fixed instructions come first so the server can
+reuse their processed prompt), and reviewing paraphrased evidence when the
+verifier found only related sentences (one call, `STORE_MODEL_TIMEOUT_SECONDS`).
+A review never handles quantities, absences, conditions or stated limitations;
+a yes becomes the request-bound `ReviewedSupport` receipt. Without the model,
+disagreements become one plain clarification and paraphrases are shown as the
+closest unconfirmed statements. `OLLAMA_BASE_URL` and `OLLAMA_MODEL` select the
+private inference endpoint and model; `OLLAMA_THINK=false` keeps structured
+calls non-thinking.
+
+`STORE_MODEL_CONTEXT_TOKENS=16384` bounds context (2048–65536 tokens);
+`STORE_MODEL_TIMEOUT_SECONDS=120` bounds each inference call; and
+`STORE_MODEL_THREADS=1` controls CPU inference threads.
+`STORE_MODEL_BATCH_SIZE=128` bounds prompt evaluation batches (32–2048), reducing
+peak CPU inference allocation. `STORE_MODEL_KEEP_ALIVE=2m` controls the inference
+cache lifetime; increase it (for example `10m`) only when measured RAM headroom
+permits keeping the model resident between conversations. Ollama `truncate=false`
+and `shift=false` reject oversized input/output instead of silently discarding
+context. The gateway allows one interpretation plus one inference timeout per
+turn.
+
+Model choice, context, CPU threads, batch size and Ollama server cache settings
+must be measured together; the model weight file size alone is not its RAM
+requirement. The server's `OLLAMA_FLASH_ATTENTION` and `OLLAMA_KV_CACHE_TYPE`
+belong on the inference server, not the Expert client. Model failure is
+observable in generation metadata and yields a prepared answer or a
+clarification, never a claimed negative catalogue result.
+
+These settings are off by default and do not modify the existing 8096 environment.
+
+### Conversational explanations
+
+Explanation turns ("explain it simply", "what does that mean?", "give me an
+example", "what is an aggregator?", "compare them in plain English", "why choose
+one over the other?", "who provides it and how do I access it?") are answered by
+Expert's explainer from each App's current source guide and the general domain
+glossary, with **no model call** and independent of these flags. See
+[conversational experience](t2-conversational-experience.md).
+
+`STORE_EXPLANATIONS_ENABLED=false` is the default. When enabled together with
+`STORE_SEMANTIC_ENABLED`, questions the prepared layers cannot answer (open
+questions such as "would it help a small energy cooperative?", undefined terms,
+a further "explain it differently") receive one bounded Qwen answer through the
+internal `/internal/store/explain` endpoint, which uses the existing backend key.
+`STORE_EXPLANATION_TOKENS` (default 220) bounds its output. The prompt carries a
+few whole source statements, at most two glossary notes and, only when the
+question refers back, the start of the previous answer. Answers must cite
+statement keys; each sentence is checked (citations, markup, quantities,
+unsupported guarantees or integrations) before release, and the streaming widget
+receives checked sentences as they are generated. Generated language is an
+explanation, not a verified capability proof: it never changes suitability,
+creates a support receipt, or enters the Store index. These structural checks are
+not a formal entailment guarantee; real source-to-answer review remains
+necessary. Without a model, or if the model fails, the reply is an explicit
+prepared fallback. Provider/price metadata, capability verdicts, new searches,
+unresolved identities and retained filters keep their existing paths.
+
+The call uses the same context size, threads, batch size and keep-alive as the
+other Store model calls, so it never makes Ollama reload the model.
+
+The consolidated private VM deployment uses the accepted Qwen3 4B Q4_K_M model,
+2048 context tokens, two model threads, q8_0 KV cache, one inference at a time and
+a bounded queue. Resource/latency evidence belongs to its deployment record;
+enabling flags alone does not verify model-assisted behavior.

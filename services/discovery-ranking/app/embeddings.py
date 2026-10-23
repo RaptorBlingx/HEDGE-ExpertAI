@@ -57,4 +57,25 @@ def encode_single(text: str) -> list[float]:
     return vec[0].tolist()
 
 
+_passages: dict[tuple[bool, str], np.ndarray] = {}
+_PASSAGE_CACHE = 4096
+
+
+def similarity(queries: list[str], passages: list[str], *, symmetric: bool = False) -> list[list[float]]:
+    """Query/passage cosine similarities; source sentences repeat across turns.
+
+    Symmetric comparisons (an utterance against example utterances) encode both
+    sides as queries, as E5 recommends for symmetric tasks.
+    """
+    vectors = {p: _passages[(symmetric, p)] for p in passages if (symmetric, p) in _passages}
+    missing = [p for p in dict.fromkeys(passages) if p not in vectors]
+    if missing:
+        for text, vector in zip(missing, (encode_queries if symmetric else encode)(missing), strict=True):
+            if len(_passages) >= _PASSAGE_CACHE:
+                _passages.pop(next(iter(_passages)))
+            _passages[(symmetric, text)] = vectors[text] = vector
+    matrix = np.stack([vectors[p] for p in passages])
+    return (encode_queries(queries) @ matrix.T).tolist()
+
+
 VECTOR_DIM = 384

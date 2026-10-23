@@ -1,0 +1,94 @@
+{
+ "source": "authored_evaluation_fixture_not_live_store",
+ "purpose": "Apps never seen during development of feat/t2-conversational-architecture; for the sealed final set only.",
+ "apps": [
+  {
+   "app_id": "unseen-1",
+   "name": "Grid Guardian",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-unseen",
+   "active": true,
+   "visible": true,
+   "provider": "Northwind Grid Labs",
+   "description": "Feeder congestion alerts",
+   "readme": "<p>Grid Guardian monitors low-voltage feeder loading from substation measurements and alerts operators before transformers overload. It suggests which flexible loads could be curtailed. It does not control devices directly.</p>"
+  },
+  {
+   "app_id": "unseen-2",
+   "name": "e-Flex Hub",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-unseen",
+   "active": true,
+   "visible": true,
+   "provider": "Coop Energia",
+   "description": "Community flexibility pooling",
+   "readme": "<p>e-Flex Hub lets energy communities pool home batteries and heat pumps and offer their combined flexibility to the local system operator. Members see their contribution and earnings in a mobile app. Settlement is calculated monthly.</p>"
+  },
+  {
+   "app_id": "unseen-3",
+   "name": "VPP Studio",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-unseen",
+   "active": true,
+   "visible": true,
+   "provider": "Lumen Analytics",
+   "description": "Virtual power plant scheduling",
+   "readme": "<p>VPP Studio schedules distributed solar panels, batteries and electric vehicle chargers as a virtual power plant against day-ahead price forecasts supplied by the user. It does not produce price forecasts itself.</p>"
+  },
+  {
+   "app_id": "unseen-4",
+   "name": "SunCast",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-unseen",
+   "active": true,
+   "visible": true,
+   "provider": "Lumen Analytics",
+   "description": "Solar production forecasting",
+   "readme": "<p>SunCast forecasts photovoltaic generation for the next 48 hours from weather data and panel metadata. Forecasts are updated every hour.</p>"
+  },
+  {
+   "app_id": "unseen-5",
+   "name": "OpenADR Bridge",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-unseen",
+   "active": true,
+   "visible": true,
+   "provider": "Interop Works",
+   "description": "Demand response protocol gateway",
+   "readme": "<p>OpenADR Bridge translates OpenADR 2.0b demand response events into MQTT messages for building controllers and reports their responses back. It requires an existing OpenADR server.</p>"
+  },
+  {
+   "app_id": "unseen-6",
+   "name": "Charge Pulse",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-unseen",
+   "active": true,
+   "visible": true,
+   "provider": "Northwind Grid Labs",
+   "description": "EV charging load management",
+   "readme": "<p>Charge Pulse manages the charging power of electric vehicle chargers in car parks so that the site connection limit is never exceeded. Drivers can set a departure time.</p>"
+  },
+  {
+   "app_id": "unseen-7",
+   "name": "DataTrust Ledger",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-unseen",
+   "active": true,
+   "visible": true,
+   "provider": "Interop Works",
+   "description": "Data sharing consent records",
+   "readme": "<p>DataTrust Ledger records which organisation may access which energy data set and for what purpose, so data sharing in the data space can be audited. It does not store the data itself.</p>"
+  },
+  {
+   "app_id": "unseen-8",
+   "name": "HeatMap 3D",
+   "source_profile": "hedge-store-v1",
+   "store_id": "t2-dialogue-unseen",
+   "active": true,
+   "visible": true,
+   "provider": "Coop Energia",
+   "description": "Building heat demand visualisation",
+   "readme": "<p>HeatMap 3D visualises the estimated heat demand of buildings in a district on a 3D map to help plan heat networks. Estimates use public building data.</p>"
+  }
+ ]
+}

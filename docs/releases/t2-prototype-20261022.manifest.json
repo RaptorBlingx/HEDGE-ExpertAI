@@ -1,0 +1,238 @@
+{
+  "schema_version": 1,
+  "release_commit": "05be201f6c06df8a3b1a0cc2894d15f16c31bac0",
+  "tag": "t2-conversational-architecture-20261022",
+  "angular_commit": "c911c4b0f1ac57f220807a00ff58638defe13afe",
+  "url": "https://hedge.aartimuhendislik.com/",
+  "origin": "http://10.33.10.130:8156",
+  "private_evaluation": true,
+  "formal_acceptance": false,
+  "components": {
+    "postgres": {
+      "image": "sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7",
+      "source_commit": null,
+      "memory_bytes": 167772160,
+      "nano_cpus": 350000000,
+      "restart_policy": {
+        "Name": "unless-stopped",
+        "MaximumRetryCount": 0
+      },
+      "logging": {
+        "Type": "json-file",
+        "Config": {
+          "max-file": "2",
+          "max-size": "5m"
+        }
+      }
+    },
+    "qdrant": {
+      "image": "sha256:75eab8c4ba42096724fdcfde8b4de0b5713d529dde32f285a1f86fdcb2c9e50c",
+      "source_commit": null,
+      "memory_bytes": 167772160,
+      "nano_cpus": 350000000,
+      "restart_policy": {
+        "Name": "unless-stopped",
+        "MaximumRetryCount": 0
+      },
+      "logging": {
+        "Type": "json-file",
+        "Config": {
+          "max-file": "2",
+          "max-size": "5m"
+        }
+      }
+    },
+    "cache": {
+      "image": "sha256:d827e7f7552cdee40cc7482dbae9da020f42bc47669af6f71182a4ef76a22773",
+      "source_commit": null,
+      "memory_bytes": 67108864,
+      "nano_cpus": 350000000,
+      "restart_policy": {
+        "Name": "unless-stopped",
+        "MaximumRetryCount": 0
+      },
+      "logging": {
+        "Type": "json-file",
+        "Config": {
+          "max-file": "2",
+          "max-size": "5m"
+        }
+      }
+    },
+    "queue": {
+      "image": "sha256:d827e7f7552cdee40cc7482dbae9da020f42bc47669af6f71182a4ef76a22773",
+      "source_commit": null,
+      "memory_bytes": 67108864,
+      "nano_cpus": 350000000,
+      "restart_policy": {
+        "Name": "unless-stopped",
+        "MaximumRetryCount": 0
+      },
+      "logging": {
+        "Type": "json-file",
+        "Config": {
+          "max-file": "2",
+          "max-size": "5m"
+        }
+      }
+    },
+    "rasa": {
+      "image": "sha256:7acc517967ac546e78238eed6a63ab3704d6953ff701e0a12a0c641bb977f868",
+      "source_commit": null,
+      "memory_bytes": 1342177280,
+      "nano_cpus": 500000000,
+      "restart_policy": {
+        "Name": "unless-stopped",
+        "MaximumRetryCount": 0
+      },
+      "logging": {
+        "Type": "json-file",
+        "Config": {
+          "max-file": "2",
+          "max-size": "5m"
+        }
+      }
+    },
+    "discovery": {
+      "image": "sha256:e02493fccbbf67c15c6abf52e25695963795cb9f588f99b7e1fd75db475b41cb",
+      "source_commit": "05be201f6c06df8a3b1a0cc2894d15f16c31bac0",
+      "memory_bytes": 1048576000,
+      "nano_cpus": 750000000,
+      "restart_policy": {
+        "Name": "unless-stopped",
+        "MaximumRetryCount": 0
+      },
+      "logging": {
+        "Type": "json-file",
+        "Config": {
+          "max-file": "2",
+          "max-size": "5m"
+        }
+      }
+    },
+    "expert": {
+      "image": "sha256:621886c6c365bc5c766c5a00f858637a5ce6ccba5c8f0a41bddf5fa886f1bfeb",
+      "source_commit": "05be201f6c06df8a3b1a0cc2894d15f16c31bac0",
+      "memory_bytes": 167772160,
+      "nano_cpus": 350000000,
+      "restart_policy": {
+        "Name": "unless-stopped",
+        "MaximumRetryCount": 0
+      },
+      "logging": {
+        "Type": "json-file",
+        "Config": {
+          "max-file": "2",
+          "max-size": "5m"
+        }
+      }
+    },
+    "chat": {
+      "image": "sha256:48ff51481447f2d22aaf0fe5796e59264ef964c99fbadf51d3cce6011b13c7f7",
+      "source_commit": "05be201f6c06df8a3b1a0cc2894d15f16c31bac0",
+      "memory_bytes": 167772160,
+      "nano_cpus": 350000000,
+      "restart_policy": {
+        "Name": "unless-stopped",
+        "MaximumRetryCount": 0
+      },
+      "logging": {
+        "Type": "json-file",
+        "Config": {
+          "max-file": "2",
+          "max-size": "5m"
+        }
+      }
+    },
+    "metadata": {
+      "image": "sha256:969121dc3871b0a1d3635da811367951776fd360f2c04f4a91f22e988fd60f0d",
+      "source_commit": "a2a02ad72d5611ed4ffb8bd970d921ebc71468f3",
+      "memory_bytes": 167772160,
+      "nano_cpus": 350000000,
+      "restart_policy": {
+        "Name": "unless-stopped",
+        "MaximumRetryCount": 0
+      },
+      "logging": {
+        "Type": "json-file",
+        "Config": {
+          "max-file": "2",
+          "max-size": "5m"
+        }
+      }
+    },
+    "gateway": {
+      "image": "sha256:71b3d0ed4da05e8e55c5f261a73d800e7ecf834ed3a9994a82de0552fdcfc0cb",
+      "source_commit": "05be201f6c06df8a3b1a0cc2894d15f16c31bac0",
+      "memory_bytes": 167772160,
+      "nano_cpus": 350000000,
+      "restart_policy": {
+        "Name": "unless-stopped",
+        "MaximumRetryCount": 0
+      },
+      "logging": {
+        "Type": "json-file",
+        "Config": {
+          "max-file": "2",
+          "max-size": "5m"
+        }
+      }
+    },
+    "worker": {
+      "image": "sha256:969121dc3871b0a1d3635da811367951776fd360f2c04f4a91f22e988fd60f0d",
+      "source_commit": "a2a02ad72d5611ed4ffb8bd970d921ebc71468f3",
+      "memory_bytes": 201326592,
+      "nano_cpus": 350000000,
+      "restart_policy": {
+        "Name": "unless-stopped",
+        "MaximumRetryCount": 0
+      },
+      "logging": {
+        "Type": "json-file",
+        "Config": {
+          "max-file": "2",
+          "max-size": "5m"
+        }
+      }
+    },
+    "scheduler": {
+      "image": "sha256:969121dc3871b0a1d3635da811367951776fd360f2c04f4a91f22e988fd60f0d",
+      "source_commit": "a2a02ad72d5611ed4ffb8bd970d921ebc71468f3",
+      "memory_bytes": 83886080,
+      "nano_cpus": 350000000,
+      "restart_policy": {
+        "Name": "unless-stopped",
+        "MaximumRetryCount": 0
+      },
+      "logging": {
+        "Type": "json-file",
+        "Config": {
+          "max-file": "2",
+          "max-size": "5m"
+        }
+      }
+    },
+    "model": {
+      "image": "sha256:f386e0a16cf582b26325009bcfdba4d603166454e8e91da52c0b43b33c318fd5",
+      "source_commit": null,
+      "memory_bytes": 5368709120,
+      "nano_cpus": 1500000000,
+      "restart_policy": {
+        "Name": "unless-stopped",
+        "MaximumRetryCount": 0
+      },
+      "logging": {
+        "Type": "json-file",
+        "Config": {
+          "max-file": "2",
+          "max-size": "5m"
+        }
+      }
+    }
+  },
+  "rasa_artifact_sha256": "368e11f8322c83cc021428eae43afb948390cdf09aa4bfc6a66ff0b0b12a5148",
+  "rasa_model": "hedge-expertai-nlu-v3",
+  "rasa_artifact_location": "/home/ubuntu/.local/share/hedge-approved-8156/rasa-models-v3/model.tar.gz",
+  "qwen_model": "qwen3:4b-instruct-2507-q4_K_M",
+  "rollback": "/home/ubuntu/.local/share/hedge-approved-8156/evidence/release-05be201/rollback.py"
+}

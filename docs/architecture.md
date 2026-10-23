@@ -11,7 +11,7 @@ Widget / validation console
           |
       Chat Intent ---- Valkey session state ---- PostgreSQL impressions/events
           |
-   Expert Recommend ---- Ollama/Qwen (validated output only)
+   Expert Recommend ---- Ollama/Qwen (optional bounded reasoning)
           |
   Discovery & Ranking ---- PostgreSQL FTS (independent candidates)
           |              \\ Qdrant/E5 (independent candidates)
@@ -24,10 +24,10 @@ Widget / validation console
 
 ## Ingestion invariants
 
-1. Every source record is parsed as strict `AppMetadataV2` and its ontology URIs are checked against the reviewed registry. Invalid records go to quarantine with structured errors.
-2. The current catalogue revision and indexing outbox entry are committed in one PostgreSQL transaction. A checksum never suppresses a failed outbox retry.
-3. The worker sends revisioned upsert/delete operations to Qdrant. Only successful delivery sets `searchable_at`.
-4. Complete snapshots retire missing apps and enqueue tombstone deletes. Qdrant can be rebuilt entirely from active PostgreSQL rows.
+1. Synthetic records use strict `AppMetadataV2` and reviewed ontology validation. Store v1 uses its separate sparse, offline profile; see [mapping and reconciliation notes](store-v1-phase1.md). Invalid records go to quarantine.
+2. Snapshot projection, revisions, quarantine and run statistics commit in one PostgreSQL transaction; synthetic changes also enqueue indexing operations. A checksum never suppresses a failed outbox retry.
+3. The worker sends revisioned upsert/delete operations through the current-revision PostgreSQL row lock. Interrupted claims are reclaimed, late acknowledgements are fenced, and exhausted work is retained for explicit recovery. Only successful current-revision upsert delivery sets `searchable_at`; lexical retrieval does not depend on it.
+4. A source lock spans fetch through reconciliation. Only complete, unquarantined snapshots retire missing Apps within that source; empty snapshots require explicit approval. Synthetic retirement/reappearance enqueue revisioned delete/upsert operations. Store rows remain outside public v2 reads/indexing.
 5. New physical collections are populated and count-validated before `hedge_apps_current` is atomically promoted. Existing volumes are never opened in-place across unsupported upgrade gaps.
 
 Rasa is an NLU-only dependency in the production and deterministic acceptance
@@ -37,15 +37,38 @@ local fallback. The fallback is not counted as multilingual KPI evidence.
 
 ## Search and explanation
 
-PostgreSQL full-text search and Qdrant dense search retrieve candidates independently. Weighted reciprocal-rank fusion combines ranks, avoiding the false assumption that lexical and cosine scores are probabilities. Typed filters apply to both branches; semantic boosts are bounded and provenance-aware. Public responses expose only `high`, `medium` or `low` relevance.
+PostgreSQL full-text search and Qdrant dense search retrieve candidates independently. Ranked vector/cache references are checked against current PostgreSQL eligibility, revision, metadata and filters before fusion; vector failure leaves lexical retrieval usable. See [outbox and retrieval consistency](outbox-retrieval-consistency.md). Weighted reciprocal-rank fusion combines ranks, avoiding the false assumption that lexical and cosine scores are probabilities. Typed filters apply to both branches; semantic boosts are bounded and provenance-aware. Public responses expose only `high`, `medium` or `low` relevance.
 
-The E5 model uses `query:` and `passage:` prefixes and is pinned to an audited repository revision. The explanation layer receives only ordered retrieval results. It treats the query and metadata as untrusted delimited data, removes hidden-reasoning tags across stream chunks, verifies all titles and ordering, and falls back to deterministic localized evidence text on any validation failure.
+The E5 model uses `query:` and `passage:` prefixes and is pinned to an audited repository revision. Recommendation assessment is separate from retrieval: Expert assesses up to ten retrieved candidates. Discovery's E5 similarity (`/api/v2/evidence/similarity`) and word overlap only nominate the sentence that best addresses each requested function; an App is recommended only when owned, unconditional source sentences state every requested function and no applicable limitation exists. Nominated but unverified sentences are shown as closest statements, never as matches; without the similarity service only nominations are lost. Code renders escaped, complete source quotations and retains source paths. Store extractive generation also permits search/refine abstention. See [recommendation evidence](t2-recommendation-evidence.md); the earlier grammar is described in [recommendation suitability](recommendation-suitability.md).
+
+Routine v1/v2 recommendations and private Store conversations default to source
+assessment and prepared quotations without runtime generation. Versioned Store
+knowledge is prepared beside the source payload during incremental reconciliation;
+existing E5 passage indexing remains derived and rebuildable. The private workspace
+warms the query encoder before serving, polls daily by default, and uses separate
+refresh/per-session turn locks. See
+[prepared Store discovery and measured limits](prepared-store-discovery.md).
 
 ## Conversation and streaming
 
-Rasa is NLU-only. Application code owns deterministic policy and authoritative state: locale, intent, concepts, filters, recent impression/results and turn number. Refinements merge filters; new searches and resets clear prior topic context intentionally.
+Rasa supplies NLU; application code owns dialogue policy and authoritative state.
+The public (non-Store) v2 path keeps its intent routing: refinements merge
+filters; new searches and resets clear prior topic context intentionally.
 
-SSE v2 events are `stage`, `recommendations`, `explanation_delta`, `complete` and `problem`. Ranked results are emitted immediately after retrieval. Explanation deltas begin only after the full narrative has passed grounding validation; no chain of thought or fabricated client stage is emitted.
+Private Store conversations go through one interpreter and one executor (see
+[conversational architecture](t2-conversational-architecture.md)). Chat's
+`understanding.Interpreter` turns each message into a frame: the App linker finds
+App mentions however they are spelled; closed-class references resolve against
+the dialogue state; Rasa and E5 nearest examples classify the dialogue act over
+`hedge_shared/dialogue_acts.json` with App mentions masked, agreement accepting a
+reading and a disagreement going to a short model choice (when enabled) or to the
+user as one question. `assistant.Assistant` executes the frame with Expert's
+explainer, field answers, verifier and Discovery retrieval, and owns the typed
+dialogue state. Recommendations come only from the verifier, optionally extended
+by model review of paraphrased evidence into the request-bound reviewed-support
+receipt. Only open questions use one bounded, cited model answer.
+
+SSE v2 events are `stage`, `recommendations`, `explanation_delta`, `complete` and `problem`. Recommendation events are emitted after the evidence decision, with admitted `apps`, unverified `candidates` and the `decision`. Explanation deltas contain the source-rendered response; for a model-assisted explanation they carry checked sentences as they are generated, and the stored reply equals the streamed text. No unchecked model prose or chain of thought is emitted. Retrieval failures remain terminal problem events, distinct from abstention.
 
 ## Deployment profiles
 

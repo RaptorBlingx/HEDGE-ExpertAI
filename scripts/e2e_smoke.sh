@@ -1,5 +1,6 @@
 #!/bin/sh
 set -eu
+: "${GATEWAY_API_KEY:?Provide the isolated stack administrative key in the environment}"
 
 if [ -n "${GATEWAY_E2E_URL:-}" ]; then
     gateway_url="$GATEWAY_E2E_URL"
@@ -42,7 +43,8 @@ curl -fsS -X POST "$rasa_url/model/parse" \
 jq -e '.intent.name == "search" and .intent.confidence >= 0.5' \
     /tmp/hedge-e2e-rasa.json >/dev/null
 
-curl -fsS -X POST "$ingest_url/api/v2/ingestion/runs" >/tmp/hedge-e2e-ingest.json
+printf 'X-API-Key: %s\n' "$GATEWAY_API_KEY" |
+    curl -fsS --header @- -X POST "$ingest_url/api/v2/ingestion/runs" >/tmp/hedge-e2e-ingest.json
 
 while :; do
     status="$(curl -fsS "$ingest_url/api/v2/ingestion/runs/latest" | jq -r '.status')"

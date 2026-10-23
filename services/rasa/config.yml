@@ -1,7 +1,7 @@
 # The model intentionally uses language-independent word/character features.
 # Dialogue policy remains in chat-intent; this service is NLU-only.
 recipe: default.v1
-assistant_id: hedge-expertai-nlu-v2
+assistant_id: hedge-expertai-nlu-v3
 language: en
 
 pipeline:

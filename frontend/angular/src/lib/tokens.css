@@ -1,0 +1,35 @@
+:host {
+  --ea-font: 'Inter Variable', Inter, system-ui, sans-serif;
+  --ea-heading: 'Manrope Variable', Manrope, var(--ea-font);
+  --ea-ink: #152f3e;
+  --ea-secondary: #536673;
+  --ea-muted: #5d727b;
+  --ea-accent: #166c63;
+  --ea-tint: #edf5f1;
+  --ea-tint-line: #d6e6de;
+  --ea-surface: #fff;
+  --ea-soft: #f7f9f8;
+  --ea-line: #e3e9e7;
+  --ea-line-strong: #b5c9c0;
+  --ea-error: #a33d37;
+  --ea-shadow: 0 18px 70px #102f3824;
+  font-family: var(--ea-font);
+  color: var(--ea-ink);
+  display: block; min-height: 0; min-width: 0;
+  container: expert / inline-size;
+}
+:host-context([data-theme='dark']) {
+  color-scheme: dark;
+  --ea-ink: #e0ebe7;
+  --ea-secondary: #afc2c3;
+  --ea-muted: #90a8ab;
+  --ea-accent: #83cfb9;
+  --ea-tint: #193e3b;
+  --ea-tint-line: #2d5650;
+  --ea-surface: #172c32;
+  --ea-soft: #13262c;
+  --ea-line: #2c4247;
+  --ea-line-strong: #54726e;
+  --ea-error: #ffaea3;
+  --ea-shadow: 0 18px 70px #0005;
+}

@@ -1,0 +1,45 @@
+{
+  "purpose": "Live-model conversations over the fictional catalogue, authored on 21 October 2026 before the first live Qwen run of this branch. They exercise turns the prepared layers cannot answer: open questions, an exhausted explanation ladder, unknown terms and planner-only phrasing. Read every answer.",
+  "catalogue": "evaluation/retrieval/catalogue.json",
+  "conversations": [
+    {"id": "L1", "turns": [
+      {"message": "Tell me about BidRelay", "expect": {"subject": ["BidRelay"], "model": false}},
+      {"message": "Would it be useful for a small energy cooperative?", "expect": {"subject": ["BidRelay"], "forbid": ["fits what you need", "guarantee"]}},
+      {"message": "Why does that matter?", "expect": {"subject": ["BidRelay"]}},
+      {"message": "Explain it differently", "expect": {"subject": ["BidRelay"], "model": false}},
+      {"message": "Explain it differently", "expect": {"subject": ["BidRelay"], "model": false}},
+      {"message": "I still don't get it. Explain it differently.", "expect": {"subject": ["BidRelay"]}}
+    ]},
+    {"id": "L2", "turns": [
+      {"message": "What is SchemaCheck?", "expect": {"subject": ["SchemaCheck"], "model": false}},
+      {"message": "How would a developer use it day to day?", "expect": {"subject": ["SchemaCheck"]}},
+      {"message": "What could go wrong if I skip that kind of check?", "expect": {"subject": ["SchemaCheck"]}}
+    ]},
+    {"id": "L3", "turns": [
+      {"message": "Tell me about TelemetryLink", "expect": {"subject": ["TelemetryLink"], "model": false}},
+      {"message": "What happens if the network goes down?", "expect": {"concepts_any": ["buffer"]}},
+      {"message": "Would it suit a wind farm?", "expect": {"subject": ["TelemetryLink"], "forbid": ["fits what you need"]}}
+    ]},
+    {"id": "L4", "turns": [
+      {"message": "What is LoadAhead?", "expect": {"subject": ["LoadAhead"], "model": false}},
+      {"message": "Why would a grid operator care about that?", "expect": {"subject": ["LoadAhead"]}},
+      {"message": "What does day-ahead mean?", "expect": {"model": false}},
+      {"message": "What has the weather got to do with it?", "expect": {"subject": ["LoadAhead"]}}
+    ]},
+    {"id": "L5", "turns": [
+      {"message": "Tell me about ModelCommons", "expect": {"subject": ["ModelCommons"], "model": false}},
+      {"message": "What does versioning approved models mean?", "expect": {}},
+      {"message": "Who would typically use this?", "expect": {"subject": ["ModelCommons"]}}
+    ]},
+    {"id": "L6", "turns": [
+      {"message": "Tell me about OfferBridge", "expect": {"subject": ["OfferBridge"], "model": false}},
+      {"message": "Could you break that down for me?", "expect": {"subject": ["OfferBridge"]}},
+      {"message": "So who gets paid in the end?", "expect": {"subject": ["OfferBridge"], "forbid": ["guarantee"]}}
+    ]},
+    {"id": "L7", "turns": [
+      {"message": "Tell me about PriceLens", "expect": {"subject": ["PriceLens"], "model": false}},
+      {"message": "How accurate is it?", "expect": {"subject": ["PriceLens"], "forbid": ["%", "highly accurate"]}},
+      {"message": "Can I rely on its forecasts for trading?", "expect": {"forbid": ["fits what you need", "guarantee"]}}
+    ]}
+  ]
+}

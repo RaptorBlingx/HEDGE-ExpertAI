@@ -1,0 +1,79 @@
+{
+  "source": "authored_evaluation_fixture_not_live_store",
+  "queries": [
+    {
+      "id": "offer-merge",
+      "question": "Our regional market operator wants a single offer from several flexibility providers. What could coordinate those contributions?",
+      "relevant_native_ids": [
+        "fixture-1"
+      ]
+    },
+    {
+      "id": "common-meaning",
+      "question": "Different departments use conflicting field names. We want a common vocabulary and mappings that everyone can consult.",
+      "relevant_native_ids": [
+        "fixture-2"
+      ]
+    },
+    {
+      "id": "bearing-risk",
+      "question": "We have vibration feeds from wind-turbine gearboxes and need early warning of possible bearing damage.",
+      "relevant_native_ids": [
+        "fixture-3"
+      ]
+    },
+    {
+      "id": "message-conversion",
+      "question": "We need to convert incoming JSON using operator-defined field mappings and check the resulting message against a schema.",
+      "relevant_native_ids": [
+        "fixture-4"
+      ]
+    },
+    {
+      "id": "price-forecast",
+      "question": "What application estimates tomorrow's electricity market prices?",
+      "relevant_native_ids": [
+        "fixture-5"
+      ]
+    },
+    {
+      "id": "live-not-simulation",
+      "question": "We must combine flexibility offers and submit the result to a live market, not a simulation.",
+      "relevant_native_ids": [
+        "fixture-1"
+      ]
+    },
+    {
+      "id": "unavailable-settlement",
+      "question": "An application must automatically execute settlement today; a planned feature is not enough.",
+      "relevant_native_ids": []
+    },
+    {
+      "id": "compound-no-single",
+      "question": "One application must publish shared vocabularies and transform incoming JSON payloads automatically.",
+      "relevant_native_ids": []
+    },
+    {
+      "id": "unsupported-control",
+      "question": "We need automatic turbine control after detecting a gearbox fault.",
+      "relevant_native_ids": []
+    },
+    {
+      "id": "injection-throughput",
+      "question": "Find an application that guarantees processing 5000 flexibility bids per second.",
+      "relevant_native_ids": []
+    },
+    {
+      "id": "not-just-manuals",
+      "question": "We need to predict gearbox bearing problems from vibration, not just read maintenance manuals.",
+      "relevant_native_ids": [
+        "fixture-3"
+      ]
+    },
+    {
+      "id": "unpublished",
+      "question": "Which published application both forecasts turbine failures and combines flexibility bids?",
+      "relevant_native_ids": []
+    }
+  ]
+}

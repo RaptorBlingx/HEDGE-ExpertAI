@@ -1,0 +1,222 @@
+{
+ "purpose": "The owner's 22 October 2026 8156 turns and the investigation probes. Seen during diagnosis: development only.",
+ "catalogue": "private:real",
+ "conversations": [
+  {
+   "id": "O1",
+   "turns": [
+    {
+     "message": "what apps do we have?",
+     "expect": {
+      "act": "list",
+      "subject": [
+       "EdgeConnect",
+       "Semantic Treehouse"
+      ]
+     }
+    },
+    {
+     "message": "List the Apps and explain what they do.",
+     "expect": {
+      "act": "list",
+      "subject": [
+       "EdgeConnect",
+       "Semantic Treehouse"
+      ]
+     }
+    },
+    {
+     "message": "what do Edge Connect do?",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "EdgeConnect"
+      ]
+     }
+    },
+    {
+     "message": "EdgeConnect",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "EdgeConnect"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "O2",
+   "turns": [
+    {
+     "message": "What's in the store?",
+     "expect": {
+      "act": "list",
+      "subject": [
+       "EdgeConnect",
+       "Semantic Treehouse"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "O3",
+   "turns": [
+    {
+     "message": "How many apps are there?",
+     "expect": {
+      "act": "list",
+      "concepts_any": [
+       "2",
+       "two"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "O4",
+   "turns": [
+    {
+     "message": "Tell me about Edge-Connect",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "EdgeConnect"
+      ],
+      "forbid": [
+       "fits what you need",
+       "RELEASE NOTES"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "O5",
+   "turns": [
+    {
+     "message": "Who made EdgeConnect?",
+     "expect": {
+      "act": "provider",
+      "concepts_any": [
+       "INESCTEC"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "O6",
+   "turns": [
+    {
+     "message": "What is STH?",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "Semantic Treehouse"
+      ],
+      "forbid": [
+       "covers"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "O7",
+   "turns": [
+    {
+     "message": "Is there anything for managing vocabularies?",
+     "expect": {
+      "act": "find",
+      "subject": [
+       "Semantic Treehouse"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "O8",
+   "turns": [
+    {
+     "message": "What does TNO's app do?",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "Semantic Treehouse"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "O9",
+   "turns": [
+    {
+     "message": "Show me the apps",
+     "expect": {
+      "act": "list",
+      "subject": [
+       "EdgeConnect",
+       "Semantic Treehouse"
+      ]
+     }
+    },
+    {
+     "message": "what's the difference between them?",
+     "expect": {
+      "act": "compare",
+      "subject": [
+       "EdgeConnect",
+       "Semantic Treehouse"
+      ]
+     }
+    },
+    {
+     "message": "ok and the second one?",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "Semantic Treehouse"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "O10",
+   "turns": [
+    {
+     "message": "Tell me about EdgeConnect",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "EdgeConnect"
+      ]
+     }
+    },
+    {
+     "message": "who is it for?",
+     "expect": {
+      "act": "audience",
+      "concepts_any": [
+       "aggregator"
+      ]
+     }
+    },
+    {
+     "message": "and the other app?",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "Semantic Treehouse"
+      ]
+     }
+    }
+   ]
+  }
+ ]
+}

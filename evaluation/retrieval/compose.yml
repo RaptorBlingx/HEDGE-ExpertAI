@@ -1,0 +1,61 @@
+name: expertai-t2-retrieval
+services:
+  retrieval-db:
+    image: sha256:7c688148e5e156d0e86df7ba8ae5a05a2386aaec1e2ad8e6d11bdf10504b1fb7
+    environment:
+      POSTGRES_DB: hedge_retrieval_eval
+      POSTGRES_USER: evaluator
+      POSTGRES_PASSWORD: isolated-evaluation-only
+    command: [postgres, -c, shared_buffers=16MB, -c, max_connections=20]
+    mem_limit: 128m
+    cpus: 0.3
+    networks: [isolated]
+    volumes: [evaluation-db:/var/lib/postgresql/data]
+    restart: 'no'
+  retrieval-vectors:
+    image: sha256:75eab8c4ba42096724fdcfde8b4de0b5713d529dde32f285a1f86fdcb2c9e50c
+    mem_limit: 160m
+    cpus: 0.3
+    networks: [isolated]
+    volumes: [evaluation-vectors:/qdrant/storage]
+    restart: 'no'
+  evaluator:
+    image: ${RETRIEVAL_EVAL_IMAGE:?set an existing pinned CPU E5 evaluation image}
+    user: "${RETRIEVAL_EVAL_UID:-1000}:${RETRIEVAL_EVAL_GID:-1000}"
+    entrypoint: [python, -c, 'import time; time.sleep(86400)']
+    working_dir: /source
+    mem_limit: 1100m
+    memswap_limit: 1100m
+    cpus: 1.25
+    oom_score_adj: 1000
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,size=64m,mode=1777"]
+    environment:
+      APP_ENV: test
+      DATABASE_URL: postgresql://evaluator:isolated-evaluation-only@retrieval-db:5432/hedge_retrieval_eval
+      HEDGE_TEST_QDRANT_URL: http://retrieval-vectors:6333
+      QDRANT_HOST: retrieval-vectors
+      VALKEY_CACHE_URL: redis://127.0.0.1:1/0
+      PYTHONPATH: /source/shared:/source/services/discovery-ranking
+      EMBEDDING_MODEL: /opt/e5-model
+      EMBEDDING_MODEL_REVISION: 614241f622f53c4eeff9890bdc4f31cfecc418b3
+      HF_HUB_OFFLINE: '1'
+      TRANSFORMERS_OFFLINE: '1'
+      HF_HOME: /tmp/hf
+      OMP_NUM_THREADS: '1'
+      MKL_NUM_THREADS: '1'
+      OPENBLAS_NUM_THREADS: '1'
+      MALLOC_ARENA_MAX: '2'
+    networks: [isolated]
+    volumes:
+      - ../..:/source:ro
+      - ${RETRIEVAL_EVIDENCE_DIR:?set an owned private absolute path outside Git}:/evidence
+    restart: 'no'
+networks:
+  isolated:
+    internal: true
+volumes:
+  evaluation-db: {}
+  evaluation-vectors: {}

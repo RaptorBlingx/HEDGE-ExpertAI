@@ -82,7 +82,7 @@
     "/api/v1/apps/{app_id}": {
       "get": {
         "summary": "Get App",
-        "description": "Retrieve a single app by ID from the index.",
+        "description": "Retrieve current public metadata from PostgreSQL.",
         "operationId": "get_app_api_v1_apps__app_id__get",
         "parameters": [
           {
@@ -141,6 +141,58 @@
                   "additionalProperties": true,
                   "type": "object",
                   "title": "Response Search Apps V2 Route Api V2 Apps Search Post"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Catalogue search unavailable"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v2/evidence/similarity": {
+      "post": {
+        "summary": "Evidence Similarity",
+        "description": "Internal E5 scores: requirements against source sentences, or utterances against examples.",
+        "operationId": "evidence_similarity_api_v2_evidence_similarity_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SimilarityRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "items": {
+                      "items": {
+                        "type": "number"
+                      },
+                      "type": "array"
+                    },
+                    "type": "array"
+                  },
+                  "type": "object",
+                  "title": "Response Evidence Similarity Api V2 Evidence Similarity Post"
                 }
               }
             }
@@ -749,7 +801,7 @@
         "properties": {
           "query": {
             "type": "string",
-            "maxLength": 500,
+            "maxLength": 2000,
             "minLength": 1,
             "title": "Query"
           },
@@ -798,6 +850,39 @@
         ],
         "title": "SearchRequestV2",
         "description": "Versioned search request."
+      },
+      "SimilarityRequest": {
+        "properties": {
+          "queries": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Queries"
+          },
+          "passages": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "maxItems": 400,
+            "minItems": 1,
+            "title": "Passages"
+          },
+          "symmetric": {
+            "type": "boolean",
+            "title": "Symmetric",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "queries",
+          "passages"
+        ],
+        "title": "SimilarityRequest"
       },
       "ValidationError": {
         "properties": {

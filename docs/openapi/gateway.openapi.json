@@ -484,12 +484,41 @@
         "summary": "Proxy Ingestion Outbox Replay V2",
         "description": "Admin-only replay of pending and failed index operations.",
         "operationId": "proxy_ingestion_outbox_replay_v2_api_v2_ingestion_outbox_replay_post",
+        "parameters": [
+          {
+            "name": "outbox_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Outbox Id"
+            }
+          }
+        ],
         "responses": {
           "202": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
               }
             }
           }
@@ -1024,6 +1053,16 @@
           },
           "filters": {
             "$ref": "#/components/schemas/SearchFilters"
+          },
+          "app_action": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StoreAppAction"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "additionalProperties": false,
@@ -1262,7 +1301,7 @@
         "properties": {
           "query": {
             "type": "string",
-            "maxLength": 500,
+            "maxLength": 2000,
             "minLength": 1,
             "title": "Query"
           },
@@ -1311,6 +1350,34 @@
         ],
         "title": "SearchRequestV2",
         "description": "Versioned search request."
+      },
+      "StoreAppAction": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "inspect",
+            "title": "Type"
+          },
+          "store_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Store Id"
+          },
+          "app_id": {
+            "type": "string",
+            "minLength": 1,
+            "title": "App Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type",
+          "store_id",
+          "app_id"
+        ],
+        "title": "StoreAppAction",
+        "description": "An inspection command; native identity is separate from display prose.\n\nThe pair is resolved against the current authorized catalogue, never trusted\nas a supplied App or interpreted as a recommendation requirement."
       },
       "ValidationError": {
         "properties": {

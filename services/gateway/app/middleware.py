@@ -9,6 +9,7 @@ import uuid
 from dataclasses import dataclass
 
 import jwt
+from hedge_shared.private_store import scope
 from jwt import PyJWKClient
 from jwt.exceptions import InvalidTokenError
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -29,6 +30,9 @@ _PUBLIC_PREFIXES = (
     "/api/v2/sessions",
     "/widget",
 )
+if scope():
+    _PUBLIC_PATHS.update({"/", "/favicon.ico", "/api/v2/status"})
+    _PUBLIC_PREFIXES += ("/evaluation/",)
 _TRUTHY = {"1", "true", "yes", "on"}
 _JWK_CLIENTS: dict[str, PyJWKClient] = {}
 

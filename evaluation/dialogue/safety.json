@@ -1,0 +1,189 @@
+{
+ "purpose": "Development regression for recommendation safety (22 October 2026, after the Codex review). Every decision turn names the exact set of Apps its sources support; anything else recommended fails.",
+ "catalogue": "evaluation/dialogue/catalogue-safety.json",
+ "conversations": [
+  {
+   "id": "SN1",
+   "turns": [
+    {
+     "message": "I need an app that must not collect personal data",
+     "expect": {
+      "act": "find",
+      "recommend": [
+       "PrivacyMeter"
+      ]
+     }
+    },
+    {
+     "message": "does HomeTrack avoid collecting personal data?",
+     "expect": {
+      "act": "check",
+      "recommend": []
+     }
+    }
+   ]
+  },
+  {
+   "id": "SN2",
+   "turns": [
+    {
+     "message": "find an app that works without internet access to log meter data",
+     "expect": {
+      "act": "find",
+      "recommend": [
+       "OfflineBox"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "SI1",
+   "turns": [
+    {
+     "message": "which app forecasts electricity prices?",
+     "expect": {
+      "act": "find",
+      "recommend": [
+       "ForecastHub"
+      ]
+     }
+    },
+    {
+     "message": "can PlanGrid forecast prices too?",
+     "expect": {
+      "act": "check",
+      "recommend": [],
+      "outcome": "abstained"
+     }
+    }
+   ]
+  },
+  {
+   "id": "SI2",
+   "turns": [
+    {
+     "message": "is there an app that provides price forecasts?",
+     "expect": {
+      "act": "find",
+      "recommend": [
+       "ForecastHub"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC1",
+   "turns": [
+    {
+     "message": "I want to submit flexibility bids to the market",
+     "expect": {
+      "act": "find",
+      "recommend": [
+       "LiveBid"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "SC2",
+   "turns": [
+    {
+     "message": "which app does automatic settlement?",
+     "expect": {
+      "act": "find",
+      "recommend": []
+     }
+    }
+   ]
+  },
+  {
+   "id": "SA1",
+   "turns": [
+    {
+     "message": "is there an app that predicts equipment failures?",
+     "expect": {
+      "act": "find",
+      "recommend": [
+       "FailSense"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "SA2",
+   "turns": [
+    {
+     "message": "I need an app that inspects substations",
+     "expect": {
+      "act": "find",
+      "recommend": []
+     }
+    },
+    {
+     "message": "is there one that stores fault reports?",
+     "expect": {
+      "act": "find",
+      "recommend": [
+       "FieldCrew"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "SP1",
+   "turns": [
+    {
+     "message": "I need a free app that forecasts electricity prices",
+     "expect": {
+      "act": "find",
+      "recommend": []
+     }
+    },
+    {
+     "message": "does ForecastHub forecast electricity prices?",
+     "expect": {
+      "act": "check",
+      "recommend": []
+     }
+    },
+    {
+     "message": "which is better for forecasting prices, ForecastHub or PlanGrid?",
+     "expect": {
+      "act": "choose",
+      "recommend": []
+     }
+    },
+    {
+     "message": "is there an app that schedules battery charging?",
+     "expect": {
+      "act": "find",
+      "recommend": []
+     }
+    },
+    {
+     "message": "forget the price condition",
+     "expect": {
+      "act": "remove_constraint",
+      "recommend": [
+       "PlanGrid"
+      ]
+     }
+    },
+    {
+     "message": "does ForecastHub forecast electricity prices?",
+     "expect": {
+      "act": "check",
+      "recommend": [
+       "ForecastHub"
+      ]
+     }
+    }
+   ]
+  }
+ ]
+}

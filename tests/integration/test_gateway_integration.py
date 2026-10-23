@@ -59,8 +59,9 @@ def _make_token(roles: list[str] | None = None) -> str:
 
 
 @pytest.fixture()
-def client():
+def client(monkeypatch):
     """Create a test client for the gateway app."""
+    monkeypatch.setenv("GATEWAY_API_KEY", "test-only-admin-key")
     return TestClient(_gateway_app)
 
 
@@ -138,7 +139,7 @@ class TestGatewayProxy:
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"status": "triggered", "task_id": "xyz"}
         with patch.object(_gw_routes.httpx, "AsyncClient", return_value=_AsyncClientStub(mock_resp)):
-            resp = client.post("/api/v1/ingest/trigger")
+            resp = client.post("/api/v1/ingest/trigger", headers={"X-API-Key": "test-only-admin-key"})
             assert resp.status_code == 200
             assert resp.json()["status"] == "triggered"
 

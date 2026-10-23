@@ -1,0 +1,46 @@
+[
+  {
+    "appId": "Sample-App-A",
+    "fkAppStoreId": "Sample-Store",
+    "name": "Sample App A",
+    "description": "Sanitized shape example, not an authenticated record.",
+    "provider": null,
+    "active": true,
+    "visible": true,
+    "registrationDate": 1790856000123,
+    "registryBaseURL": "registry.example.invalid/sample/app-a",
+    "uiUrl": null,
+    "openAPIURL": "",
+    "deployURL": null,
+    "readme": "<h2>Sample README</h2><p>Supplied HTML.</p>",
+    "appVersionList": [
+      {
+        "appVersionId": "Sample-Version-A1",
+        "fkAppId": "Sample-App-A",
+        "version": "1.0",
+        "registrationDate": 1788264000000,
+        "versionComments": null
+      },
+      {
+        "appVersionId": "Sample-Version-A2",
+        "fkAppId": "Sample-App-A",
+        "version": "2.0",
+        "registrationDate": null
+      }
+    ],
+    "dataspaceAppDescription": "{\"@id\":\"Sample-Asset-A\",\"properties\":{\"description\":\"Unjoined asset\"}}"
+  },
+  {
+    "appId": "Sample-App-B",
+    "fkAppStoreId": "Sample-Store",
+    "name": "Sample App B",
+    "description": null,
+    "active": false,
+    "visible": true,
+    "registrationDate": null,
+    "registryBaseURL": null,
+    "readme": null,
+    "appVersionList": [],
+    "dataspaceAppDescription": null
+  }
+]

@@ -1,7 +1,7 @@
 """Ollama LLM client.
 
 CRITICAL:
-    - Always pass "think": false in API calls (Qwen3.5 non-thinking mode)
+    - Regular legacy calls use non-thinking mode; structured Store calls honor OLLAMA_THINK.
     - Strip any <think> tags from response as safety measure
     - Timeout: 180s for CPU inference with swap (qwen3.5:4b ~3 tok/s)
     - If generation stops due to output length, request one continuation automatically
@@ -9,6 +9,7 @@ CRITICAL:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -17,6 +18,7 @@ import time
 from collections.abc import Iterator
 
 import httpx
+from hedge_shared.config import Settings
 
 logger = logging.getLogger(__name__)
 
@@ -225,6 +227,94 @@ class OllamaClient:
             prompt_messages = _build_continuation_messages(messages, accumulated)
 
         return accumulated.strip()
+
+    def chat_structured(self, messages: list[dict[str, str]], schema: dict,
+                        *, timeout: float = 40, max_tokens: int = 256, context_tokens: int = 2048,
+                        deadline: float | None = None) -> str:
+        """One bounded Store request; no retries, continuation or raw-output logging."""
+        payload = self._build_payload(messages, 0, max_tokens, stream=False)
+        payload["format"] = schema
+        settings = Settings()
+        payload["think"] = settings.OLLAMA_THINK
+        payload["truncate"] = False
+        payload["shift"] = False
+        payload["keep_alive"] = settings.STORE_MODEL_KEEP_ALIVE
+        # Model presets may include creative repetition penalties. Structured
+        # evidence copying/classification must not penalize repeated source terms,
+        # App keys or JSON field names.
+        payload["options"].update(num_ctx=context_tokens, num_thread=settings.STORE_MODEL_THREADS,
+                                  num_batch=settings.STORE_MODEL_BATCH_SIZE,
+                                  repeat_penalty=1.0, presence_penalty=0.0, frequency_penalty=0.0)
+        if deadline is not None:
+            async def request():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("Reasoning budget exhausted")
+                # A wall-clock deadline also covers a slowly trickling body;
+                # cancelling closes the connection instead of leaving a worker.
+                async with asyncio.timeout(remaining), httpx.AsyncClient(
+                    timeout=httpx.Timeout(timeout, connect=min(3, timeout)), trust_env=False,
+                ) as client:
+                    response = await client.post(f"{self.base_url}/api/chat", json=payload)
+                    response.raise_for_status()
+                    return response.json()
+            data = asyncio.run(request())
+        else:
+            with httpx.Client(timeout=httpx.Timeout(timeout, connect=min(3, timeout)), trust_env=False) as client:
+                response = client.post(f"{self.base_url}/api/chat", json=payload)
+                response.raise_for_status()
+                data = response.json()
+        logger.info("Structured inference prompt_tokens=%s output_tokens=%s total_ms=%s",
+                    data.get("prompt_eval_count"), data.get("eval_count"),
+                    round(data.get("total_duration", 0) / 1_000_000))
+        if not data.get("done") or _hit_output_limit(data, max_tokens):
+            raise ValueError("Incomplete grounded generation")
+        return _clean_content(data.get("message", {}).get("content", "")).strip()
+
+    def chat_text(self, messages: list[dict[str, str]], *, max_tokens: int, context_tokens: int,
+                  timeout: float, deadline: float, on_delta=None) -> str:
+        """One bounded streamed Store answer with the same model options as structured calls.
+
+        Identical num_ctx/threads/batch/keep-alive avoid reloading the shared
+        model. No retries or continuation; a cut-off answer is an error.
+        """
+        payload = self._build_payload(messages, 0.2, max_tokens, stream=True)
+        settings = Settings()
+        payload.update(think=settings.OLLAMA_THINK, truncate=False, shift=False,
+                       keep_alive=settings.STORE_MODEL_KEEP_ALIVE)
+        payload["options"].update(num_ctx=context_tokens, num_thread=settings.STORE_MODEL_THREADS,
+                                  num_batch=settings.STORE_MODEL_BATCH_SIZE)
+        parts: list[str] = []
+        final: dict = {}
+        think = _ThinkStreamFilter()
+
+        async def request():
+            nonlocal final
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("Explanation budget exhausted")
+            async with asyncio.timeout(remaining), httpx.AsyncClient(
+                timeout=httpx.Timeout(timeout, connect=min(3, timeout)), trust_env=False,
+            ) as client, client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response:
+                response.raise_for_status()
+                async for line in response.aiter_lines():
+                    if not line:
+                        continue
+                    data = json.loads(line)
+                    visible = think.feed(data.get("message", {}).get("content", ""))
+                    if visible:
+                        parts.append(visible)
+                        if on_delta:
+                            on_delta(visible)
+                    if data.get("done"):
+                        final = data
+        asyncio.run(request())
+        logger.info("Explanation inference prompt_tokens=%s output_tokens=%s total_ms=%s",
+                    final.get("prompt_eval_count"), final.get("eval_count"),
+                    round(final.get("total_duration", 0) / 1_000_000))
+        if not final.get("done") or _hit_output_limit(final, max_tokens):
+            raise ValueError("Incomplete explanation")
+        return ("".join(parts) + think.finish()).strip()
 
     def chat_stream(
         self,

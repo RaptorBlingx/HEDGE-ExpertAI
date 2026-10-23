@@ -1,0 +1,223 @@
+{
+ "purpose": "Development: natural conversations over the authorized real Store observation (supplied with --catalogue, kept outside Git). May inform implementation.",
+ "catalogue": "private:real",
+ "conversations": [
+  {
+   "id": "DR1",
+   "turns": [
+    {
+     "message": "hi, what can you help me with?",
+     "expect": {
+      "act": "help",
+      "concepts_any": [
+       "App"
+      ]
+     }
+    },
+    {
+     "message": "ok what apps are there",
+     "expect": {
+      "act": "list",
+      "subject": [
+       "EdgeConnect",
+       "Semantic Treehouse"
+      ]
+     }
+    },
+    {
+     "message": "what does the first one do",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "EdgeConnect"
+      ],
+      "concepts_any": [
+       "aggregator",
+       "bid",
+       "flexibility"
+      ]
+     }
+    },
+    {
+     "message": "who's behind it?",
+     "expect": {
+      "act": "provider",
+      "concepts_any": [
+       "INESCTEC"
+      ]
+     }
+    },
+    {
+     "message": "and the other one?",
+     "expect": {
+      "act": "provider",
+      "concepts_any": [
+       "TNO"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "DR2",
+   "turns": [
+    {
+     "message": "Tell me about semantic treehouse",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "Semantic Treehouse"
+      ],
+      "concepts_any": [
+       "vocabular",
+       "data model"
+      ]
+     }
+    },
+    {
+     "message": "can you explain that in simpler words",
+     "expect": {
+      "act": "simple",
+      "subject": [
+       "Semantic Treehouse"
+      ]
+     }
+    },
+    {
+     "message": "is it free?",
+     "expect": {
+      "act": "price",
+      "concepts_any": [
+       "price",
+       "cost",
+       "billable",
+       "charge"
+      ],
+      "forbid": [
+       "it is free",
+       "it's free"
+      ]
+     }
+    },
+    {
+     "message": "how do I access it",
+     "expect": {
+      "act": "access",
+      "concepts_any": [
+       "vocabulary-hub.eu",
+       "URL",
+       "link",
+       "website"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "DR3",
+   "turns": [
+    {
+     "message": "I work for a DSO and we want to buy flexibility from aggregators, which app should I look at?",
+     "expect": {
+      "act": "find",
+      "subject": [
+       "EdgeConnect"
+      ]
+     }
+    },
+    {
+     "message": "does it handle settlement too?",
+     "expect": {
+      "act": "check",
+      "subject": [
+       "EdgeConnect"
+      ],
+      "concepts_any": [
+       "settlement"
+      ],
+      "outcome": "recommended"
+     }
+    },
+    {
+     "message": "what's a BSP market?",
+     "expect": {
+      "act": "term",
+      "concepts_any": [
+       "balancing"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "DR4",
+   "turns": [
+    {
+     "message": "is there an app for managing vocabularies",
+     "expect": {
+      "act": "find",
+      "subject": [
+       "Semantic Treehouse"
+      ]
+     }
+    },
+    {
+     "message": "what's the difference with edgeconnect",
+     "expect": {
+      "act": "compare",
+      "subject": [
+       "EdgeConnect",
+       "Semantic Treehouse"
+      ]
+     }
+    },
+    {
+     "message": "which one would help me map data between two systems",
+     "expect": {
+      "act": "choose",
+      "subject": [
+       "Semantic Treehouse"
+      ],
+      "concepts_any": [
+       "mapping"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "DR5",
+   "turns": [
+    {
+     "message": "Can EdgeConnect forecast solar production?",
+     "expect": {
+      "act": "check",
+      "subject": [
+       "EdgeConnect"
+      ],
+      "outcome": "abstained",
+      "forbid": [
+       "fits what you need"
+      ]
+     }
+    },
+    {
+     "message": "ok, is there any app that does?",
+     "expect": {
+      "act": "find",
+      "outcome": "abstained",
+      "forbid": [
+       "fits what you need"
+      ]
+     }
+    },
+    {
+     "message": "thanks anyway",
+     "expect": {
+      "act": "thanks"
+     }
+    }
+   ]
+  }
+ ]
+}

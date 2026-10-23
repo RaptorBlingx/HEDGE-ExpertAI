@@ -28,6 +28,7 @@ class IntentResult:
     intent: str
     confidence: float
     entities: dict
+    source: str = "regex"
 
 
 # Patterns ordered by priority (first match wins within each intent)
@@ -45,13 +46,13 @@ _INTENT_PATTERNS: list[tuple[str, list[re.Pattern]]] = [
     (
         "greeting",
         [
-            re.compile(r"^(hi|hello|hey|greetings|good\s*(morning|afternoon|evening)|howdy|welcome)[\s!.,?]*$", re.I),
+            re.compile(r"^(hi|hello|hey|greetings|good\s*(morning|afternoon|evening)|howdy|welcome|merhaba|selam)[\s!.,?]*$", re.I),
         ],
     ),
     (
         "help",
         [
-            re.compile(r"\b(help|how\s+do\s+i|what\s+can\s+you\s+do|usage|guide|instructions|how\s+does\s+this\s+work)\b", re.I),
+            re.compile(r"\b(help|yardım|how\s+do\s+i|what\s+can\s+you\s+do|usage|guide|instructions|how\s+does\s+this\s+work)\b", re.I),
         ],
     ),
     (
@@ -174,6 +175,29 @@ def _request_rasa_parse(text: str) -> dict:
     return response.json()
 
 
+_LEGACY_INTENTS = {
+    "find": "search", "list": "search", "check": "detail", "choose": "compare", "thanks": "greeting",
+    **{act: "detail" for act in ("describe", "simple", "example", "analogy", "how", "differently", "meaning",
+                                  "audience", "provider", "price", "access", "details", "ask", "same", "term")},
+    "remove_constraint": "refine",
+}
+
+
+def rasa_acts(text: str) -> list[tuple[str, float]] | None:
+    """Rasa's ranked dialogue acts for an App-masked message, or None when unavailable."""
+    if not _env_flag("RASA_ENABLED") or _rasa_circuit_open():
+        return None
+    try:
+        payload = _request_rasa_parse(text)
+    except Exception:
+        _record_rasa_failure()
+        logger.warning("Rasa act classification unavailable")
+        return None
+    _reset_rasa_failures()
+    ranking = payload.get("intent_ranking") or ([payload["intent"]] if payload.get("intent") else [])
+    return [(str(r.get("name")), float(r.get("confidence") or 0.0)) for r in ranking if r.get("name")]
+
+
 def _classify_via_rasa(text_clean: str, entities: dict) -> IntentResult:
     payload = _request_rasa_parse(text_clean)
     intent_data = payload.get("intent") or {}
@@ -189,6 +213,9 @@ def _classify_via_rasa(text_clean: str, entities: dict) -> IntentResult:
         elif entity_name == "saref_class" and entity_value:
             merged_entities["saref_class"] = str(entity_value)
 
+    # Rasa classifies dialogue acts (hedge_shared/dialogue_acts.json); this
+    # legacy classifier reports them as the original intents.
+    intent_name = _LEGACY_INTENTS.get(intent_name, intent_name)
     if intent_name not in {
         "greeting",
         "help",
@@ -202,7 +229,7 @@ def _classify_via_rasa(text_clean: str, entities: dict) -> IntentResult:
     }:
         intent_name = "unknown"
 
-    return IntentResult(intent=intent_name, confidence=confidence, entities=merged_entities)
+    return IntentResult(intent=intent_name, confidence=confidence, entities=merged_entities, source="rasa")
 
 
 def _rasa_circuit_open() -> bool:

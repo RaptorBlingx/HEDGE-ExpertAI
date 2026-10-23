@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from hedge_shared.models_v2 import Locale, SearchFilters
+from hedge_shared.models_v2 import MAX_SEARCH_QUERY_LENGTH, Locale, SearchFilters
 from pydantic import BaseModel, Field
 
 from .recommender import (
@@ -33,7 +33,7 @@ class ExplainRequest(BaseModel):
 
 
 class RecommendRequestV2(BaseModel):
-    query: str = Field(..., min_length=1, max_length=2000)
+    query: str = Field(..., min_length=1, max_length=MAX_SEARCH_QUERY_LENGTH)
     locale: Locale = "en"
     filters: SearchFilters = Field(default_factory=SearchFilters)
     limit: int = Field(default=5, ge=1, le=10)
@@ -70,7 +70,13 @@ def get_explanation(req: ExplainRequest):
 v2_router = APIRouter(prefix="/api/v2")
 
 
-@v2_router.post("/recommend")
+@v2_router.post(
+    "/recommend",
+    responses={
+        503: {"description": "Catalogue search unavailable"},
+        504: {"description": "Catalogue search timed out"},
+    },
+)
 def get_recommendations_v2(req: RecommendRequestV2):
     """Validated multilingual recommendation response."""
     return recommend_v2(
@@ -87,17 +93,20 @@ def get_recommendations_v2(req: RecommendRequestV2):
     responses={200: {"content": {"text/event-stream": {}}}},
 )
 def stream_recommendations_v2(req: RecommendRequestV2):
-    """SSE contract that only streams explanations after validation."""
+    """Validated explanations; retrieval failures terminate with a problem event."""
 
     def generate():
         yield _sse({"type": "stage", "stage": "retrieval"})
-        for event in recommend_v2_stream(
-            query=req.query,
-            locale=req.locale,
-            filters=req.filters.model_dump(mode="json"),
-            limit=req.limit,
-        ):
-            yield _sse(event)
+        try:
+            for event in recommend_v2_stream(
+                query=req.query,
+                locale=req.locale,
+                filters=req.filters.model_dump(mode="json"),
+                limit=req.limit,
+            ):
+                yield _sse(event)
+        except HTTPException as exc:
+            yield _sse({"type": "problem", "title": exc.detail, "status": exc.status_code})
 
     return StreamingResponse(
         generate(),

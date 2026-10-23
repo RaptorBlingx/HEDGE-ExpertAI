@@ -9,9 +9,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import uuid
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime
 from typing import Any
 
@@ -21,6 +22,7 @@ from .models_v2 import (
     RecommendationEventType,
     SearchFilters,
 )
+from .store_v1 import StoreAppMetadata
 
 
 def database_url() -> str:
@@ -76,9 +78,10 @@ def complete_ingestion_run(
     deleted: int,
     quarantined: int,
     error: str | None = None,
+    conn: Any | None = None,
 ) -> None:
     """Finalize an ingestion record with immutable run statistics."""
-    with connection() as conn, conn.cursor() as cursor:
+    with nullcontext(conn) if conn is not None else connection() as db, db.cursor() as cursor:
         cursor.execute(
             """
             UPDATE ingestion_runs
@@ -164,35 +167,106 @@ def list_quarantined_items(
         return total, cursor.fetchall()
 
 
+def _lock_catalogue_source(cursor: Any, *, source: str, store_id: str | None) -> None:
+    # Store identity, rather than transport URL, defines the synchronization scope.
+    scope = ["hedge-store-v1", store_id] if store_id is not None else ["2.0", source]
+    cursor.execute(
+        "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))",
+        (json.dumps(scope, ensure_ascii=False),),
+    )
+
+
+@contextmanager
+def catalogue_snapshot(source: str, *, store_id: str | None = None) -> Iterator[Any]:
+    """Serialize a source from BEFORE fetch through atomic reconciliation.
+
+    Fetch inside this context: locking only the writes lets a delayed older
+    fetch overwrite newer publication state. Different Stores use distinct locks.
+    """
+    with connection() as conn, conn.cursor() as cursor:
+        _lock_catalogue_source(cursor, source=source, store_id=store_id)
+        yield conn
+
+
 def upsert_catalogue_app(
     run_id: str,
-    app: AppMetadataV2,
+    app: AppMetadataV2 | StoreAppMetadata,
     *,
     source_updated_at: datetime | None = None,
+    conn: Any | None = None,
 ) -> str:
     """Upsert one app and enqueue its vector revision in the same transaction.
 
+    Store source profiles are retained offline without v2 indexing operations.
     Returns ``created``, ``updated``, or ``unchanged``.
     """
-    payload = app.model_dump(mode="json", exclude={"checksum"})
-    search_document = app.to_index_text("en")
+    store_app = isinstance(app, StoreAppMetadata)
+    # Computed Store identity/eligibility are excluded from the authoritative payload.
+    excluded = {"checksum", "id", "public_eligible"} if store_app else {"checksum"}
+    payload = app.model_dump(mode="json", exclude=excluded)
     checksum = app.checksum
-    with connection() as conn, conn.cursor() as cursor:
+    if store_app and source_updated_at is not None:
+        raise ValueError("Store v1 has no confirmed source update timestamp")
+    schema_version = app.source_profile if store_app else app.schema_version
+    active = app.public_eligible if store_app else True
+    native_store = app.store_id if store_app else None
+    native_app = app.app_id if store_app else None
+    with nullcontext(conn) if conn is not None else connection() as db, db.cursor() as cursor:
+        cursor.execute("SELECT source FROM ingestion_runs WHERE id = %s", (run_id,))
+        run = cursor.fetchone()
+        if run is None:
+            raise ValueError("unknown ingestion run")
+        _lock_catalogue_source(cursor, source=run["source"], store_id=native_store)
         cursor.execute(
-            "SELECT checksum, revision FROM catalog_apps WHERE id = %s FOR UPDATE",
+            """
+            SELECT checksum, revision, schema_version, active, last_seen_run_id, prepared_knowledge
+            FROM catalog_apps WHERE id = %s FOR UPDATE
+            """,
             (app.id,),
         )
         existing = cursor.fetchone()
-        if existing and existing["checksum"] == checksum:
+        if existing and existing["schema_version"] != schema_version:
+            raise ValueError("catalogue key belongs to a different source profile")
+        if existing and not store_app and existing["last_seen_run_id"] is not None:
+            # Read ownership AFTER locking the row; a concurrent first claim
+            # may have changed last_seen_run_id while this statement waited.
+            cursor.execute(
+                "SELECT source FROM ingestion_runs WHERE id = %s", (existing["last_seen_run_id"],)
+            )
+            if cursor.fetchone()["source"] != run["source"]:
+                raise ValueError("catalogue key belongs to a different source")
+        from .store_knowledge import PREPARATION_VERSION, prepare
+
+        knowledge = existing.get("prepared_knowledge") if existing else None
+        prepared_current = (isinstance(knowledge, dict)
+                            and knowledge.get("version") == PREPARATION_VERSION
+                            and knowledge.get("checksum") == checksum
+                            and isinstance(knowledge.get("index_text"), str)
+                            and isinstance(knowledge.get("projection"), dict)
+                            and knowledge["projection"].get("id") == app.id)
+        if store_app and not prepared_current:
+            previous = knowledge
+            knowledge = prepare(app)
+            if (isinstance(previous, dict) and previous.get("checksum") == checksum
+                    and isinstance(previous.get("explanation"), dict)
+                    and previous["explanation"].get("version") == 1):
+                from .store_knowledge import explanation
+                if explanation({**knowledge["projection"],
+                                "prepared_explanation": previous["explanation"]}):
+                    knowledge["explanation"] = previous["explanation"]
+        search_document = knowledge["index_text"] if store_app else app.to_index_text("en")
+        if existing and existing["checksum"] == checksum and existing["active"] == active:
             cursor.execute(
                 """
                 UPDATE catalog_apps
-                SET active = true,
+                SET active = %s,
                     last_seen_run_id = %s,
+                    search_document = %s,
+                    prepared_knowledge = %s::jsonb,
                     source_updated_at = COALESCE(%s, source_updated_at)
                 WHERE id = %s
                 """,
-                (run_id, source_updated_at, app.id),
+                (active, run_id, search_document, json.dumps(knowledge), source_updated_at, app.id),
             )
             return "unchanged"
 
@@ -202,15 +276,19 @@ def upsert_catalogue_app(
             """
             INSERT INTO catalog_apps (
                 id, checksum, revision, schema_version, payload, search_document,
-                active, source_updated_at, last_seen_run_id, searchable_at
+                active, source_updated_at, last_seen_run_id, searchable_at,
+                source_store_id, source_app_id, prepared_knowledge
             )
-            VALUES (%s, %s, %s, '2.0', %s::jsonb, %s, true, %s, %s, NULL)
+            VALUES (%s, %s, %s, %s, %s::jsonb, %s, %s, %s, %s, NULL, %s, %s, %s::jsonb)
             ON CONFLICT (id) DO UPDATE SET
                 checksum = EXCLUDED.checksum,
                 revision = EXCLUDED.revision,
                 payload = EXCLUDED.payload,
                 search_document = EXCLUDED.search_document,
-                active = true,
+                prepared_knowledge = EXCLUDED.prepared_knowledge,
+                active = EXCLUDED.active,
+                source_store_id = EXCLUDED.source_store_id,
+                source_app_id = EXCLUDED.source_app_id,
                 source_updated_at = EXCLUDED.source_updated_at,
                 last_seen_run_id = EXCLUDED.last_seen_run_id,
                 searchable_at = NULL,
@@ -220,10 +298,15 @@ def upsert_catalogue_app(
                 app.id,
                 checksum,
                 revision,
+                schema_version,
                 json.dumps(payload),
                 search_document,
+                active,
                 source_updated_at,
                 run_id,
+                native_store,
+                native_app,
+                json.dumps(knowledge),
             ),
         )
         cursor.execute(
@@ -236,14 +319,15 @@ def upsert_catalogue_app(
             """,
             (app.id, revision, checksum, json.dumps(payload), run_id),
         )
-        cursor.execute(
-            """
-            INSERT INTO indexing_outbox (app_id, revision, operation, payload, status)
-            VALUES (%s, %s, 'upsert', %s::jsonb, 'pending')
-            ON CONFLICT (app_id, revision, operation) DO NOTHING
-            """,
-            (app.id, revision, json.dumps(payload)),
-        )
+        if not store_app:
+            cursor.execute(
+                """
+                INSERT INTO indexing_outbox (app_id, revision, operation, payload, status)
+                VALUES (%s, %s, 'upsert', %s::jsonb, 'pending')
+                ON CONFLICT (app_id, revision, operation) DO NOTHING
+                """,
+                (app.id, revision, json.dumps(payload)),
+            )
         return action
 
 
@@ -251,11 +335,12 @@ def quarantine_item(
     run_id: str,
     *,
     source_key: str,
-    payload: dict[str, Any],
+    payload: Any,
     errors: list[dict[str, Any]] | list[str],
+    conn: Any | None = None,
 ) -> None:
     """Persist an invalid source record without admitting it to the catalogue."""
-    with connection() as conn, conn.cursor() as cursor:
+    with nullcontext(conn) if conn is not None else connection() as db, db.cursor() as cursor:
         cursor.execute(
             """
             INSERT INTO ingestion_items (
@@ -267,95 +352,206 @@ def quarantine_item(
         )
 
 
-def tombstone_missing_apps(run_id: str) -> int:
-    """Deactivate apps not observed in a complete source snapshot."""
-    with connection() as conn, conn.cursor() as cursor:
+def tombstone_missing_apps(run_id: str, *, conn: Any, store_id: str | None = None) -> int:
+    """Retire absent Apps in a validated snapshot's transaction and source scope.
+
+    Only call after complete, unquarantined, nonempty (or explicitly approved
+    empty) validation inside catalogue_snapshot. Source facts stay unchanged.
+    """
+    if store_id is not None:
+        scope = "schema_version = 'hedge-store-v1' AND source_store_id = %s"
+        scope_params = (store_id,)
+    else:
+        scope = """schema_version = '2.0' AND last_seen_run_id IN (
+            SELECT id FROM ingestion_runs WHERE source = (
+                SELECT source FROM ingestion_runs WHERE id = %s
+            )
+        )"""
+        scope_params = (run_id,)
+    with conn.cursor() as cursor:
         cursor.execute(
-            """
+            f"""
             UPDATE catalog_apps
             SET active = false, revision = revision + 1, updated_at = now(), searchable_at = NULL
-            WHERE active = true AND last_seen_run_id IS DISTINCT FROM %s
-            RETURNING id, revision
+            WHERE active = true AND last_seen_run_id IS DISTINCT FROM %s AND {scope}
+            RETURNING id, revision, checksum, payload
             """,
-            (run_id,),
+            (run_id, *scope_params),
         )
         rows = cursor.fetchall()
         for row in rows:
             cursor.execute(
                 """
-                INSERT INTO indexing_outbox (app_id, revision, operation, payload, status)
-                VALUES (%s, %s, 'delete', '{}'::jsonb, 'pending')
-                ON CONFLICT (app_id, revision, operation) DO NOTHING
+                INSERT INTO catalog_app_revisions
+                    (app_id, revision, checksum, payload, ingestion_run_id)
+                VALUES (%s, %s, %s, %s::jsonb, %s)
                 """,
-                (row["id"], row["revision"]),
+                (row["id"], row["revision"], row["checksum"], json.dumps(row["payload"]), run_id),
             )
+            if store_id is None:
+                cursor.execute(
+                    """
+                    INSERT INTO indexing_outbox (app_id, revision, operation, payload, status)
+                    VALUES (%s, %s, 'delete', '{}'::jsonb, 'pending')
+                    ON CONFLICT (app_id, revision, operation) DO NOTHING
+                    """,
+                    (row["id"], row["revision"]),
+                )
         return len(rows)
 
 
+OUTBOX_MAX_ATTEMPTS = 10
+OUTBOX_LEASE_SECONDS = 180
+
+
 def pending_outbox(limit: int = 100) -> list[dict[str, Any]]:
-    """Claim pending/failed index operations for replay-safe delivery."""
+    """Claim due operations, including abandoned leases; retain exhausted work."""
     with connection() as conn, conn.cursor() as cursor:
+        # A crash on the final attempt must become visible terminal failure too.
+        cursor.execute(
+            """
+            UPDATE indexing_outbox SET status = 'failed', next_attempt_at = NULL,
+                last_error = 'Index delivery interrupted on final attempt', updated_at = now()
+            WHERE status = 'processing' AND attempts >= %s
+              AND updated_at < now() - make_interval(secs => %s)
+            """,
+            (OUTBOX_MAX_ATTEMPTS, OUTBOX_LEASE_SECONDS),
+        )
         cursor.execute(
             """
             WITH claimed AS (
-                SELECT id
-                FROM indexing_outbox
-                WHERE status IN ('pending', 'failed')
-                  AND attempts < 10
-                  AND (next_attempt_at IS NULL OR next_attempt_at <= now())
-                ORDER BY created_at
-                FOR UPDATE SKIP LOCKED
-                LIMIT %s
+                SELECT id FROM indexing_outbox
+                WHERE attempts < %s AND (
+                    (status IN ('pending', 'failed')
+                     AND (next_attempt_at IS NULL OR next_attempt_at <= now()))
+                    OR (status = 'processing'
+                        AND updated_at < now() - make_interval(secs => %s))
+                )
+                ORDER BY created_at, id FOR UPDATE SKIP LOCKED LIMIT %s
             )
             UPDATE indexing_outbox AS outbox
-            SET status = 'processing', attempts = attempts + 1, updated_at = now()
-            FROM claimed
-            WHERE outbox.id = claimed.id
-            RETURNING outbox.id, outbox.app_id, outbox.revision,
-                      outbox.operation, outbox.payload, outbox.attempts
+            SET status = 'processing', attempts = attempts + 1, updated_at = clock_timestamp()
+            FROM claimed WHERE outbox.id = claimed.id
+            RETURNING outbox.id, outbox.app_id, outbox.revision, outbox.operation,
+                      outbox.payload, outbox.attempts, outbox.updated_at
             """,
-            (limit,),
+            (OUTBOX_MAX_ATTEMPTS, OUTBOX_LEASE_SECONDS, limit),
         )
         return cursor.fetchall()
 
 
-def complete_outbox_item(outbox_id: int, *, app_id: str, revision: int) -> None:
-    """Mark a delivered vector revision searchable."""
+def complete_outbox_item(
+    outbox_id: int, *, app_id: str, revision: int, claimed_at: datetime
+) -> bool:
+    """Acknowledge only this claim; a late worker cannot complete a new lease."""
     with connection() as conn, conn.cursor() as cursor:
         cursor.execute(
             """
             UPDATE indexing_outbox
-            SET status = 'completed', completed_at = now(), updated_at = now(), last_error = NULL
-            WHERE id = %s
+            SET status = 'completed', completed_at = now(), updated_at = now(),
+                last_error = NULL, next_attempt_at = NULL
+            WHERE id = %s AND app_id = %s AND revision = %s
+              AND status = 'processing' AND updated_at = %s
+            RETURNING operation
             """,
-            (outbox_id,),
+            (outbox_id, app_id, revision, claimed_at),
         )
-        cursor.execute(
-            """
-            UPDATE catalog_apps
-            SET searchable_at = now()
-            WHERE id = %s AND revision = %s AND active = true
-            """,
-            (app_id, revision),
-        )
+        item = cursor.fetchone()
+        if item is None:
+            return False
+        if item["operation"] == "upsert":
+            cursor.execute(
+                """
+                UPDATE catalog_apps SET searchable_at = now()
+                WHERE id = %s AND revision = %s AND active = true AND schema_version = '2.0'
+                """,
+                (app_id, revision),
+            )
+        return True
 
 
-def fail_outbox_item(outbox_id: int, error: str) -> None:
-    """Retain a failed operation for exponential retry."""
+def fail_outbox_item(outbox_id: int, error: str, *, claimed_at: datetime) -> bool:
+    """Fence failure acknowledgements and retain terminal failures for explicit replay."""
     with connection() as conn, conn.cursor() as cursor:
         cursor.execute(
             """
-            UPDATE indexing_outbox
-            SET status = 'failed',
-                last_error = left(%s, 2000),
-                next_attempt_at = now() + make_interval(
-                    secs => LEAST(3600, power(2, attempts)::int)
-                ),
+            UPDATE indexing_outbox SET status = 'failed', last_error = left(%s, 2000),
+                next_attempt_at = CASE WHEN attempts >= %s THEN NULL ELSE
+                    now() + make_interval(secs => LEAST(3600, power(2, attempts)::int)) END,
                 updated_at = now()
-            WHERE id = %s
+            WHERE id = %s AND status = 'processing' AND updated_at = %s
+            RETURNING id
             """,
-            (error, outbox_id),
+            (error, OUTBOX_MAX_ATTEMPTS, outbox_id, claimed_at),
         )
+        return cursor.fetchone() is not None
+
+
+def outbox_status() -> dict[str, int]:
+    """Expose durable backlog and exhausted work independently of ingestion runs."""
+    with connection() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT count(*) FILTER (WHERE status != 'completed') AS outstanding,
+                   count(*) FILTER (WHERE status = 'failed' AND attempts >= %s) AS exhausted
+            FROM indexing_outbox
+            """,
+            (OUTBOX_MAX_ATTEMPTS,),
+        )
+        return dict(cursor.fetchone())
+
+
+def retry_outbox_item(outbox_id: int) -> bool:
+    """Explicitly release one exhausted operation after its underlying fault is fixed."""
+    with connection() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE indexing_outbox SET status = 'pending', attempts = 0,
+                next_attempt_at = NULL, updated_at = clock_timestamp()
+            WHERE id = %s AND status = 'failed' AND attempts >= %s RETURNING id
+            """,
+            (outbox_id, OUTBOX_MAX_ATTEMPTS),
+        )
+        return cursor.fetchone() is not None
+
+
+@contextmanager
+def catalogue_index_app(app_id: str) -> Iterator[dict[str, Any] | None]:
+    """Serialize a vector write with catalogue updates and other writers of this App."""
+    with connection() as conn, conn.cursor() as cursor:
+        cursor.execute("SET LOCAL lock_timeout = '5s'")
+        cursor.execute(
+            "SELECT id, revision, active, schema_version, checksum, payload "
+            "FROM catalog_apps WHERE id = %s FOR UPDATE",
+            (app_id,),
+        )
+        yield cursor.fetchone()
+
+
+def get_catalogue_apps(
+    app_ids: list[str], *, store_id: str | None = None,
+) -> dict[str, dict[str, Any]]:
+    """Resolve eligible candidates; synthetic by default, with optional native Store scope."""
+    if not app_ids:
+        return {}
+    scope = "schema_version = '2.0'"
+    params: list[Any] = [app_ids]
+    if store_id is not None:
+        from .store_sync import AVAILABILITY_SQL
+
+        scope = (
+            "schema_version = 'hedge-store-v1' AND source_store_id = %s "
+            "AND payload->'active' = 'true'::jsonb AND payload->'visible' = 'true'::jsonb"
+        )
+        scope += " AND " + AVAILABILITY_SQL
+        params.append(store_id)
+    with connection() as conn, conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT id, revision, checksum, payload, prepared_knowledge FROM catalog_apps "
+            f"WHERE id = ANY(%s) AND active = true AND {scope}",
+            params,
+        )
+        return {row["id"]: row for row in cursor.fetchall()}
 
 
 def lexical_search(
@@ -364,11 +560,14 @@ def lexical_search(
     locale: str,
     filters: SearchFilters,
     limit: int,
+    store_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """Return an independent PostgreSQL full-text candidate ranking."""
-    # The simple dictionary is deliberate: it is deterministic across all
-    # eight locales and the catalogue also stores curated localized keywords.
-    where = ["active = true", "searchable_at IS NOT NULL"]
+    # Keep the synthetic contract and other locales on their existing dictionary.
+    # English Store prose needs stemming and stop words: an OR pool over raw
+    # conversational words otherwise rewards "for" and misses mapping/mappings.
+    dictionary = "english" if store_id is not None and locale == "en" else "simple"
+    where = ["active = true", "schema_version = '2.0'"]
     filter_params: list[Any] = []
 
     if filters.publisher:
@@ -415,22 +614,46 @@ def lexical_search(
         )
         filter_params.append(filters.data_classifications)
 
-    del locale  # Reserved for future language-specific PostgreSQL dictionaries.
+    document = "search_document"
+    lexical_query = query
+    if store_id is not None:
+        # No supported taxonomy/language/license assertions exist in Store Apps.
+        if any(value for key, value in filters.model_dump().items() if key != "publisher"):
+            return []
+        where = [
+            "active = true", "schema_version = 'hedge-store-v1'", "source_store_id = %s",
+            "payload->'active' = 'true'::jsonb", "payload->'visible' = 'true'::jsonb",
+        ]
+        from .store_sync import AVAILABILITY_SQL
+
+        where.append(AVAILABILITY_SQL)
+        filter_params = [store_id]
+        if filters.publisher:
+            where.append("payload->>'provider' ILIKE %s")
+            filter_params.append(f"%{filters.publisher}%")
+        # Long natural requests rarely share EVERY word with a document. An
+        # OR candidate pool provides an independent sparse signal; full request
+        # constraints are still assessed by Expert, never relaxed by retrieval.
+        words = list(dict.fromkeys(re.findall(r"[^\W_]+", query, re.UNICODE)))[:64]
+        lexical_query = " OR ".join('"' + word + '"' for word in words) or query
+        # Ingestion derives this document with the shared Store evidence extractor.
+        # Reingesting also refreshes legacy documents when source values are unchanged.
+
     sql = f"""
         SELECT id, revision, payload,
                ts_rank_cd(
-                   to_tsvector('simple', search_document),
-                   websearch_to_tsquery('simple', %s),
+                   to_tsvector('{dictionary}', {document}),
+                   websearch_to_tsquery('{dictionary}', %s),
                    32
                ) AS lexical_score
         FROM catalog_apps
         WHERE {" AND ".join(where)}
-          AND to_tsvector('simple', search_document)
-              @@ websearch_to_tsquery('simple', %s)
+          AND to_tsvector('{dictionary}', {document})
+              @@ websearch_to_tsquery('{dictionary}', %s)
         ORDER BY lexical_score DESC, id
         LIMIT %s
     """
-    params = [query, *filter_params, query, limit]
+    params = [lexical_query, *filter_params, lexical_query, limit]
     with connection() as conn, conn.cursor() as cursor:
         cursor.execute(sql, params)
         return cursor.fetchall()
@@ -441,7 +664,7 @@ def get_catalogue_app(app_id: str, *, include_inactive: bool = False) -> dict[st
     clause = "" if include_inactive else "AND active = true"
     with connection() as conn, conn.cursor() as cursor:
         cursor.execute(
-            f"SELECT payload FROM catalog_apps WHERE id = %s {clause}",
+            f"SELECT payload FROM catalog_apps WHERE id = %s AND schema_version = '2.0' {clause}",
             (app_id,),
         )
         row = cursor.fetchone()
@@ -451,13 +674,16 @@ def get_catalogue_app(app_id: str, *, include_inactive: bool = False) -> dict[st
 def list_catalogue_apps(*, limit: int, offset: int = 0) -> tuple[int, list[dict[str, Any]]]:
     """List active catalogue apps from the durable source of truth."""
     with connection() as conn, conn.cursor() as cursor:
-        cursor.execute("SELECT count(*) AS total FROM catalog_apps WHERE active = true")
+        cursor.execute(
+            "SELECT count(*) AS total FROM catalog_apps "
+            "WHERE active = true AND schema_version = '2.0'"
+        )
         total = int(cursor.fetchone()["total"])
         cursor.execute(
             """
             SELECT payload
             FROM catalog_apps
-            WHERE active = true
+            WHERE active = true AND schema_version = '2.0'
             ORDER BY id
             LIMIT %s OFFSET %s
             """,
@@ -473,7 +699,7 @@ def current_catalogue_revision() -> str:
             """
             SELECT COALESCE(md5(string_agg(id || ':' || revision::text, ',' ORDER BY id)), 'empty')
                    AS revision
-            FROM catalog_apps WHERE active = true
+            FROM catalog_apps WHERE active = true AND schema_version = '2.0'
             """
         )
         return str(cursor.fetchone()["revision"])
@@ -651,3 +877,38 @@ def apply_data_retention(*, as_of: datetime | None = None) -> dict[str, int]:
         "expired_impressions": expired_impressions,
         "expired_transcripts": expired_transcripts,
     }
+
+
+def rebuild_store_knowledge(store_id: str) -> int:
+    """Upgrade derived preparation from retained source without claiming a refresh.
+
+    Row locks bind every write to the current source. No source revision, sync
+    timestamp, membership or public indexing/outbox operation is changed.
+    """
+    from .store_knowledge import PREPARATION_VERSION, explanation, prepare
+    from .store_v1 import StoreAppMetadata
+
+    changed = 0
+    with connection() as conn:
+        rows = conn.execute(
+            "SELECT id, checksum, payload, prepared_knowledge FROM catalog_apps "
+            "WHERE source_store_id = %s AND active = true FOR UPDATE", (store_id,),
+        ).fetchall()
+        for row in rows:
+            previous = row["prepared_knowledge"]
+            if (isinstance(previous, dict) and previous.get("version") == PREPARATION_VERSION
+                    and previous.get("checksum") == row["checksum"]):
+                continue
+            knowledge = prepare(StoreAppMetadata.model_validate(row["payload"]))
+            if (isinstance(previous, dict) and previous.get("checksum") == row["checksum"]
+                    and isinstance(previous.get("explanation"), dict)
+                    and previous["explanation"].get("version") == 1
+                    and explanation({**knowledge["projection"],
+                                     "prepared_explanation": previous["explanation"]})):
+                knowledge["explanation"] = previous["explanation"]
+            conn.execute(
+                "UPDATE catalog_apps SET prepared_knowledge = %s::jsonb, search_document = %s "
+                "WHERE id = %s", (json.dumps(knowledge), knowledge["index_text"], row["id"]),
+            )
+            changed += 1
+    return changed

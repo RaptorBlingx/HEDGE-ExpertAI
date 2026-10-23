@@ -10,6 +10,7 @@ import httpx
 from fastapi import FastAPI, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from hedge_shared.private_store import scope
 from hedge_shared.production import validate_production_environment
 
 from .middleware import (
@@ -65,6 +66,26 @@ if _HAS_METRICS:
     app.add_middleware(MetricsMiddleware, service_name="gateway")
 
 app.include_router(router)
+
+if scope():
+    from fastapi.responses import JSONResponse
+
+    from .private_store import ROOT
+    from .private_store import router as private_router
+    app.include_router(private_router)
+    app.mount("/widget", StaticFiles(directory=ROOT / "frontend/widget"))
+    app.mount("/evaluation", StaticFiles(directory=ROOT / "scripts/offline-store"))
+    _SERVICES.pop("mock-api", None)
+
+    @app.middleware("http")
+    async def private_boundary(request, call_next):
+        host = request.headers.get("host", "").split(":")[0]
+        origin = request.headers.get("origin")
+        if host not in {"127.0.0.1", "localhost"}:
+            return JSONResponse({"detail": "Private loopback access only"}, status_code=403)
+        if request.method != "GET" and origin and origin != "http://" + request.headers["host"]:
+            return JSONResponse({"detail": "Same-origin requests only"}, status_code=403)
+        return await call_next(request)
 
 
 @app.get("/health")

@@ -3,6 +3,7 @@
 Every default here MUST match .env.example AND docker-compose.yml environment blocks.
 """
 
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 
@@ -43,6 +44,27 @@ class Settings(BaseSettings):
     # --- App Store API ---
     MOCK_API_URL: str = "http://mock-api:9000"
     HEDGE_API_URL: str = ""
+    HEDGE_STORE_ID: str = ""
+    HEDGE_STORE_TOKEN_FILE: str = ""
+    HEDGE_STORE_ISSUER: str = ""
+    HEDGE_STORE_CLIENT_ID: str = ""
+    HEDGE_STORE_CLIENT_SECRET_FILE: str = ""
+    HEDGE_STORE_TIMEOUT_SECONDS: float = Field(default=30.0, gt=0, le=120)
+    HEDGE_STORE_MAX_RETRIES: int = Field(default=2, ge=0, le=3)
+    PRIVATE_STORE_ENABLED: bool = False
+    # Optional model assistance; understanding and prepared answers need no model.
+    STORE_EXPLANATIONS_ENABLED: bool = False
+    # Output budget for one model-assisted conversational answer (~110 words).
+    STORE_EXPLANATION_TOKENS: int = Field(default=220, ge=64, le=1024)
+    STORE_SEMANTIC_ENABLED: bool = False
+    # Model choice between two readings when the act classifiers disagree.
+    STORE_INTERPRETATION_SECONDS: float = Field(default=30.0, gt=0, le=120)
+    STORE_MODEL_CONTEXT_TOKENS: int = Field(default=16384, ge=2048, le=65536)
+    STORE_MODEL_TIMEOUT_SECONDS: float = Field(default=120, gt=0, le=300)
+    STORE_MODEL_THREADS: int = Field(default=1, ge=1, le=64)
+    STORE_MODEL_BATCH_SIZE: int = Field(default=128, ge=32, le=2048)
+    STORE_MODEL_KEEP_ALIVE: str = "2m"
+    STORE_SYNC_INTERVAL_SECONDS: int = Field(default=86400, ge=60, le=86400)
 
     # --- Ingestion ---
     INGEST_INTERVAL_SECONDS: int = 7200

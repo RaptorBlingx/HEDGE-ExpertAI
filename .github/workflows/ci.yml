@@ -117,14 +117,46 @@ jobs:
           npm ci
           node ../scripts/check_npm_licenses.mjs node_modules --output npm-licenses.json
           npm test
-          npm audit --audit-level=high
+          node --test ../scripts/check_npm_audit.test.mjs
+          node ../scripts/check_npm_audit.mjs
           npm run build
+      - name: Retain full and production npm audit evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: npm-audit-reports
+          path: frontend/npm-audit-reports/
       - name: Upload frontend licence inventory
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: npm-licences
           path: frontend/npm-licenses.json
+
+  angular-ui:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24.22.0"
+          cache: npm
+          cache-dependency-path: frontend/angular/package-lock.json
+      - name: Verify Angular UI and dependency protections
+        working-directory: frontend/angular
+        run: |
+          npm ci
+          npm test
+          npm audit --audit-level=moderate
+          node ../../scripts/check_npm_licenses.mjs node_modules --output angular-licenses.json
+          npm run build
+      - name: Upload Angular dependency licence inventory
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: angular-licences
+          path: frontend/angular/angular-licenses.json
 
   e2e:
     runs-on: ubuntu-latest
@@ -135,6 +167,15 @@ jobs:
       - name: Start deterministic production-path stack
         run: |
           cp .env.example .env
+          python3 - <<'PY'
+          import os
+          import secrets
+          key = secrets.token_urlsafe(32)
+          print("::add-mask::" + key)
+          for path in (".env", os.environ["GITHUB_ENV"]):
+              with open(path, "a", encoding="utf-8") as handle:
+                  handle.write("\nGATEWAY_API_KEY=" + key + "\n")
+          PY
           docker compose -f docker-compose.yml -f docker-compose.e2e.yml up -d --build \
             postgres valkey-cache valkey-queue qdrant mock-api discovery-ranking \
             metadata-ingest metadata-worker metadata-scheduler expert-recommend \

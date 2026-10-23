@@ -153,7 +153,10 @@ def test_production_rejects_permissive_defaults(monkeypatch: pytest.MonkeyPatch)
         validate_production_environment()
 
 
-def test_production_accepts_explicit_safe_boundary(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("admin_key", ["", "change-me", "test-only-admin-key"])
+def test_production_accepts_explicit_safe_boundary(
+    monkeypatch: pytest.MonkeyPatch, admin_key: str
+) -> None:
     values = {
         "APP_ENV": "production",
         "CORS_ALLOWED_ORIGINS": "https://store.example",
@@ -164,8 +167,13 @@ def test_production_accepts_explicit_safe_boundary(monkeypatch: pytest.MonkeyPat
         "OAUTH_ISSUER": "https://identity.example/realms/hedge",
         "OAUTH_JWKS_URL": "https://identity.example/keys",
         "POSTGRES_PASSWORD": "a-long-secret-from-a-file",
+        "GATEWAY_API_KEY": admin_key,
         "OAUTH_SHARED_SECRET": "",
     }
     for key, value in values.items():
         monkeypatch.setenv(key, value)
-    validate_production_environment()
+    if admin_key in ("", "change-me"):
+        with pytest.raises(RuntimeError, match="GATEWAY_API_KEY"):
+            validate_production_environment()
+    else:
+        validate_production_environment()

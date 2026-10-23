@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
 import uuid
+from typing import TYPE_CHECKING
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -34,6 +36,9 @@ from .session import (
     record_feedback,
     update_session,
 )
+
+if TYPE_CHECKING:
+    from .assistant import Assistant
 
 logger = logging.getLogger(__name__)
 
@@ -332,14 +337,14 @@ _STATIC = {
         "tr": "Merhaba! IoT uygulamalarını bulmanıza ve karşılaştırmanıza yardımcı olabilirim.",
     },
     "help": {
-        "en": "Describe your use case, refine the results, ask about an app, or compare recent matches.",
+        "en": "Tell me what you’d like to do, and I’ll help you find an App. You can also ask about an App or compare your options.",
         "de": "Beschreiben Sie den Anwendungsfall, verfeinern Sie Treffer oder vergleichen Sie Apps.",
         "fr": "Décrivez votre cas d'usage, affinez les résultats ou comparez des applications.",
         "es": "Describa su caso de uso, refine los resultados o compare aplicaciones.",
         "it": "Descrivi il caso d'uso, affina i risultati o confronta le applicazioni.",
         "nl": "Beschrijf uw gebruikssituatie, verfijn resultaten of vergelijk apps.",
         "pt": "Descreva o caso de uso, refine os resultados ou compare aplicações.",
-        "tr": "Kullanım durumunuzu açıklayın, sonuçları daraltın veya uygulamaları karşılaştırın.",
+        "tr": "Ne yapmak istediğinizi anlatın; birlikte uygun uygulamayı bulalım. Uygulamaları açıklayabilir ve seçenekleri karşılaştırabilirim.",
     },
     "out_of_scope": {
         "en": "I can only help with discovery and explanation of IoT catalogue applications.",
@@ -415,26 +420,61 @@ async def _recommend_v2(
     locale: str,
     filters: dict,
 ) -> dict:
-    async with httpx.AsyncClient() as client:
-        response = await client.post(
-            f"{EXPERT_RECOMMEND_URL}/api/v2/recommend",
-            json={
-                "query": query,
-                "locale": locale,
-                "filters": filters,
-                "limit": 5,
-            },
-            timeout=180.0,
-        )
-    response.raise_for_status()
-    return response.json()
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{EXPERT_RECOMMEND_URL}/api/v2/recommend",
+                json={
+                    "query": query,
+                    "locale": locale,
+                    "filters": filters,
+                    "limit": 5,
+                },
+                timeout=180.0,
+            )
+        response.raise_for_status()
+        return response.json()
+    except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+        raise _recommendation_failure(exc) from exc
 
 
-@v2_router.post("/chat")
+def _recommendation_failure(exc: Exception) -> HTTPException:
+    """Preserve input rejection/timeouts; other upstream errors mean unavailable."""
+    if isinstance(exc, httpx.TimeoutException):
+        return HTTPException(status_code=504, detail="Recommendation service timed out")
+    if isinstance(exc, httpx.HTTPStatusError):
+        status = exc.response.status_code
+        if status == 422:
+            return HTTPException(status_code=422, detail="Invalid catalogue search input")
+        if status == 504:
+            return HTTPException(status_code=504, detail="Catalogue search timed out")
+    return HTTPException(status_code=503, detail="Recommendation service unavailable")
+
+
+@v2_router.post(
+    "/chat",
+    responses={
+        503: {"description": "Recommendation or catalogue search unavailable"},
+        504: {"description": "Recommendation or catalogue search timed out"},
+    },
+)
 async def chat_v2(req: ChatRequestV2) -> dict:
     """Deterministic application-owned dialogue with durable impressions."""
+    return await run_chat_v2(req)
+
+
+async def run_chat_v2(req: ChatRequestV2, *, assistant: Assistant | None = None) -> dict:
+    """Application-owned dialogue; the Store assistant requires explicit private scope."""
+    from hedge_shared.private_store import scope
+    if assistant is None and scope():
+        from .private_store import policy
+        assistant = policy()
+    if req.app_action and not assistant:
+        raise HTTPException(422, "App actions require the Store catalogue")
     session_id, history = get_or_create_session(req.session_id)
     context = _context_for(session_id)
+    if assistant:
+        return await _store_turn(assistant, req, session_id, history, context)
     result = classify(req.message)
     intent = result.intent
 
@@ -449,19 +489,15 @@ async def chat_v2(req: ChatRequestV2) -> dict:
         message = _static_message("reset", req.locale)
         history.append({"role": "assistant", "content": message})
         update_session(session_id, history, {"locale": req.locale, "turn": 0})
-        return {
-            "schema_version": "2.0",
-            "session_id": session_id,
-            "intent": intent,
-            "message": message,
-            "apps": [],
-            "impression_id": None,
-        }
+        return {"schema_version": "2.0", "session_id": session_id, "intent": intent, "message": message,
+                "apps": [], "impression_id": None}
 
+    recommendation: dict = {}
     if intent in {"greeting", "help", "out_of_scope"}:
         message = _static_message(intent, req.locale)
         apps: list[dict] = []
         timings: dict = {}
+        filters: dict = {}
     else:
         filters = _dialogue_filters(req, intent, context)
         extension_uri = result.entities.get("extension_uri")
@@ -483,32 +519,12 @@ async def chat_v2(req: ChatRequestV2) -> dict:
         apps = recommendation.get("apps", [])
         timings = recommendation.get("timings", {})
 
-    impression_id = None
-    if apps:
-        app_ids = [item.get("app", item).get("id", "") for item in apps]
-        impression_id = create_impression(
-            session_id=session_id,
-            result_ids=[app_id for app_id in app_ids if app_id],
-            locale=req.locale,
-            intent=intent,
-            timings=timings,
-        )
-        log_session_event(
-            session_id,
-            "recommendation",
-            {"impression_id": impression_id, "count": len(apps)},
-        )
-
-    history.extend(
-        [
-            {"role": "user", "content": req.message},
-            {"role": "assistant", "content": message},
-        ]
-    )
+    impression_id = _impression(session_id, apps, req.locale, intent, timings)
+    history.extend([{"role": "user", "content": req.message}, {"role": "assistant", "content": message}])
     context_update = {
         "locale": req.locale,
         "intent": intent,
-        "filters": filters if intent not in {"greeting", "help", "out_of_scope"} else {},
+        "filters": filters,
         "last_query": req.message,
         "turn": int(context.get("turn", 0)) + 1,
     }
@@ -524,7 +540,51 @@ async def chat_v2(req: ChatRequestV2) -> dict:
         "apps": apps,
         "impression_id": impression_id,
         "timings": timings,
+        **{key: recommendation[key] for key in ("decision", "candidates") if key in recommendation},
     }
+
+
+def _impression(session_id: str, apps: list[dict], locale: str, intent: str, timings: dict) -> str | None:
+    if not apps:
+        return None
+    app_ids = [item.get("app", item).get("id", "") for item in apps]
+    impression_id = create_impression(session_id=session_id, result_ids=[app_id for app_id in app_ids if app_id],
+                                      locale=locale, intent=intent, timings=timings)
+    log_session_event(session_id, "recommendation", {"impression_id": impression_id, "count": len(apps)})
+    return impression_id
+
+
+async def _store_turn(assistant: Assistant, req: ChatRequestV2, session_id: str, history: list, context: dict) -> dict:
+    """One Store assistant turn: it interprets and answers; the route keeps the session."""
+    reply = await assistant.reply(req, context, history)
+    intent = reply["intent"]
+    if not req.session_id:
+        log_session_event(session_id, "start", {"locale": req.locale})
+    log_session_event(session_id, "message", {"role": "user", "intent": intent})
+    frame = reply.get("frame", {})
+    nlu = {"source": frame.get("source"), "intent": frame.get("act"),
+           "confidence": frame.get("signals", {}).get("rasa_confidence")}
+    if intent == "reset":
+        delete_session(session_id)
+        session_id, history = get_or_create_session(None)
+        log_session_event(session_id, "start", {"locale": req.locale, "reset": True})
+        history.append({"role": "assistant", "content": reply["message"]})
+        update_session(session_id, history, {"locale": req.locale, "turn": 0})
+        return {"schema_version": "2.0", "session_id": session_id, "intent": intent, "message": reply["message"],
+                "apps": [], "impression_id": None, "nlu": nlu}
+    apps, timings = reply["apps"], reply.get("timings", {})
+    impression_id = _impression(session_id, apps, req.locale, intent, timings)
+    history.extend([{"role": "user", "content": req.message}, {"role": "assistant", "content": reply["message"]}])
+    turn = int(context.get("turn", 0)) + 1
+    context_update = {**context, **reply["context"], "locale": req.locale, "intent": intent, "turn": turn,
+                      "displayed_ids": [item.get("app", item)["id"] for item in apps]}
+    if impression_id:
+        context_update["last_impression_id"] = impression_id
+    update_session(session_id, history[-20:], context_update)
+    return {"schema_version": "2.0", "session_id": session_id, "intent": intent, "message": reply["message"],
+            "apps": apps, "impression_id": impression_id, "timings": timings,
+            **{key: reply[key] for key in ("decision", "candidates") if key in reply},
+            "nlu": nlu, **({"generation": reply["generation"]} if reply.get("generation") else {})}
 
 
 def _sse_v2(event_id: str, data: dict) -> str:
@@ -539,10 +599,63 @@ def _sse_v2(event_id: str, data: dict) -> str:
     responses={200: {"content": {"text/event-stream": {}}}},
 )
 async def chat_stream_v2(req: ChatRequestV2):
-    """Versioned SSE with early ranked results and validated explanation text."""
+    """Ranked results and validated text; failures terminate with a problem event."""
 
     async def generate():
         import json
+
+        from hedge_shared.private_store import scope
+
+        if scope():
+            from .assistant import STREAM
+            yield _sse_v2("1", {"type": "stage", "stage": "retrieval"})
+            # Model-assisted explanations release checked sentences while they
+            # are generated; everything else still arrives as one message.
+            loop = asyncio.get_running_loop()
+            deltas: asyncio.Queue = asyncio.Queue()
+            token = STREAM.set(lambda text: loop.call_soon_threadsafe(deltas.put_nowait, text))
+            try:
+                task = asyncio.create_task(run_chat_v2(req))
+            finally:
+                STREAM.reset(token)
+            streamed = ""
+            try:
+                while True:
+                    waiting = asyncio.ensure_future(deltas.get())
+                    done, _ = await asyncio.wait({task, waiting}, return_when=asyncio.FIRST_COMPLETED)
+                    if waiting not in done:
+                        waiting.cancel()
+                        break
+                    if not streamed:
+                        yield _sse_v2(str(uuid.uuid4()), {"type": "stage", "stage": "explanation"})
+                    streamed += waiting.result()
+                    yield _sse_v2(str(uuid.uuid4()), {"type": "explanation_delta", "content": waiting.result()})
+                while not deltas.empty():
+                    text = deltas.get_nowait()
+                    streamed += text
+                    yield _sse_v2(str(uuid.uuid4()), {"type": "explanation_delta", "content": text})
+                result = task.result()
+                message = result["message"]
+                rest = message[len(streamed):] if message.startswith(streamed) else "\n\n" + message
+                for payload in [
+                    {"type": "recommendations", "apps": result["apps"],
+                     **{k: result[k] for k in ("decision", "candidates", "impression_id") if k in result}},
+                    *([{"type": "explanation_delta", "content": rest}] if rest else []),
+                    {"type": "complete", **{k: result[k] for k in
+                     ("session_id", "intent", "nlu", "generation", "decision", "timings", "impression_id") if k in result}},
+                ]:
+                    yield _sse_v2(str(uuid.uuid4()), payload)
+            except HTTPException as exc:
+                yield _sse_v2("error", {"type": "problem", "status": exc.status_code, "title": exc.detail})
+            except Exception:
+                logger.exception("Private Store dialogue failed")
+                yield _sse_v2("error", {"type": "problem", "status": 503, "title": "Conversation unavailable"})
+            return
+
+        if req.app_action:
+            yield _sse_v2("error", {"type": "problem", "status": 422,
+                                   "title": "App actions require the Store catalogue"})
+            return
 
         request_id = str(uuid.uuid4())
         session_id, history = get_or_create_session(req.session_id)
@@ -625,6 +738,8 @@ async def chat_stream_v2(req: ChatRequestV2):
         full_text = ""
         timings: dict = {}
         impression_id = None
+        completed = False
+        decision: dict = {}
         try:
             async with httpx.AsyncClient() as client:
                 async with client.stream(
@@ -648,6 +763,7 @@ async def chat_stream_v2(req: ChatRequestV2):
                             continue
                         upstream_type = upstream.get("type")
                         if upstream_type == "recommendations":
+                            decision = upstream.get("decision", {})
                             apps = upstream.get("apps", [])
                             timings.update(upstream.get("timings", {}))
                             if apps:
@@ -663,6 +779,7 @@ async def chat_stream_v2(req: ChatRequestV2):
                             yield event(
                                 {
                                     "type": "recommendations",
+                                    **{key: upstream[key] for key in ("decision", "candidates") if key in upstream},
                                     "apps": apps,
                                     "impression_id": impression_id,
                                     "timings": timings,
@@ -674,15 +791,30 @@ async def chat_stream_v2(req: ChatRequestV2):
                             content = str(upstream.get("content", ""))
                             full_text += content
                             yield event({"type": "explanation_delta", "content": content})
+                        elif upstream_type == "problem":
+                            status = upstream.get("status")
+                            status = status if status in {422, 503, 504} else 503
+                            title = {
+                                422: "Invalid catalogue search input",
+                                503: "Catalogue search unavailable",
+                                504: "Catalogue search timed out",
+                            }[status]
+                            yield event({"type": "problem", "title": title, "status": status})
+                            return
                         elif upstream_type == "complete":
+                            completed = True
                             timings.update(upstream.get("timings", {}))
-        except Exception:
+            if not completed:
+                yield event({"type": "problem", "title": "Incomplete recommendation stream", "status": 503})
+                return
+        except Exception as exc:
             logger.exception("V2 streaming dialogue failed")
+            failure = _recommendation_failure(exc)
             yield event(
                 {
                     "type": "problem",
-                    "title": "Recommendation service unavailable",
-                    "status": 503,
+                    "title": failure.detail,
+                    "status": failure.status_code,
                 }
             )
             return
@@ -712,6 +844,7 @@ async def chat_stream_v2(req: ChatRequestV2):
         yield event(
             {
                 "type": "complete",
+                **({"decision": decision} if decision else {}),
                 "impression_id": impression_id,
                 "intent": intent,
                 "timings": timings,

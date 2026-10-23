@@ -95,10 +95,10 @@ def test_dense_filter_rejects_non_matching_values(
     assert not module._matches_filters(candidate, SearchFilters(**{field: value}))
 
 
-def test_dense_candidates_discard_old_schema_and_filter_miss(payload: dict) -> None:
+def test_dense_candidates_require_revisioned_synthetic_references(payload: dict) -> None:
     old = MagicMock(score=0.99, payload={**payload, "schema_version": "1.0"})
-    miss = MagicMock(score=0.98, payload={**payload, "protocols": ["OPC UA"]})
-    good = MagicMock(score=0.9, payload=payload)
+    miss = MagicMock(score=0.98, payload=payload)
+    good = MagicMock(score=0.9, payload={**payload, "_index_revision": 7})
     response = MagicMock(points=[old, miss, good])
     client = MagicMock()
     client.query_points.return_value = response
@@ -111,14 +111,20 @@ def test_dense_candidates_discard_old_schema_and_filter_miss(payload: dict) -> N
     )
 
     assert [item["id"] for item in results] == [payload["id"]]
-    assert results[0]["dense_score"] == 0.9
+    assert results[0]["revision"] == 7
     assert client.query_points.call_args.kwargs["collection_name"] == "hedge_apps_current"
 
 
 def test_rrf_is_deterministic_bounded_and_strips_internal_payload(payload: dict) -> None:
     app = {**deepcopy(payload), "_index_revision": 7}
     annotation = app["semantic_annotations"][0]
-    annotation.update({"provenance": "curated", "review_status": "approved", "reviewed_at": "2026-07-31T00:00:00Z"})
+    annotation.update(
+        {
+            "provenance": "curated",
+            "review_status": "approved",
+            "reviewed_at": "2026-07-31T00:00:00Z",
+        }
+    )
     filters = SearchFilters(extension_uri=annotation["ontology_uri"])
 
     results = module.reciprocal_rank_fusion(
@@ -144,7 +150,7 @@ def test_search_uses_revisioned_cache(payload: dict, monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(
         module,
         "lexical_search",
-        lambda *args, **kwargs: [{"id": payload["id"], "payload": payload}],
+        lambda *args, **kwargs: [{"id": payload["id"], "payload": payload, "revision": 7}],
     )
     monkeypatch.setattr(module, "_dense_candidates", lambda *args, **kwargs: [])
 
@@ -160,20 +166,23 @@ def test_search_uses_revisioned_cache(payload: dict, monkeypatch: pytest.MonkeyP
     cache.setex.assert_called_once()
     assert "revision-7" in cache.get.call_args.args[0]
 
-    cache.get.return_value = json.dumps(first)
+    cache.get.return_value = cache.setex.call_args.args[2]
     monkeypatch.setattr(
         module,
         "lexical_search",
         lambda *args, **kwargs: pytest.fail("cache hit must skip retrieval"),
     )
-    assert module.search_apps_v2(
-        MagicMock(),
-        query="SOLAR energy",
-        locale="en",
-        filters=SearchFilters(),
-        limit=2,
-        catalogue_revision="revision-7",
-    ) == first
+    assert (
+        module.search_apps_v2(
+            MagicMock(),
+            query="SOLAR energy",
+            locale="en",
+            filters=SearchFilters(),
+            limit=2,
+            catalogue_revision="revision-7",
+        )
+        == first
+    )
 
 
 def test_search_continues_when_cache_is_unavailable(
@@ -187,7 +196,7 @@ def test_search_continues_when_cache_is_unavailable(
     monkeypatch.setattr(
         module,
         "lexical_search",
-        lambda *args, **kwargs: [{"id": payload["id"], "payload": payload}],
+        lambda *args, **kwargs: [{"id": payload["id"], "payload": payload, "revision": 7}],
     )
     monkeypatch.setattr(module, "_dense_candidates", lambda *args, **kwargs: [])
 
@@ -199,3 +208,68 @@ def test_search_continues_when_cache_is_unavailable(
         limit=1,
     )
     assert results[0]["app"]["id"] == payload["id"]
+
+
+@pytest.fixture(autouse=True)
+def authoritative_catalogue(payload, monkeypatch):
+    monkeypatch.setattr(
+        module,
+        "get_catalogue_apps",
+        lambda ids: {payload["id"]: {"id": payload["id"], "revision": 7, "payload": payload}},
+    )
+
+
+@pytest.mark.parametrize("failure", [TimeoutError, RuntimeError])
+def test_vector_or_embedding_failure_keeps_lexical_search_usable(payload, monkeypatch, failure):
+    cache = MagicMock()
+    cache.get.return_value = None
+    monkeypatch.setattr(module, "_cache", lambda: cache)
+    monkeypatch.setattr(
+        module,
+        "lexical_search",
+        lambda *a, **k: [{"id": payload["id"], "revision": 7, "payload": payload}],
+    )
+    monkeypatch.setattr(
+        module, "_dense_candidates", lambda *a, **k: (_ for _ in ()).throw(failure())
+    )
+    results = module.search_apps_v2(
+        MagicMock(), query="energy", locale="en", filters=SearchFilters(), limit=2
+    )
+    assert results[0]["app"] == payload
+    assert results[0]["evidence_fields"] == ["lexical"]
+    cache.setex.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "cached", ["[]", '{"dense": null, "lexical": []}', '{"dense": [{"id": 1}], "lexical": []}']
+)
+def test_malformed_cache_is_recomputed(payload, monkeypatch, cached):
+    cache = MagicMock()
+    cache.get.return_value = cached
+    monkeypatch.setattr(module, "_cache", lambda: cache)
+    monkeypatch.setattr(
+        module,
+        "lexical_search",
+        lambda *a, **k: [{"id": payload["id"], "revision": 7, "payload": payload}],
+    )
+    monkeypatch.setattr(module, "_dense_candidates", lambda *a, **k: [])
+    assert module.search_apps_v2(
+        MagicMock(), query="energy", locale="en", filters=SearchFilters(), limit=1
+    )
+
+
+def test_unavailable_authority_never_returns_cached_or_vector_payload(payload, monkeypatch):
+    cache = MagicMock()
+    cache.get.return_value = json.dumps(
+        {"dense": [{"id": payload["id"], "revision": 7}], "lexical": []}
+    )
+    monkeypatch.setattr(module, "_cache", lambda: cache)
+
+    def unavailable(ids):
+        raise ConnectionError("database unavailable")
+
+    monkeypatch.setattr(module, "get_catalogue_apps", unavailable)
+    with pytest.raises(ConnectionError):
+        module.search_apps_v2(
+            MagicMock(), query="energy", locale="en", filters=SearchFilters(), limit=1
+        )

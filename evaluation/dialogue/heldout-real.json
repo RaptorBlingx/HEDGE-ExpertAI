@@ -1,0 +1,179 @@
+{
+ "purpose": "SEALED held-out set, authored 22 October 2026 before any implementation on this branch. Run only at milestones; never tune rules, prompts or training data to its failures.",
+ "catalogue": "private:real",
+ "conversations": [
+  {
+   "id": "HR1",
+   "turns": [
+    {
+     "message": "Hello! Which applications can I find in this store?",
+     "expect": {
+      "act": "list",
+      "subject": [
+       "EdgeConnect",
+       "Semantic Treehouse"
+      ]
+     }
+    },
+    {
+     "message": "Explain the second one like I'm new to energy data",
+     "expect": {
+      "act": "simple",
+      "subject": [
+       "Semantic Treehouse"
+      ]
+     }
+    },
+    {
+     "message": "Who runs it?",
+     "expect": {
+      "act": "provider",
+      "concepts_any": [
+       "TNO"
+      ]
+     }
+    },
+    {
+     "message": "Could I use it to translate between vocabularies?",
+     "expect": {
+      "act": "check",
+      "subject": [
+       "Semantic Treehouse"
+      ],
+      "concepts_any": [
+       "translat"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "HR2",
+   "turns": [
+    {
+     "message": "edge connect",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "EdgeConnect"
+      ]
+     }
+    },
+    {
+     "message": "what kind of users is it meant for",
+     "expect": {
+      "act": "audience",
+      "concepts_any": [
+       "aggregator",
+       "system operator"
+      ]
+     }
+    },
+    {
+     "message": "where can I find its API documentation?",
+     "expect": {
+      "act": "access",
+      "concepts_any": [
+       "swagger",
+       "api/v1",
+       "API documentation"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "HR3",
+   "turns": [
+    {
+     "message": "We're an energy community with lots of rooftop solar. Is there anything here that lets us take part in flexibility markets?",
+     "expect": {
+      "act": "find",
+      "subject": [
+       "EdgeConnect"
+      ]
+     }
+    },
+    {
+     "message": "How would the bids from different aggregators get combined?",
+     "expect": {
+      "act": "ask",
+      "concepts_any": [
+       "Top Value",
+       "Proportional",
+       "combined",
+       "common market bid"
+      ]
+     }
+    },
+    {
+     "message": "and how is settlement handled then?",
+     "expect": {
+      "act": "ask",
+      "concepts_any": [
+       "ratio",
+       "proportion",
+       "benefits or penalties",
+       "settlement"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "HR4",
+   "turns": [
+    {
+     "message": "STH",
+     "expect": {
+      "act": "describe",
+      "subject": [
+       "Semantic Treehouse"
+      ]
+     }
+    },
+    {
+     "message": "what does TNO's app have in common with the INESCTEC one?",
+     "expect": {
+      "act": "compare",
+      "subject": [
+       "EdgeConnect",
+       "Semantic Treehouse"
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "HR5",
+   "turns": [
+    {
+     "message": "Can any of your apps forecast electricity demand?",
+     "expect": {
+      "act": "find",
+      "outcome": "abstained",
+      "forbid": [
+       "fits what you need"
+      ]
+     }
+    },
+    {
+     "message": "what can they do then?",
+     "expect": {
+      "act": "list",
+      "subject": [
+       "EdgeConnect",
+       "Semantic Treehouse"
+      ]
+     }
+    },
+    {
+     "message": "ok cool, bye",
+     "expect": {
+      "act": "thanks"
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -57,17 +57,21 @@ class TestClientAdapterPattern:
         client = get_client(mock_url="http://mock:9000")
         assert isinstance(client, MockApiClient)
 
-    def test_hedge_client_returned_when_hedge_url_set(self):
-        client = get_client(mock_url="http://mock:9000", hedge_url="https://hedge.example.com")
+    def test_hedge_client_returned_when_hedge_url_set(self, monkeypatch):
+        monkeypatch.setattr(_client_mod.settings, "HEDGE_STORE_ID", "Store-A")
+        monkeypatch.setattr(_client_mod.settings, "HEDGE_STORE_TOKEN_FILE", "/run/secrets/store_token")
+        client = get_client(mock_url="http://mock:9000", hedge_url="https://hedge.example.com/backend/api/v1")
         assert isinstance(client, HedgeApiClient)
 
     def test_mock_client_stores_base_url(self):
         client = get_client(mock_url="http://mock:9000")
         assert client.base_url == "http://mock:9000"
 
-    def test_hedge_client_stores_base_url(self):
-        client = get_client(mock_url="http://mock:9000", hedge_url="https://api.hedge.eu")
-        assert client.base_url == "https://api.hedge.eu"
+    def test_hedge_client_stores_base_url(self, monkeypatch):
+        monkeypatch.setattr(_client_mod.settings, "HEDGE_STORE_ID", "Store-A")
+        monkeypatch.setattr(_client_mod.settings, "HEDGE_STORE_TOKEN_FILE", "/run/secrets/store_token")
+        client = get_client(mock_url="http://mock:9000", hedge_url="https://api.hedge.eu/backend/api/v1")
+        assert client.base_url == "https://api.hedge.eu/backend/api/v1"
 
 
 class TestChangeDetection:

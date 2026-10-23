@@ -35,7 +35,7 @@ def validate_production_environment() -> None:
         errors.append("OAUTH_JWKS_URL must be an HTTPS URL")
     if os.getenv("OAUTH_SHARED_SECRET"):
         errors.append("OAUTH_SHARED_SECRET is not permitted in production")
-    for secret_name in ("POSTGRES_PASSWORD",):
+    for secret_name in ("POSTGRES_PASSWORD", "GATEWAY_API_KEY"):
         if os.getenv(secret_name, "").strip().casefold() in _UNSAFE_VALUES:
             errors.append(f"{secret_name} must not use a default value")
     if errors:

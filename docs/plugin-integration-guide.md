@@ -6,12 +6,17 @@
 > accessibility, localization, analytics and release process must be aligned
 > with the HEDGE team.
 
+The [integration baseline](integration-baseline.md) records HEDGE's preference
+for its native Angular chat-like pane and API-consumed recommendations. This
+guide describes the existing widget interface; it is not an approved Store
+embedding decision.
+
 ## Overview
 
 The widget is a standalone JavaScript/CSS component with no frontend framework
 dependency. It calls the HEDGE-ExpertAI gateway over HTTPS and supports the v2
 chat-streaming contract. The React console is a development/validation surface;
-the widget is the intended App Store embedding artifact.
+the widget remains available for demos or an embedding option if approved.
 
 ## Embed the widget
 

@@ -13,13 +13,13 @@
 
 > Developed by **A Arti Mühendislik** as part of the [HEDGE-IoT](https://hedge-iot.eu/) Open Call — Topic 15: *AI-Enhanced Data App Discovery & Recommendation Engine*
 
-> **Release status:** active production-hardening work. The v2 design is implemented in this branch, but the project must not be described as production-ready and proposal KPIs must not be marked passed until the Release 3 acceptance evidence in the [traceability matrix](docs/traceability-matrix.md) is retained and reviewed. The real HEDGE Store API is intentionally not connected; only its versioned adapter boundary is present.
+> **Release status:** active production-hardening work. The v2 design is implemented in this branch, but the project must not be described as production-ready and proposal KPIs must not be marked passed until the Release 3 acceptance evidence in the [traceability matrix](docs/traceability-matrix.md) is retained and reviewed. Real HEDGE Store v1 integration is pending; the current adapter only accepts the synthetic fixture schema. See the [integration baseline](docs/integration-baseline.md) for the known Store contract and implementation priorities.
 
 ---
 
 ## What is HEDGE-ExpertAI?
 
-HEDGE-ExpertAI is an AI-powered conversational assistant intended to make the HEDGE-IoT App Store easier to explore and understand. Users ask questions in natural language and receive catalogue recommendations with evidence-linked summaries. Until the real Store API is available, the repository uses clearly labelled synthetic metadata.
+HEDGE-ExpertAI is an AI-powered conversational assistant intended to make the HEDGE-IoT App Store easier to explore and understand. Users ask questions in natural language and receive catalogue recommendations with evidence-linked summaries. Until real Store integration is implemented and validated, the repository uses clearly labelled synthetic metadata.
 
 ### Key Capabilities
 
@@ -138,12 +138,15 @@ Comprehensive documentation is available in the [`docs/`](docs/) directory:
 
 | Document | Description |
 |---|---|
+| [Repository Agent Guidance](AGENTS.md) | Scope, current architecture, engineering conventions, and verification |
+| [Integration Baseline](docs/integration-baseline.md) | Confirmed Store v1 boundary, dependencies, and ordered implementation phases |
+| [Preserved Demo](docs/demo-preservation.md) | Verified pre-integration demo access, startup, limits, and safe recovery |
 | [Architecture](docs/architecture.md) | System design, data flows, technology choices, memory budget |
 | [API Reference](docs/api-reference.md) | Complete REST API specification for all services |
 | [Services Guide](docs/services-guide.md) | Deep dive into each microservice's internals |
 | [Configuration Reference](docs/configuration-reference.md) | All environment variables with defaults and descriptions |
 | [Deployment Guide](docs/deployment-guide.md) | Production setup, TLS, monitoring, backup, troubleshooting |
-| [Plugin Integration Guide](docs/plugin-integration-guide.md) | Embedding the production widget in external sites |
+| [Plugin Integration Guide](docs/plugin-integration-guide.md) | Existing widget embedding interface; native Store UI integration remains pending |
 | [Widget Quick Start](docs/widget-quick-start.md) | Fast path for deploying and testing the production widget |
 | [SAREF Ontology Mapping](docs/saref-ontology-mapping.md) | SAREF class inference and ontology alignment |
 | [Evaluation & Testing](docs/evaluation-and-testing.md) | Search quality metrics, test framework, KPI targets |
